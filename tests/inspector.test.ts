@@ -49,3 +49,15 @@ it('refreshes mixed numeric values and defaults while preserving incomplete inpu
     refreshNumericFields(content, [], inputs.w);
     expect(inputs.w.value).toBe('-');
 });
+
+it('refreshes stroke defaults and fractional values while another numeric field has focus', () => {
+    const node = { ...makeNode('rect', 0, 0), strokeGap: 2.125 };
+    const { inputs, content } = fields({ strokeDash: '-', strokeGap: '0', strokeMiterLimit: '0' });
+    refreshNumericFields(content, [node], inputs.strokeDash);
+    expect(inputs.strokeDash.value).toBe('-');
+    expect(inputs.strokeGap.value).toBe('2.125');
+    expect(inputs.strokeMiterLimit.value).toBe('10');
+    refreshNumericFields(content, [node, { ...node, strokeMiterLimit: 3 }], inputs.strokeDash);
+    expect(inputs.strokeMiterLimit.value).toBe('');
+    expect(inputs.strokeMiterLimit.placeholder).toBe('Mixed');
+});
