@@ -23,11 +23,11 @@ it('composites stacked fills and frame descendants under node opacity once', () 
 });
 it('exports drop shadows, spread and layer blur filters with padded bounds', () => {
     const n: Node = { ...makeNode('rect', 0, 0), fills: [solid], effects: [{ type: 'drop-shadow', x: 5, y: 10, blur: 6, spread: 2, color: '#000000', opacity: .25, visible: true }, { type: 'layer-blur', radius: 3, visible: true }] }, doc = docOf(n), svg = exportSVG(doc, [n.id]);
-    expect(svg).toContain('filterUnits="userSpaceOnUse"'); expect(svg).toContain('<feMorphology in="SourceAlpha" operator="dilate" radius="2"'); expect(svg).toContain('dx="5" dy="10"'); expect(svg).toContain('flood-opacity="0.25"'); expect(svg).toContain('in="shadowed" stdDeviation="3"'); expect(exportBounds(doc, [n])).toEqual({ x: -18, y: -13, w: 146, h: 146 }); expect(exportBounds(doc, [{ ...n, effects: [...n.effects!].reverse() }])).toEqual(exportBounds(doc, [n]));
+    expect(svg).toContain('filterUnits="userSpaceOnUse"'); expect(svg).toContain('<feMorphology in="SourceAlpha" operator="dilate" radius="2"'); expect(svg).toContain('dx="5" dy="10"'); expect(svg).toContain('flood-opacity="0.25"'); expect(svg).toContain('in="SourceGraphic" stdDeviation="3"'); expect(exportBounds(doc, [n])).toEqual({ x: -18, y: -13, w: 146, h: 146 }); expect(exportBounds(doc, [{ ...n, effects: [...n.effects!].reverse() }])).toEqual(exportBounds(doc, [n]));
 });
-it('preserves empty fills, frame child clips, stroke and SVG image fallback', () => {
-    const frame: Node = { ...makeNode('frame', 0, 0), fills: [], stroke: '#abcdef', strokeWidth: 2 }, child: Node = { ...makeNode('rect', 10, 10), parent: frame.id, fill: '#654321', fills: [{ type: 'image', asset: 'a'.repeat(64), w: 20, h: 20, fit: 'fill', opacity: 1, visible: true }] }, svg = exportSVG(docOf(frame, child), [frame.id]);
-    expect(svg).toContain('clip-path="url(#clip-0)"'); expect(svg).toContain('fill="none" stroke="#abcdef"'); expect(svg).toContain('fill="#654321"'); expect(svg).not.toContain(`fill="${frame.fill}"`);
+it('preserves empty fills, frame child clips, stroke and embedded SVG images', () => {
+    const frame: Node = { ...makeNode('frame', 0, 0), fills: [], stroke: '#abcdef', strokeWidth: 2 }, child: Node = { ...makeNode('rect', 10, 10), parent: frame.id, fill: '#654321', fills: [{ type: 'image', asset: 'a'.repeat(64), w: 20, h: 20, fit: 'fill', opacity: 1, visible: true }] }, svg = exportSVG(docOf(frame, child), [frame.id], new Map([['a'.repeat(64), 'data:image/png;base64,AA==']]));
+    expect(svg).toContain('clip-path="url(#clip-0)"'); expect(svg).toContain('fill="none" stroke="#abcdef"'); expect(svg).toContain('href="data:image/png;base64,AA=="'); expect(svg).not.toContain('fill="#654321"'); expect(svg).not.toContain(`fill="${frame.fill}"`);
 });
 it('waits for image loading and propagates errors instead of silently exporting missing images', async () => {
     const n: Node = { ...makeNode('rect', 0, 0), fills: [{ type: 'image', asset: 'a'.repeat(64), w: 20, h: 20, fit: 'fill', opacity: 1, visible: true }] }; vi.stubGlobal('location', { pathname: '/f/test-file' }); vi.mocked(loadAsset).mockRejectedValue(new Error('Asset unavailable'));
@@ -35,6 +35,6 @@ it('waits for image loading and propagates errors instead of silently exporting 
 });
 it('uses only visible SVG content alpha for empty and stroke-only shadows', () => {
     const n: Node = { ...makeNode('rect', 0, 0), fills: [], effects: [{ type: 'drop-shadow', x: 0, y: 4, blur: 4, spread: 0, color: '#000000', opacity: 1, visible: true }] };
-    const empty = exportSVG(docOf(n), [n.id]); expect(empty).not.toContain('<rect '); expect(empty).toContain('in="SourceAlpha"');
-    const stroked = { ...n, stroke: '#123456' }, svg = exportSVG(docOf(stroked), [n.id]); expect(svg.match(/<rect /g)).toHaveLength(1); expect(svg).toContain('fill="none" stroke="#123456"');
+    const empty = exportSVG(docOf(n), [n.id]); expect(empty).not.toContain('<rect '); expect(empty).not.toContain('<filter');
+    const stroked = { ...n, stroke: '#123456' }, svg = exportSVG(docOf(stroked), [n.id]); expect(svg.match(/<rect /g)).toHaveLength(2); expect(svg).toContain('fill="none" stroke="#123456"'); expect(svg).toContain('fill="none" stroke="#000000"');
 });

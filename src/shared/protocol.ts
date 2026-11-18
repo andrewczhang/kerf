@@ -3,6 +3,7 @@ import type { Point } from './geometry';
 export const MAX_OPS = 1000;
 import type { FeatureClientMsg, FeatureServerMsg } from './features-protocol';
 import type { Comment } from './comments';
+import type { Style } from './styles';
 import type { Version } from './versions';
 export interface Peer {
     id: string;
@@ -33,6 +34,7 @@ export type ServerMsg = FeatureServerMsg | {
     ackSeq?: number;
     nodes: Node[];
     comments: Comment[];
+    styles: Style[];
     versions: Version[];
     peers: Peer[];
     you: Peer;

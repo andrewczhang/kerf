@@ -85,6 +85,6 @@ it('caps masks even when the visible glyph region alone exceeds the pixel budget
 it('exports painted paths and text with filters and retains text effect overflow', () => {
     const n = path(), svg = exportSVG(docOf(n), [n.id]); expect(svg).toContain('<path d="M20 30C'); expect(svg).toContain('gradientUnits="userSpaceOnUse"'); expect(svg).toContain('<feGaussianBlur');
     const open = { ...n, closed: false }, openSvg = exportSVG(docOf(open), [n.id]); expect(openSvg).not.toContain('<linearGradient'); expect(openSvg).toContain('fill="none" stroke=');
-    const text = { ...makeNode('text', 0, 0), fills: [solid, gradient], effects: [shadow] }, textSvg = exportSVG(docOf(text), [text.id]); expect(textSvg).toContain('<text xml:space="preserve"'); expect(textSvg.match(/<tspan/g)).toHaveLength(2); expect(textSvg).toContain('<feOffset'); expect(exportBounds(docOf(text), [text])).toEqual({ x: -6, y: -4, w: 140, h: 46 });
+    const text = { ...makeNode('text', 0, 0), fills: [solid, gradient], effects: [shadow] }, textSvg = exportSVG(docOf(text), [text.id]); expect(textSvg).toContain('<text xml:space="preserve"'); expect(textSvg.match(/<tspan/g)).toHaveLength(3); expect(textSvg).toContain('<feOffset'); expect(exportBounds(docOf(text), [text])).toEqual({ x: -6, y: -4, w: 140, h: 46 });
     const empty = { ...text, fills: [], effects: [] }; expect(exportSVG(docOf(empty), [empty.id])).not.toContain('<text ');
 });

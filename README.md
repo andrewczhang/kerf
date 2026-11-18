@@ -15,6 +15,7 @@ npm start
 Open http://localhost:8787. The root creates a random file URL; share that URL to collaborate. Local Durable Object data lives in `.wrangler/state`. `npm run dev` starts only the Vite client; use Wrangler for multiplayer.
 
 ## Controls
+- Shared styles: deselect to create and edit local color/text styles; use the inspector style picker to link layers, or Detach to keep their current values.
 
 - **V** select, **R** rectangle, **O** ellipse, **F** frame, **H** hand
 - Drag to create; click creates a 100 × 100 shape. Shift constrains proportions.
@@ -29,6 +30,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
 - The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates. Alt/Option-drag duplicates in place and moves the copies; press or release Alt/Option during a move to toggle copying. Alt/Option-click alone does not duplicate.
+- Align: Alt+A/H/D for left/center/right, Alt+W/V/S for top/middle/bottom. Alt+Shift+H/V distributes horizontal/vertical spacing; Ctrl+Alt+T tidies rows, columns and grids. A single child aligns within its frame.
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.
@@ -54,6 +56,10 @@ npm run test:sync
 ```
 
 The sync integration script starts its own Wrangler on port 8790, connects three real WebSocket clients, checks creation, movement, presence, late-join state and departure, then stops its server. Port 8787 can remain running independently.
+
+SVG exports embed image assets and include inner shadows and background blur. Like PNG, backdrop blur samples only exported content below the node.
+
+For the headless SVG/PNG pixel comparison, keep Wrangler running on port 8787 (`npm run build && npm start`), install Chromium with `npx playwright install chromium`, then run `node scripts/svg-parity.mjs`. Alternatively set `CHROME_BIN` to an existing Chromium executable. The check uploads a generated test image to the local `svg-parity-check` file, compares a 1× scene with image cover/contain/tile, inner shadows, backdrop blur and nested frames, and writes PNG/SVG/comparison artifacts under `~/kerf-shots/`. `KERF_URL` and `KERF_SHOTS` override the server and artifact directory.
 
 ## Extension points
 
