@@ -1,4 +1,5 @@
-import { hit, world, type Point } from '../shared/geometry';
+import type { Point } from '../shared/geometry';
+import { hit, world } from './geometry';
 import { distancesTo } from '../shared/snap';
 import { selectionBox } from './snapping';
 import type { Context } from './tools/tool';

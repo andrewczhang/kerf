@@ -18,6 +18,8 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 
 - **V** select, **R** rectangle, **O** ellipse, **F** frame, **H** hand
 - Drag to create; click creates a 100 × 100 shape. Shift constrains proportions.
+- **T** then click to place text. Double-click text or press **Enter** on a selected text layer to edit; **Esc** or clicking away finishes.
+- Set font, size, weight, alignment and wrapping in Typography. Auto hugs the text; Fixed wraps at the W value in Layout.
 - Space + drag or middle-drag pans. Wheel zooms at the pointer; trackpad scroll pans and pinch zooms.
 - Shift-click toggles selection; drag empty canvas for marquee selection.
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.

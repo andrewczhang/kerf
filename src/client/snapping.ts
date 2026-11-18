@@ -1,5 +1,6 @@
 import { descendants } from '../shared/doc';
-import { bounds, intersects, world, type Rect } from '../shared/geometry';
+import { bounds, intersects, type Rect } from '../shared/geometry';
+import { world } from './geometry';
 import { nearestDistances, resizeSnap, snapRect, type Edges, type Guide, type Distance, type RulerGuide } from '../shared/snap';
 import type { Context } from './tools/tool';
 export interface SnapState { guides: Guide[]; measure: Distance[]; rulers: boolean; grid: boolean; lines: RulerGuide[] }
