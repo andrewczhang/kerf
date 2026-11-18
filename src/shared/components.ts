@@ -8,24 +8,26 @@ function props(values: object | undefined, target = ''): Partial<Node> { return 
 export function expand(doc: Doc, measure?: MeasureText): Doc {
     const out: Doc = new Map(doc);
     const tree = childIndex(doc);
-    const resolve = (n: Node, seen: Set<string>): Node[] => {
+    const resolve = (n: Node, seen: Set<string>, inherited: NonNullable<Node['overrides']> = {}): Node[] => {
         const main = n.instanceOf ? doc.get(n.instanceOf) : undefined;
         if (!main || seen.has(main.id) || seen.size >= 8)
-            return [n];
+            return [{ ...n, ...props(inherited[''], n.id) }];
         const path = new Set(seen).add(main.id);
-        const root = { ...n, ...props(main), hidden: n.hidden, locked: n.locked, ...props(n.overrides?.['']), name: n.name, rotation: n.rotation ?? 0 };
+        const overrides = Object.fromEntries([...new Set([...Object.keys(n.overrides ?? {}), ...Object.keys(inherited)])].map(target => [target, { ...n.overrides?.[target], ...inherited[target] }]));
+        const root = { ...n, ...props(main), hidden: n.hidden, locked: n.locked, ...props(n.overrides?.['']), name: n.name, rotation: n.rotation ?? 0, ...props(inherited[''], n.id) };
         const result: Node[] = [root];
         const walkMain = (parent: string, resolvedParent: string) => {
             for (const child of tree.get(parent) ?? []) {
                 if (child.instanceOf) {
-                    for (const value of resolve(child, path)) {
+                    const prefix = child.id + '/', nested = Object.fromEntries(Object.entries(overrides).filter(([target]) => target === child.id || target.startsWith(prefix)).map(([target, values]) => [target === child.id ? '' : target.slice(prefix.length), values]));
+                    for (const value of resolve(child, path, nested)) {
                         const suffix = value.id === child.id ? '' : value.id.slice(child.id.length);
                         const target = child.id + suffix;
-                        result.push({ ...value, ...props(n.overrides?.[target], target), id: n.id + '/' + target, parent: suffix ? n.id + '/' + value.parent : resolvedParent });
+                        result.push({ ...value, id: n.id + '/' + target, parent: suffix ? n.id + '/' + value.parent : resolvedParent });
                     }
                 }
                 else {
-                    result.push({ ...child, ...props(n.overrides?.[child.id], child.id), id: n.id + '/' + child.id, parent: resolvedParent });
+                    result.push({ ...child, ...props(overrides[child.id], child.id), id: n.id + '/' + child.id, parent: resolvedParent });
                     walkMain(child.id, n.id + '/' + child.id);
                 }
             }

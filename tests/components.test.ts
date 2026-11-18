@@ -13,6 +13,32 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it.each(['right', 'center', 'scale', 'both', 'left'] as const)('applies enclosing %s pins before resizing a nested instance', constraintH => {
+        const main = { ...makeNode('frame', 0, 0), component: true };
+        const child = { ...makeNode('rect', 20, 10), parent: main.id, w: 20, h: 10, constraintH: 'left' as const };
+        const enclosing = { ...makeNode('frame', 0, 0), component: true };
+        const nested = { ...instanceNode(main, 0, 0, enclosing.id), w: 200, h: 200, overrides: { [child.id]: { constraintH: 'right', constraintV: 'bottom' } } };
+        const instance = { ...instanceNode(enclosing, 300, 0), overrides: { [nested.id + '/' + child.id]: { constraintH, constraintV: 'center' }, [nested.id]: { rotation: 30 } } };
+        const doc: Doc = new Map([main, child, enclosing, nested, instance].map(n => [n.id, n]));
+        const expected = { right: { x: 120, w: 20 }, center: { x: 70, w: 20 }, scale: { x: 40, w: 40 }, both: { x: 20, w: 120 }, left: { x: 20, w: 20 } }[constraintH];
+        const resolved = expand(doc);
+        expect(resolved.get(instance.id + '/' + nested.id + '/' + child.id)).toMatchObject({ ...expected, y: 60, h: 10, constraintH, constraintV: 'center' });
+        expect(resolved.get(instance.id + '/' + nested.id)?.rotation).toBe(30);
+        expect(resolved.get(nested.id + '/' + child.id)).toMatchObject({ x: 120, y: 110 });
+        expect(doc.get(child.id)).toMatchObject({ x: 20, y: 10, w: 20 });
+    });
+    it('composes pin overrides through multiple enclosing instances without changing cycle fallbacks', () => {
+        const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 20, 0), parent: main.id, w: 20 };
+        const middle = { ...makeNode('frame', 0, 0), component: true }, nested = { ...instanceNode(main, 0, 0, middle.id), w: 200 };
+        const outer = { ...makeNode('frame', 0, 0), component: true }, wrapper = instanceNode(middle, 0, 0, outer.id);
+        const instance: Node = { ...instanceNode(outer, 300, 0), overrides: { [wrapper.id + '/' + nested.id + '/' + child.id]: { constraintH: 'right' } } };
+        const missing = { ...instanceNode(main, 0, 0, outer.id), instanceOf: 'missing' };
+        instance.overrides![missing.id] = { opacity: .5 };
+        const doc: Doc = new Map([main, child, middle, nested, outer, wrapper, missing, instance].map(n => [n.id, n]));
+        expect(expand(doc).get(instance.id + '/' + wrapper.id + '/' + nested.id + '/' + child.id)).toMatchObject({ constraintH: 'right', x: 120 });
+        expect(expand(doc).get(instance.id + '/' + missing.id)?.opacity).toBe(.5);
+        expect(expand(new Map()).size).toBe(0);
+    });
     it('measures overridden text before per-instance Hug layout and preserves the baked layout', () => {
         const main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const, gap: 5 };
         const text = { ...makeNode('text', 0, 0), parent: main.id, text: 'AB', fontSize: 10 };

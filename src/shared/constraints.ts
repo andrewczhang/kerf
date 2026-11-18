@@ -42,7 +42,7 @@ export function constraintOps(base: Doc, id: string, to: Size, skip: (id: string
         if (skip(c.id)) continue;
         const main = c.instanceOf && !c.id.includes('/') ? base.get(c.instanceOf) : undefined;
         const pins = main ? { ...c, ...main, ...c.overrides?.[''] } : c;
-        const next = constrain({ ...c, constraintH: pins.constraintH, constraintV: pins.constraintV }, parent, to, parent.type === 'group'), now = current.get(c.id);
+        const next = constrain({ ...c, constraintH: pins.constraintH as Node['constraintH'], constraintV: pins.constraintV as Node['constraintV'] }, parent, to, parent.type === 'group'), now = current.get(c.id);
         for (const key of ['x', 'y', 'w', 'h'] as const) if (next[key] !== now?.[key]) ops.push({ t: 'set', id: c.id, key, value: next[key] });
         if (c.type === 'frame' || c.type === 'group') ops.push(...constraintOps(base, c.id, next, skip, current));
     }
