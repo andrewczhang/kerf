@@ -4,10 +4,12 @@ import { font, measureTextNode, textPaintBounds } from './text-layout';
 import { paintStyle, rgba } from './paint';
 import { toAbs, trace } from '../shared/path';
 import { maskedText, textMask, textShape } from './text-paint';
+import { blocked } from '../shared/layers';
 
 type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void };
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions) {
-    if (opts.skip === n.id) return;
+    if (blocked(doc, n, false) || opts.skip === n.id) return;
+    if (n.type === 'group') { for (const child of children(doc, n.id)) drawNode(c, doc, child, opts); return; }
     if (n.fills !== undefined || n.effects !== undefined) { drawPaintedNode(c, doc, n, opts); return; }
     const r = world(doc, n);
     c.save();

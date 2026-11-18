@@ -28,6 +28,22 @@ it('paints and shadows the traced path, not its bounding rectangle', () => {
     const n = path(), c = context(); drawNode(c as unknown as CanvasRenderingContext2D, docOf(n), n, { zoom: 1, labels: false, file: 'test' });
     expect(c.fill).toHaveBeenCalledTimes(3); const shape = c.fill.mock.calls[0][0]; expect(shape.bezierCurveTo).toHaveBeenCalled(); expect(shape.roundRect).not.toHaveBeenCalled(); expect(c.createLinearGradient).toHaveBeenCalledWith(20, 30, 120, 130);
 });
+it('skips all paint and effect work for hidden nodes and hidden ancestors', () => {
+    const group = { ...makeNode('group', 0, 0), hidden: true }, n = { ...path(), parent: group.id }, doc: Doc = new Map<string, Node>([[group.id, group], [n.id, n]]), c = context();
+    drawNode(c as unknown as CanvasRenderingContext2D, doc, group, { zoom: 1, labels: false }); drawNode(c as unknown as CanvasRenderingContext2D, doc, n, { zoom: 1, labels: false });
+    expect(c.save).not.toHaveBeenCalled(); expect(c.fill).not.toHaveBeenCalled(); expect(exportSVG(doc, [n.id, group.id])).not.toContain('<path');
+});
+it('keeps group children paints and effect overflow while excluding hidden children', () => {
+    const group = { ...makeNode('group', 0, 0), fills: [solid], effects: [shadow] }, n = { ...path(), parent: group.id }, hidden = { ...path(), id: 'hidden', parent: group.id, hidden: true, x: 1000 }, doc: Doc = new Map<string, Node>([[group.id, group], [n.id, n], [hidden.id, hidden]]), c = context();
+    drawNode(c as unknown as CanvasRenderingContext2D, doc, group, { zoom: 1, labels: false, file: 'test' }); expect(c.fill).toHaveBeenCalledTimes(3);
+    const svg = exportSVG(doc, [group.id]); expect(svg).toContain('<linearGradient'); expect(svg).toContain('<feOffset'); expect(svg).not.toContain('id="hidden"'); expect(exportBounds(doc, [group])).toEqual(exportBounds(doc, [n]));
+});
+it.each(['hidden', 'locked'] as const)('prevents gradient handles on a %s node or ancestor', key => {
+    const group = makeNode('group', 0, 0), n = { ...path(), parent: group.id }, store = new Store(); store.doc.set(group.id, group); store.doc.set(n.id, n); store.selection.add(n.id); editingPaint.set(store, { id: n.id, index: 1 });
+    const ctx = { store, viewport: { zoom: 1 }, invalidate() {} } as Context, before = structuredClone(n.fills);
+    store.doc.set(n.id, { ...n, [key]: true }); expect(gradientDown(ctx, { x: 20, y: 30 })).toBe(false);
+    store.doc.set(n.id, n); store.doc.set(group.id, { ...group, [key]: true }); expect(gradientDown(ctx, { x: 20, y: 30 })).toBe(false); expect(gradientMove(ctx, { x: 80, y: 80 })).toBe(false); expect(n.fills).toEqual(before);
+});
 it('keeps open paths stroke-only even with fills and skips empty closed-path shadows', () => {
     const n = { ...path(), closed: false }, c = context(); drawNode(c as unknown as CanvasRenderingContext2D, docOf(n), n, { zoom: 1, labels: false }); expect(c.fill).not.toHaveBeenCalled(); expect(c.stroke).toHaveBeenCalledTimes(2);
     const empty = { ...n, closed: true, fills: [], stroke: null }, blank = context(); drawNode(blank as unknown as CanvasRenderingContext2D, docOf(empty), empty, { zoom: 1, labels: false }); expect(blank.fill).not.toHaveBeenCalled(); expect(blank.translate).not.toHaveBeenCalled();

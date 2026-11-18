@@ -4,6 +4,7 @@ import { world } from './geometry';
 import { drawNode } from './draw';
 import { loadAsset } from './assets';
 import { svgPaints } from './svg-paints';
+import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
 
@@ -11,6 +12,8 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
     const walk = (parent: string | null, ancestorSelected: boolean) => {
         for (const n of children(doc, parent)) {
+            if (blocked(doc, n, false))
+                continue;
             const included = selected.has(n.id);
             if (included && !ancestorSelected)
                 roots.push(n);
@@ -22,15 +25,17 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 }
 
 export function exportBounds(doc: Doc, roots: Node[]) {
-    const r = bounds(roots.map(n => {
+    const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
+    roots.forEach(collect);
+    const r = bounds(visible.map(n => {
         let r = world(doc, n);
         if (isTextNode(n)) {
             const ink = textPaintBounds(n);
             r = { ...ink, x: r.x + ink.x, y: r.y + ink.y };
         }
-        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        const pad = n.type !== 'group' && n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
-        for (const e of n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
         return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
@@ -42,7 +47,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
     const file = typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled', images = new Set<string>();
-    const collect = (n: Node) => { for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame') for (const child of children(doc, n.id)) collect(child); };
+    const collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group') for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') for (const child of children(doc, n.id)) collect(child); };
     roots.forEach(collect); await Promise.all([...images].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
     canvas.width = r.w * scale;
@@ -71,6 +76,10 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     let clip = 0, paint = 0;
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
     const render = (n: Node, alpha: number): string => {
+        if (n.hidden)
+            return '';
+        if (n.type === 'group')
+            return children(doc, n.id).map(child => render(child, alpha)).join('');
         const r = world(doc, n), opacity = alpha * n.opacity;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);

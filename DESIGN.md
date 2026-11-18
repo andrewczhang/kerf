@@ -32,11 +32,12 @@ worker/
   index.ts        routes: GET /f/:id/ws -> DO (by idFromName(id)); everything else -> static assets (Workers static assets, SPA fallback to index.html)
   room.ts         Durable Object (SQLite-backed or KV storage API): holds Doc in memory, persists nodes, broadcasts
 ```
-Later features (pen/vector paths, text, layers panel, export) each land as a new tool file / ui file plus new Node type in doc.ts without touching sync.
+The left layers panel renders the live tree, with rename, visibility, lock and drag reordering. Pure group/reparent/bounds operations live in shared/layers.ts. Later features (pen/vector paths, text, export) land without touching sync.
 New node types must add a drawing case in both draw.ts and exportSVG in export.ts.
 
 ## Document model
-Node = { id, type: 'frame'|'rect'|'ellipse'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
+Node = { id, type: 'frame'|'rect'|'ellipse'|'group'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity, hidden, locked }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
+Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
 Nodes optionally carry `fills: Paint[]` (maximum 12, bottom to top) and `effects: Effect[]` (maximum 8). Missing fills fall back to the legacy `fill`; empty fills draw nothing. Paints are solid (hex6 color), linear/radial (2–16 color/opacity stops sorted on use, normalized from/to coordinates −2…3), or image (SHA-256 asset hash, intrinsic w/h, fill=cover / fit=contain / tile). Every paint has opacity 0…1 and visibility. Radial from is the center; distance to to in normalized space is the radius, yielding an ellipse in a non-square box. Fill UI edits also update legacy fill from the topmost visible solid or gradient's first stop.
