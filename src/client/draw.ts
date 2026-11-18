@@ -6,7 +6,7 @@ import { toAbs, trace, type PathPoint } from '../shared/path';
 import { maskedText, textMask, textShape } from './text-paint';
 import { blocked } from '../shared/layers';
 import type { Rect } from '../shared/geometry';
-import { pathArrows, strokeBounds, strokeStyle } from './stroke';
+import { pathArrows, strokeBounds, strokeStyle } from '../shared/stroke';
 
 function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: PathPoint[], shape: Path2D | (() => void), color: string) {
     const { align, cap, join, miter, dash, width } = strokeStyle(n);

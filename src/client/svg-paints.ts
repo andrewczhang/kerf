@@ -1,7 +1,7 @@
 import { nodeFills, type Node } from '../shared/doc';
 import type { Rect } from '../shared/geometry';
 import type { PathPoint } from '../shared/path';
-import { pathArrows, strokeBounds, strokeStyle } from './stroke';
+import { pathArrows, strokeBounds, strokeStyle } from '../shared/stroke';
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
 export function svgStroke(n: Node, r: Rect, tag: string, geometry: string, points: PathPoint[], opacity: number, nextId: () => string) {

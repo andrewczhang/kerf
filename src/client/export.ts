@@ -7,7 +7,7 @@ import { svgPaints, svgStroke } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
-import { strokeBounds } from './stroke';
+import { strokeBounds } from '../shared/stroke';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
