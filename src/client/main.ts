@@ -15,6 +15,7 @@ import { clearTextLayouts, measureTextNode } from './text-layout';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
+import { installInspect } from './ui/inspect';
 import { people } from './ui/people';
 import { imageImport } from './image-import';
 import { layers } from './ui/layers';
@@ -68,6 +69,7 @@ inspector(document.querySelector('.inspector')!, store);
 layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, viewport);
 features(renderer, sync, ctx, choose);
+installInspect(canvas, ctx, renderer, () => choose('select'));
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (active.id !== 'select') return;
