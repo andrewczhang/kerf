@@ -59,6 +59,21 @@ it('does not reparent on a deep-selection pointerup or drop shapes into instance
     shape.onPointerDown({ x: 220, y: 20 }); shape.onPointerUp();
     expect(store.doc.get([...store.selection][0])?.parent).toBeNull();
 });
+it.each(['ctrlKey', 'metaKey'])('does not replay a completed drag after %s deep selection', modifier => {
+    const { store, select, main, child } = setup(), frame = { ...makeNode('frame', 400, 0), w: 300, h: 300 };
+    const nested = instanceNode(main, 20, 20, frame.id), moving = makeNode('rect', 700, 400);
+    store.commit([{ t: 'create', node: frame }, { t: 'create', node: nested }, { t: 'create', node: moving }]);
+    store.selection.add(moving.id);
+    select.onPointerDown({ x: 750, y: 450 }, { buttons: 1 } as PointerEvent);
+    select.onPointerMove({ x: 800, y: 450 }, { buttons: 1 } as PointerEvent);
+    select.onPointerUp({ x: 800, y: 450 });
+    const before = store.doc.get(moving.id), count = store.undoStack.length;
+    select.onPointerDown({ x: 440, y: 40 }, { [modifier]: true } as unknown as PointerEvent);
+    select.onPointerUp({ x: 440, y: 40 });
+    expect([...store.selection]).toEqual([nested.id + '/' + child.id]);
+    expect(store.doc.get(moving.id)).toBe(before); expect(store.doc.get(moving.id)?.parent).toBeNull();
+    expect(store.undoStack).toHaveLength(count); expect(select.original.size).toBe(0); expect(select.moved).toBe(false);
+});
 
 const layerKey = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setupLayers = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
@@ -73,14 +88,14 @@ it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty can
 });
 it('keeps overlapping sibling frames as siblings but allows fully contained drops', () => {
     const { store, tool } = setupCanvas(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0);
-    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true;
+    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true; tool.start = { x: 125, y: 50 };
     tool.onPointerUp({ x: 125, y: 50 }); expect(store.doc.get(a.id)?.parent).toBe(null);
-    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.onPointerUp({ x: 125, y: 50 });
+    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.start = { x: 125, y: 50 }; tool.original.set(a.id, store.doc.get(a.id)!); tool.moved = true; tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(b.id);
 });
 it('never reparents into another dragged frame or its descendants', () => {
     const { store, tool } = setupCanvas(), a = makeNode('frame', 50, 0), b = { ...makeNode('frame', 0, 0), w: 300, h: 300 }, child = { ...makeNode('frame', 0, 0), parent: b.id, w: 250, h: 250 };
-    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true;
+    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true; tool.start = { x: 125, y: 50 };
     tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(null); expect(store.doc.get(b.id)?.parent).toBe(null);
     expect(store.doc.get(child.id)?.parent).toBe(b.id);

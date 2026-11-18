@@ -21,13 +21,19 @@ export class Select implements Tool {
     pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(expand(store.doc), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
     deepSelect(p: Point) { const { store } = this.ctx; const n = this.pick(p, true); if (n) { store.selection.clear(); store.selection.add(n.id); store.changed(); } }
     onPointerDown(p: Point, e: PointerEvent) {
+        this.start = undefined;
+        this.original.clear();
+        this.moved = false;
+        this.handle = -1;
+        this.box = undefined;
+        this.ctx.marquee = undefined;
+        layoutInsertions.delete(this.ctx.store);
+        clearSnap(this.ctx);
         if (gradientDown(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         const modified = e.ctrlKey || e.metaKey;
         if (modified && isVirtual(this.pick(p, true)?.id ?? '')) { this.deepSelect(p); return; }
         this.start = p;
-        this.moved = false;
-        layoutInsertions.delete(store);
         const resolved = expand(store.doc), nodes = this.selected().map(n => resolved.get(n.id)!);
         this.box = nodes.length ? bounds(nodes.map(n => world(resolved, n))) : undefined;
         this.handle = this.box && nodes.every(n => n.type !== 'text') ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
@@ -129,7 +135,7 @@ export class Select implements Tool {
         }
         store.commit(ops);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start && !this.original.size) return; const { store } = this.ctx, start = this.start ?? p; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx, start = this.start; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
@@ -151,7 +157,7 @@ export class Select implements Tool {
                 store.set(id, { parent: parent?.id ?? null, x: roundUnlessSnapped(this.ctx, r.x - origin.x), y: roundUnlessSnapped(this.ctx, r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
-    } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
+    } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; this.original.clear(); this.moved = false; this.handle = -1; this.box = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
