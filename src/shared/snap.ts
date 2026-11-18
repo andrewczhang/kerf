@@ -12,7 +12,7 @@ function spacingCandidates(r: Rect, targets: Rect[], axis: 'x' | 'y') {
     const add = (a: Rect, b: Rect, position: number, between: boolean) => {
         const low = Math.max(r[cross], a[cross], b[cross]), high = Math.min(r[cross] + r[span], a[cross] + a[span], b[cross] + b[span]);
         if (low >= high || b[axis] < a[axis] + a[size]) return;
-        const moved = { ...r, [axis]: Math.round(position) };
+        const moved = { ...r, [axis]: position };
         const ordered = [a, b, moved].sort((u, v) => u[axis] - v[axis]);
         if (ordered.some((t, i) => i > 0 && t[axis] < ordered[i - 1][axis] + ordered[i - 1][size])) return;
         if (row.some(t => t !== a && t !== b && t[axis] < ordered[2][axis] + ordered[2][size] && t[axis] + t[size] > ordered[0][axis])) return;
@@ -50,7 +50,7 @@ export function snapRect(r: Rect, targets: Rect[], threshold: number, grid = fal
         if (equal) spacing.push(...equal.segments);
         if (delta !== undefined && !equal) for (const t of candidates) if (anchors.some(a => Math.abs(a + d - t.position) < 1e-6))
             guides.push({ axis, position: t.position, start: Math.min(r[cross], t.start), end: Math.max(r[cross] + r[span], t.end) });
-        return Math.round(anchors[0] + d) - anchors[0];
+        return delta !== undefined ? d : Math.round(anchors[0] + d) - anchors[0];
     };
     const dx = correction('x'), dy = correction('y');
     for (const g of guides) {

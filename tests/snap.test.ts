@@ -11,6 +11,15 @@ it('rounds pixels, falls back to grid, and prioritizes objects', () => {
     expect(snapRect(r, [{ ...r, x: 4 }], 6, true).dx).toBe(3);
     expect(snapRect(r, [], 6, false, [{ axis: 'x', position: 23 }]).dx).toBe(2);
 });
+it('preserves fractional object, ruler and equal-spacing alignments', () => {
+    const moving = { x: 39, y: 30.2, w: 20, h: 20 };
+    const s = snapRect(moving, [{ x: 0, y: 100, w: 101, h: 20 }], 6);
+    expect(s.dx).toBe(1.5); expect(s.dy).toBeCloseTo(-.2);
+    expect(s.guides[0].position).toBe(moving.x + s.dx + moving.w / 2);
+    expect(snapRect(moving, [], 6, true, [{ axis: 'x', position: 40.5 }]).dx).toBe(1.5);
+    const equal = snapRect({ ...moving, x: 42, y: 0 }, [{ x: 0, y: 0, w: 20, h: 20 }, { x: 101, y: 0, w: 20, h: 20 }], 10);
+    expect(equal.dx).toBe(8.5); expect(equal.spacing.map(d => d.value)).toEqual([30.5, 30.5]);
+});
 it('resizes only moving edges and rejects out of threshold targets', () => {
     expect(resizeSnap(r, [{ ...r, x: 24 }], 4, { x: 1 }).rect).toEqual({ ...r, w: 23 });
     expect(snapRect(r, [{ ...r, x: 200, y: 200 }], 4).guides).toEqual([]);
