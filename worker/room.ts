@@ -4,6 +4,7 @@ import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 import { MAX_OPS } from '../src/shared/protocol';
 import { Features } from './features';
+import { resolveStyleOps } from '../src/shared/styles';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 export class Room {
@@ -44,7 +45,7 @@ export class Room {
         let ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
         const peer: Peer = { id: crypto.randomUUID(), name: ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'][this.peers.size % 5], color: palette[this.peers.size % 5], cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        this.send(ws, { type: 'init', ackSeq, nodes: [...this.doc.values()], comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
+        this.send(ws, { type: 'init', ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
@@ -54,10 +55,13 @@ export class Room {
                 if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
+                const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);
+                for (const op of resolved) applyOp(this.doc, op);
                 applyLayout(this.doc);
                 await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
+                if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });

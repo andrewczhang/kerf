@@ -1,6 +1,7 @@
 import type { ServerMsg, ClientMsg, Peer } from '../shared/protocol';
 import type { Store } from './store';
 import type { Comment } from '../shared/comments';
+import type { Style } from '../shared/styles';
 import type { Version } from '../shared/versions';
 import { applyOp } from '../shared/doc';
 export class Sync extends EventTarget {
@@ -10,6 +11,7 @@ export class Sync extends EventTarget {
     status = 'Connecting';
     retry = 500;
     comments: Comment[] = [];
+    styles: Style[] = [];
     versions: Version[] = [];
     clientId: string = crypto.randomUUID();
     ready = false;
@@ -109,6 +111,8 @@ export class Sync extends EventTarget {
     connect() { this.lastMessage = Date.now(); const ws = this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/f/${this.file}/ws?clientId=${encodeURIComponent(this.clientId)}`); ws.onmessage = e => { if (ws !== this.socket) return; this.lastMessage = Date.now(); const m = JSON.parse(e.data) as ServerMsg; if (m.type === 'pong') return; if (m.type === 'init') {
         this.you = m.you;
         this.comments = m.comments;
+        this.styles = m.styles ?? [];
+        this.dispatchEvent(new Event('styles-change'));
         this.versions = m.versions;
         this.peers = new Map(m.peers.map(p => [p.id, p]));
         const ackSeq = m.ackSeq ?? 0;
@@ -125,6 +129,7 @@ export class Sync extends EventTarget {
         for (const [seq, ops] of this.store.pending)
             this.send({ type: 'ops', seq, ops });
     }
+    else if (m.type === 'styles') { this.styles = m.styles; this.dispatchEvent(new Event('styles-change')); }
     else if (m.type === 'comments') { this.comments = m.comments; this.dispatchEvent(new Event('comments-change')); }
     else if (m.type === 'versions') { this.versions = m.versions; this.dispatchEvent(new Event('versions-change')); }
     else if (m.type === 'version-preview') this.dispatchEvent(new CustomEvent('preview', { detail: m }));
