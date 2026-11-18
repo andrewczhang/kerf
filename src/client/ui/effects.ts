@@ -5,7 +5,7 @@ const expanded = new WeakMap<Store, number>();
 export function effectsSection(parent: HTMLElement, store: Store, nodes: Node[]) {
     const section = document.createElement('section'); section.className = 'paint-section'; parent.append(section);
     const render = () => {
-        section.replaceChildren(); const effects = structuredClone(store.doc.get(nodes[0].id)?.effects ?? []), apply = (next: Effect[]) => { for (const n of nodes) store.set(n.id, { effects: structuredClone(next) }); }, act = (edit: () => void) => { transaction(store, edit); render(); }, update = (i: number, e: Effect) => { effects[i] = e; apply(effects); };
+        section.replaceChildren(); const effects = structuredClone(store.doc.get(nodes[0].id)?.effects ?? []), apply = (next: Effect[]) => { for (const n of nodes) store.set(n.id, { effects: structuredClone(next) }); }, act = (edit: () => void) => { transaction(store, edit); render(); }, update = (i: number, e: Effect) => { Object.assign(effects[i], e); apply(effects); };
         const heading = document.createElement('div'); heading.className = 'paint-heading'; heading.append('Effects', button('+', () => act(() => { if (effects.length < 8) { expanded.set(store, effects.length); apply([...effects, { type: 'drop-shadow', x: 0, y: 4, blur: 12, spread: 0, color: '#000000', opacity: .25, visible: true }]); } }))); section.append(heading);
         if (nodes.some(n => JSON.stringify(store.doc.get(n.id)?.effects ?? []) !== JSON.stringify(effects))) { const mixed = document.createElement('div'); mixed.className = 'paint-mixed'; mixed.append('Mixed', button('Replace all', () => act(() => apply(effects)))); section.append(mixed); return; }
         effects.forEach((e, i) => {
