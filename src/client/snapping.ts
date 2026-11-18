@@ -36,8 +36,22 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
     if (state.layoutGrids !== false) for (const n of ctx.store.doc.values()) {
         if (n.type !== 'frame' || excluded.has(n.id) || blocked(ctx.store.doc, n, false)) continue;
         const frame = world(ctx.store.doc, n);
-        if (r.x < frame.x || r.y < frame.y || r.x > frame.x + frame.w || r.y > frame.y + frame.h) continue;
-        for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g, ctx.viewport.zoom));
+        let left = frame.x, top = frame.y, right = frame.x + frame.w, bottom = frame.y + frame.h;
+        let parent = n.parent;
+        const seen = new Set([n.id]);
+        while (parent && !seen.has(parent)) {
+            seen.add(parent);
+            const p = ctx.store.doc.get(parent);
+            if (!p) break;
+            if (p.type === 'frame') {
+                const clip = world(ctx.store.doc, p);
+                left = Math.max(left, clip.x); top = Math.max(top, clip.y);
+                right = Math.min(right, clip.x + clip.w); bottom = Math.min(bottom, clip.y + clip.h);
+            }
+            parent = p.parent;
+        }
+        if (right <= left || bottom <= top || r.x < left || r.y < top || r.x > right || r.y > bottom) continue;
+        for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g, ctx.viewport.zoom).filter(l => l.axis === 'x' ? l.position >= left && l.position <= right : l.position >= top && l.position <= bottom));
     }
     let result: Rect;
     let spacing: Distance[] = [];

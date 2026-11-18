@@ -98,3 +98,14 @@ it('excludes grids on selected frames and descendants of selected groups', () =>
         expect(ctx.snap!.guides).toEqual([]);
     }
 });
+it('ignores grid candidates clipped by ancestor frames', () => {
+    const store = new Store(), outer = { ...makeNode('frame', 0, 0), w: 150, h: 150 };
+    const frame = { ...makeNode('frame', 100, 0), w: 400, h: 400, parent: outer.id, grids: [{ ...grid, type: 'grid' as const }] };
+    store.init([outer, frame]);
+    const ctx = { store, viewport: { zoom: 1 }, invalidate() {}, snap: { guides: [], measure: [], rulers: false, grid: false, lines: [] } } as unknown as Context;
+    const moving = { x: 118, y: 38, w: 7, h: 7 };
+    expect(snapped(ctx, moving, {} as PointerEvent).x).toBe(120);
+    expect(snapped(ctx, { ...moving, x: 178 }, {} as PointerEvent).x).toBe(178);
+    expect(snapped(ctx, { ...moving, y: 178 }, {} as PointerEvent).y).toBe(178);
+    expect(snapped(ctx, { ...moving, x: 145, w: 13 }, {} as PointerEvent).x).not.toBe(147);
+});
