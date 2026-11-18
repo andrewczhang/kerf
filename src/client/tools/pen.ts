@@ -1,6 +1,6 @@
 import { between, children, makeNode, type Node } from '../../shared/doc';
 import { hit, world, type Point } from '../../shared/geometry';
-import { corner, fit, nearest, reverse, smooth, snap45, split, toAbs, trace, type PathPoint } from '../../shared/path';
+import { MAX_POINTS, corner, fit, nearest, reverse, smooth, snap45, split, toAbs, trace, type PathPoint } from '../../shared/path';
 import type { Context, Tool } from './tool';
 
 type Part = { kind: 'anchor' | 'in' | 'out'; index: number };
@@ -29,8 +29,10 @@ export class Pen implements Tool {
     abs(n: Node) { return toAbs(n.points!, world(this.ctx.store.doc, n)); }
     origin(n: Node): Point { const p = n.parent ? this.ctx.store.doc.get(n.parent) : undefined; return p ? world(this.ctx.store.doc, p) : { x: 0, y: 0 }; }
     write(n: Node, abs: PathPoint[], closed = !!n.closed) {
+        if (abs.length > MAX_POINTS) return false;
         const f = fit(abs, closed, this.origin(n));
         this.ctx.store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(closed !== !!n.closed ? { closed } : {}) });
+        return true;
     }
     /** Handles are shown for the selected anchor, its neighbours and the anchor being drawn. */
     shows(abs: PathPoint[], closed: boolean, i: number) {
@@ -83,7 +85,7 @@ export class Pen implements Tool {
                 }
                 const q = e.shiftKey ? snap45(abs[last], p) : p;
                 abs.push(corner(q.x, q.y));
-                this.write(n, abs);
+                if (!this.write(n, abs)) return;
                 this.sel = abs.length - 1;
                 this.drag = { kind: 'handles', index: this.sel, start: q, abs, moved: false };
                 return;
@@ -99,7 +101,7 @@ export class Pen implements Tool {
             const near = nearest(abs, closed, p);
             if (near.d <= tol) {
                 const next = split(abs, near.seg, near.t);
-                this.write(n, next);
+                if (!this.write(n, next)) return;
                 this.sel = near.seg + 1;
                 this.drag = { kind: 'anchor', index: this.sel, start: p, abs: next, moved: true };
                 return;
