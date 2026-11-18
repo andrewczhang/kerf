@@ -1,5 +1,7 @@
 import type { Store } from '../store';
 import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
+import { fillsSection } from './fills';
+import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
@@ -7,7 +9,7 @@ export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
-        if (el.contains(document.activeElement) && document.activeElement?.matches('input,select'))
+        if (el.contains(document.activeElement))
             return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
@@ -96,12 +98,16 @@ export function inspector(el: HTMLElement, store: Store) {
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
-            fields('Appearance', ['fill', 'opacity']);
+            fields('Appearance', ['opacity']);
+            fillsSection(content, store, nodes);
+            effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
             fields('Appearance', ['radius', 'opacity']);
-            fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes);
+            fields('Stroke', ['stroke', 'strokeWidth']);
+            effectsSection(content, store, nodes);
         }
         if (nodes.length === 1) {
             const section = document.createElement('section');

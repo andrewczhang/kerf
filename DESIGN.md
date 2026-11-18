@@ -40,6 +40,16 @@ Node = { id, type: 'frame'|'rect'|'ellipse'|'group'|'text'|'path', parent: strin
 Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
+Nodes optionally carry `fills: Paint[]` (maximum 12, bottom to top) and `effects: Effect[]` (maximum 8). Missing fills fall back to the legacy `fill`; empty fills draw nothing. Paints are solid (hex6 color), linear/radial (2–16 color/opacity stops sorted on use, normalized from/to coordinates −2…3), or image (SHA-256 asset hash, intrinsic w/h, fill=cover / fit=contain / tile). Every paint has opacity 0…1 and visibility. Radial from is the center; distance to to in normalized space is the radius, yielding an ellipse in a non-square box. Fill UI edits also update legacy fill from the topmost visible solid or gradient's first stop.
+
+Effects are drop-shadow/inner-shadow (x/y, nonnegative blur, spread, hex6 color, opacity, visibility) or layer-blur/background-blur (nonnegative radius, visibility). Effect dimensions are world units. The canvas renderer applies drop shadows, background blur, paints, stroke and inner shadows; layer blur composites the node through an offscreen canvas. Frames clip children.
+
+`PUT /f/:id/assets/:hash` accepts PNG/JPEG/WebP/GIF bytes up to 1.5 MiB, verifies SHA-256 and stores `{type,bytes}` under `asset:<hash>` in the room Durable Object. `GET` serves those bytes with immutable one-year caching. Client uploads decode and downscale to a longest side of 2048px, retain transparent PNG when it fits, otherwise encode WebP (.86 quality) with JPEG fallback. Canvas image insertion caps the initial longest side at 800 world units.
+
+Paint/effect UI lives in `ui/fills.ts` and `ui/effects.ts`; editing state and legacy-fill writes in `paint-edit.ts`, canvas controls in `gradient-handles.ts`, clipboard/drop handling in `image-import.ts`. UI transactions write whole arrays through Store; no sync protocol changes are needed.
+
+Canvas and PNG export share `draw.ts`; PNG waits for image assets to decode and pads output bounds for drop shadows and layer blur. SVG preserves stacked solid/linear/radial paints, paint/stop opacity, drop shadows (including spread) and layer blur via SVG gradients/filters. SVG image paints use legacy fill, and inner-shadow/background-blur are omitted; use PNG for those features. Background blur in PNG samples only the exported selection underneath, not unselected page content.
+
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.
 - Server applies in arrival order, broadcasts `{type:'ops', ops, from}` to others, acks sender `{type:'ack', seq}`.

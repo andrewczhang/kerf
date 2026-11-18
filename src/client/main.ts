@@ -14,6 +14,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { imageImport } from './image-import';
 import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
@@ -33,6 +34,7 @@ const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate()
 installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
+imageImport(canvas, ctx, file);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
 let active: Tool;
@@ -107,7 +109,7 @@ else {
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]'))
     return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
