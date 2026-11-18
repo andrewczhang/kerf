@@ -3,6 +3,7 @@ import { bounds, contains, handles, intersects, inverse, matrixAngle, parentMatr
 import { aabb, hit, nodeHandles, sizeOf, worldMatrix } from '../geometry';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
+import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap } from '../snapping';
 export class Select implements Tool {
     id = 'select';
@@ -21,6 +22,7 @@ export class Select implements Tool {
     selectionHandles(nodes = this.selected()) { const doc = this.ctx.store.doc; return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
     onPointerDown(p: Point, e: PointerEvent) {
+        if (gradientDown(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         this.start = p;
         this.moved = false;
@@ -58,6 +60,7 @@ export class Select implements Tool {
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
+        if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
             this.cursor = this.rotationHit(p) ? this.rotateCursor : 'default';
@@ -133,7 +136,7 @@ export class Select implements Tool {
         }
         store.commit(ops);
     }
-    onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);

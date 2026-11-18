@@ -1,7 +1,9 @@
-import { children, isTextNode, type Doc, type Node } from '../shared/doc';
-import { bounds, transformedBounds } from '../shared/geometry';
+import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
+import { bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { world, worldMatrix } from './geometry';
 import { drawNode } from './draw';
+import { loadAsset } from './assets';
+import { svgPaints } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
@@ -23,14 +25,14 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 }
 
 export function exportBounds(doc: Doc, roots: Node[]) {
-    const r = bounds(roots.map(n => {
-        const r = world(doc, n);
-        if (isTextNode(n)) {
-            const ink = textPaintBounds(n);
-            return transformedBounds(worldMatrix(doc, n), ink);
-        }
-        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
-        return transformedBounds(worldMatrix(doc, n), { x: -pad, y: -pad, w: r.w + pad * 2, h: r.h + pad * 2 });
+    const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
+    roots.forEach(collect);
+    const r = bounds(visible.map(n => {
+        const r = isTextNode(n) ? textPaintBounds(n) : { x: 0, y: 0, w: n.w, h: n.h };
+        const pad = n.type !== 'group' && n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
+        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        return transformedBounds(worldMatrix(doc, n), { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 });
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
@@ -40,6 +42,9 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
+    const file = typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled', images = new Set<string>();
+    const collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group') for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') for (const child of children(doc, n.id)) collect(child); };
+    roots.forEach(collect); await Promise.all([...images].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
     canvas.width = r.w * scale;
     canvas.height = r.h * scale;
@@ -49,7 +54,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     c.scale(scale, scale);
     c.translate(-r.x, -r.y);
     for (const n of roots)
-        drawNode(c, doc, n, { zoom: scale, labels: false });
+        drawNode(c, doc, n, { zoom: scale, scale, labels: false, file });
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
@@ -64,31 +69,40 @@ const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
-    let clip = 0;
-    const render = (n: Node, alpha: number): string => {
+    let clip = 0, paint = 0;
+    const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
+    const render = (n: Node, alpha: number, applied?: Mat): string => {
         if (n.hidden)
             return '';
         if (n.type === 'group')
-            return children(doc, n.id).map(child => render(child, alpha)).join('');
+            return children(doc, n.id).map(child => render(child, alpha, applied)).join('');
         const r = world(doc, n), opacity = alpha * n.opacity, m = worldMatrix(doc, n);
-        const correction = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
-        const transform = correction.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${correction.join(' ')})"` : '';
+        const correction: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
+        const relative = applied ? multiply(inverse(applied), correction) : correction;
+        const transform = relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${relative.join(' ')})"` : '';
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
+            if (n.fills !== undefined || n.effects !== undefined) { const painted = svgPaints(n, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs); return transform ? `<g${transform}>${painted}</g>` : painted; }
             return `<text id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
+        if (n.fills !== undefined || n.effects !== undefined) {
+            let nested = '';
+            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, 1, correction)).join('')}</g>`; }
+            const painted = svgPaints(n, r, tag, geometry, opacity, nested, paintId);
+            return transform ? `<g${transform}>${painted}</g>` : painted;
+        }
         const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;
         let id: string;
         do { id = `clip-${clip++}`; } while (doc.has(id));
-        return `${primitive}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`;
+        return `${primitive}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity, applied)).join('')}</g>`;
     };
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${roots.map(n => render(n, 1)).join('')}</svg>`;
 }

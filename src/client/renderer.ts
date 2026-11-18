@@ -4,6 +4,7 @@ import { aabb, nodeHandles, worldCorners, worldMatrix } from './geometry';
 import { transform } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
@@ -37,7 +38,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
+            drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate });
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = store.doc.get(n.link);
@@ -72,6 +73,7 @@ export class Renderer {
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
         }
+        if (!this.preview) drawGradientHandles(c, this.app);
         this.app.active?.draw?.(c, v.zoom);
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';

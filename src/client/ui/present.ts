@@ -20,7 +20,7 @@ export function present(store: Store) {
         const box = aabb(store.doc, frame);
         zoom = Math.max(.01, Math.min((r.width - 100) / box.w, (r.height - 80) / box.h));
         ox = (r.width - box.w * zoom) / 2 - box.x * zoom; oy = (r.height - box.h * zoom) / 2 - box.y * zoom;
-        c.translate(ox, oy); c.scale(zoom, zoom); drawNode(c, store.doc, frame, { zoom, labels: false });
+        c.translate(ox, oy); c.scale(zoom, zoom); drawNode(c, store.doc, frame, { zoom, scale: zoom * d, labels: false, invalidate: draw });
         if (flash) for (const n of [frame, ...descendants(store.doc, frame.id)]) if (n.link) {
             c.save(); c.transform(...worldMatrix(store.doc, n)); c.fillStyle = '#ff4f0033'; c.fillRect(0, 0, n.w, n.h); c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / zoom; c.strokeRect(0, 0, n.w, n.h); c.restore();
         }

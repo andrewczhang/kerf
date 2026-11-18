@@ -1,4 +1,13 @@
 import { corner, validPoints, type PathPoint } from './path';
+export type Paint = { type: 'solid'; color: string; opacity: number; visible: boolean } | { type: 'linear' | 'radial'; stops: { pos: number; color: string; opacity: number }[]; from: { x: number; y: number }; to: { x: number; y: number }; opacity: number; visible: boolean } | { type: 'image'; asset: string; fit: 'fill' | 'fit' | 'tile'; w: number; h: number; opacity: number; visible: boolean };
+export type Effect = { type: 'drop-shadow' | 'inner-shadow'; x: number; y: number; blur: number; spread: number; color: string; opacity: number; visible: boolean } | { type: 'layer-blur' | 'background-blur'; radius: number; visible: boolean };
+export function nodeFills(n: Node): Paint[] { return n.fills ?? [{ type: 'solid', color: n.fill, opacity: 1, visible: true }]; }
+const unit = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
+const color = (v: unknown) => typeof v === 'string' && /^#[\da-f]{6}$/i.test(v);
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const point = (v: any) => !!v && finite(v.x) && finite(v.y) && v.x >= -2 && v.x <= 3 && v.y >= -2 && v.y <= 3;
+function validPaint(p: any): boolean { return !!p && typeof p.visible === 'boolean' && unit(p.opacity) && (p.type === 'solid' ? color(p.color) : p.type === 'image' ? typeof p.asset === 'string' && /^[\da-f]{64}$/i.test(p.asset) && ['fill', 'fit', 'tile'].includes(p.fit) && finite(p.w) && p.w > 0 && finite(p.h) && p.h > 0 : ['linear', 'radial'].includes(p.type) && point(p.from) && point(p.to) && Array.isArray(p.stops) && p.stops.length >= 2 && p.stops.length <= 16 && p.stops.every((s: any) => !!s && unit(s.pos) && color(s.color) && unit(s.opacity))); }
+function validEffect(e: any): boolean { return !!e && typeof e.visible === 'boolean' && (['layer-blur', 'background-blur'].includes(e.type) ? finite(e.radius) && e.radius >= 0 : ['drop-shadow', 'inner-shadow'].includes(e.type) && [e.x, e.y, e.blur, e.spread].every(finite) && e.blur >= 0 && color(e.color) && unit(e.opacity)); }
 export const textFonts = ['sans', 'serif', 'mono'] as const;
 export const textWeights = [400, 700] as const;
 export const textAlignments = ['left', 'center', 'right'] as const;
@@ -30,6 +39,8 @@ export interface Node extends Partial<TextProperties> {
     w: number;
     h: number;
     fill: string;
+    fills?: Paint[];
+    effects?: Effect[];
     stroke: string | null;
     strokeWidth: number;
     radius: number;
@@ -93,7 +104,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['rotation', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys].includes(op.key))
+    if (!['rotation', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -120,7 +131,7 @@ export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function validNode(n: Node): boolean {
     if (!n || !validLink(n.link) || n.rotation !== undefined && !Number.isFinite(n.rotation)) return false;
-    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(n.type) && ['hidden', 'locked'].every(k => n[k as keyof Node] === undefined || typeof n[k as keyof Node] === 'boolean') && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n));
+    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(n.type) && ['hidden', 'locked'].every(k => n[k as keyof Node] === undefined || typeof n[k as keyof Node] === 'boolean') && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
 }
 function validText(n: Node): boolean {
     return typeof n.text === 'string' && n.text.length <= maxTextLength

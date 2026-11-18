@@ -1,23 +1,25 @@
-import { children, isTextNode, type Doc, type Node } from '../shared/doc';
+import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
 import { world, worldMatrix } from './geometry';
 import { inverse, multiply, type Mat } from '../shared/geometry';
-import { font, measureTextNode } from './text-layout';
+import { font, measureTextNode, textPaintBounds } from './text-layout';
+import { paintStyle, rgba } from './paint';
 import { toAbs, trace } from '../shared/path';
+import { maskedText, textMask, textShape } from './text-paint';
+import { blocked } from '../shared/layers';
 
-export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string }, applied?: Mat) {
-    if (n.hidden)
-        return;
+type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void };
+export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied?: Mat) {
+    if (blocked(doc, n, false) || opts.skip === n.id) return;
     if (n.type === 'group') {
         for (const child of children(doc, n.id))
             drawNode(c, doc, child, opts, applied);
         return;
     }
-    if (opts.skip === n.id)
-        return;
     const r = world(doc, n), m = worldMatrix(doc, n), matrix: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
     c.save();
     const relative = applied ? multiply(inverse(applied), matrix) : matrix;
     if (relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10)) c.transform(...relative);
+    if (n.fills !== undefined || n.effects !== undefined) { drawPaintedNode(c, doc, n, opts, matrix); c.restore(); return; }
     c.globalAlpha *= n.opacity;
     if (isTextNode(n)) {
         const { lines, leading, baseline, offset } = measureTextNode(n);
@@ -68,4 +70,29 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
         c.fillText(n.name, r.x, r.y - 8 / opts.zoom);
     }
     c.restore();
+}
+
+const snapshot = (source: HTMLCanvasElement) => { const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height; copy.getContext('2d')!.drawImage(source, 0, 0); return copy; };
+function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied: Mat, layered = false, backdrop?: HTMLCanvasElement) {
+    const r = world(doc, n), effects = (n.effects ?? []).filter(e => e.visible && (n.type !== 'path' || n.closed || e.type !== 'background-blur' && e.type !== 'inner-shadow')), scale = opts.scale ?? opts.zoom, layer = effects.filter(e => e.type === 'layer-blur');
+    if (layer.length && !layered) { const underneath = snapshot(target.canvas), buffer = snapshot(target.canvas), b = buffer.getContext('2d')!; b.clearRect(0, 0, buffer.width, buffer.height); b.setTransform(target.getTransform()); drawPaintedNode(b, doc, n, opts, applied, true, underneath); target.save(); target.setTransform(1, 0, 0, 1, 0, 0); target.filter = layer.map(e => `blur(${e.type === 'layer-blur' ? e.radius * scale : 0}px)`).join(' '); target.drawImage(buffer, 0, 0); target.restore(); return; }
+    const path = (spread = 0) => { const p = new Path2D(), w = Math.max(.001, r.w + 2 * spread), h = Math.max(.001, r.h + 2 * spread); if (n.type === 'path') { const original = new Path2D(); trace(original, toAbs(n.points ?? [], r), !!n.closed); if (spread) p.addPath(original, new DOMMatrix([w / r.w, 0, 0, h / r.h, r.x - spread - r.x * w / r.w, r.y - spread - r.y * h / r.h])); else return original; } else if (n.type === 'ellipse') p.ellipse(r.x + r.w / 2, r.y + r.h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); else p.roundRect(r.x - spread, r.y - spread, w, h, Math.max(0, Math.min(n.radius + spread, w / 2, h / 2))); return p; }, shape = path();
+    target.save(); target.globalAlpha *= n.opacity;
+    if (n.type === 'path') target.lineJoin = target.lineCap = 'round';
+    const text = isTextNode(n) ? n : undefined, mask = text && effects.some(e => e.type === 'background-blur' || e.type === 'inner-shadow') ? textMask(target, text, r) : undefined;
+    const clipShape = (draw: (c: CanvasRenderingContext2D) => void) => { if (mask) maskedText(target, mask, draw); else { target.save(); target.clip(shape); draw(target); target.restore(); } };
+    const hasFill = (n.type !== 'path' || !!n.closed) && nodeFills(n).some(p => p.visible && p.opacity > 0 && (p.type !== 'linear' && p.type !== 'radial' || p.stops.some(s => s.opacity > 0))), hasStroke = !!n.stroke && n.strokeWidth > 0;
+    const shadowOffset = (c: CanvasRenderingContext2D, x: number, y: number, shift = 0) => { c.shadowOffsetX = (applied[0] * x + applied[2] * y) * scale + shift; c.shadowOffsetY = (applied[1] * x + applied[3] * y) * scale; };
+    for (const e of effects) if (e.type === 'drop-shadow' && (hasFill || hasStroke)) { target.save(); const shift = (target.canvas.width + target.canvas.height) / scale + r.w + r.h + Math.abs(e.spread) * 2 + e.blur * 4; target.translate(-shift, 0); target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; shadowOffset(target, shift + e.x, e.y); target.fillStyle = '#000'; if (text) { target.translate(shift, 0); const glyphs = textMask(target, text, r, e.spread, !hasFill); shadowOffset(target, e.x, e.y, shift * scale); target.setTransform(1, 0, 0, 1, 0, 0); target.drawImage(glyphs.canvas, -shift * scale + glyphs.x, glyphs.y, glyphs.w, glyphs.h); } else if (hasFill) target.fill(path(e.spread)); else { const width = n.strokeWidth + e.spread * 2; if (width > 0) { target.strokeStyle = '#000'; target.lineWidth = width; target.stroke(shape); } } target.restore(); }
+    for (const e of effects) if (e.type === 'background-blur') { const copy = backdrop ?? snapshot(target.canvas); clipShape(c => { c.setTransform(1, 0, 0, 1, 0, 0); c.filter = `blur(${e.radius * scale}px)`; c.drawImage(copy, 0, 0); }); }
+    for (const paint of nodeFills(n)) if (paint.visible && (n.type !== 'path' || n.closed)) {
+        target.save(); target.globalAlpha *= paint.opacity;
+        if (text && paint.type === 'radial') maskedText(target, textMask(target, text, r), c => { c.translate(r.x, r.y); c.scale(r.w, r.h); const style = paintStyle(c, paint, r, opts.file ?? 'untitled', opts.invalidate ?? (() => {})), ink = textPaintBounds(text); if (style) { c.fillStyle = style; c.fillRect(ink.x / r.w, ink.y / r.h, ink.w / r.w, ink.h / r.h); } });
+        else { let fillShape = shape; if (paint.type === 'radial') { target.translate(r.x, r.y); target.scale(r.w, r.h); fillShape = new Path2D(); fillShape.addPath(shape, new DOMMatrix([1 / r.w, 0, 0, 1 / r.h, -r.x / r.w, -r.y / r.h])); } const style = paintStyle(target, paint, r, opts.file ?? location.pathname.split('/')[2] ?? 'untitled', opts.invalidate ?? (() => {})); if (style) { target.fillStyle = style; if (text) textShape(target, text, r); else target.fill(fillShape); } }
+        target.restore();
+    }
+    if (n.stroke && n.strokeWidth > 0) { target.lineWidth = n.strokeWidth; target.strokeStyle = n.stroke; if (text) textShape(target, text, r, true); else target.stroke(shape); }
+    for (const e of effects) if (e.type === 'inner-shadow') { if (text && mask) { clipShape(c => { const hole = e.spread ? textMask(target, text, r, -e.spread) : mask, inverse = snapshot(hole.canvas), b = inverse.getContext('2d')!; b.globalCompositeOperation = 'source-out'; b.fillStyle = '#000'; b.fillRect(0, 0, inverse.width, inverse.height); const shift = hole.w + hole.h + e.blur * scale * 4; c.setTransform(1, 0, 0, 1, 0, 0); c.shadowColor = rgba(e.color, e.opacity); c.shadowBlur = e.blur * scale; shadowOffset(c, e.x, e.y, shift); c.drawImage(inverse, -shift + hole.x, hole.y, hole.w, hole.h); }); continue; } target.save(); target.clip(shape); const ring = new Path2D(); const margin = Math.max(r.w, r.h) + e.blur * 4 + Math.abs(e.spread) + Math.abs(e.x) + Math.abs(e.y), shift = (target.canvas.width + target.canvas.height) / scale + margin * 4; ring.rect(r.x - margin, r.y - margin, r.w + margin * 2, r.h + margin * 2); ring.addPath(path(-e.spread)); target.fillStyle = '#000'; target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; shadowOffset(target, shift + e.x, e.y); target.translate(-shift, 0); target.fill(ring, 'evenodd'); target.restore(); }
+    if (n.type === 'frame') { target.clip(shape); for (const child of children(doc, n.id)) drawNode(target, doc, child, opts, applied); }
+    target.restore(); if (n.type === 'frame' && opts.labels) { target.fillStyle = '#77766f'; target.font = `${11 / opts.zoom}px system-ui`; target.fillText(n.name, r.x, r.y - 8 / opts.zoom); }
 }

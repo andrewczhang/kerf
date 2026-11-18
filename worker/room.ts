@@ -20,6 +20,19 @@ export class Room {
         if (ws !== except)
             this.send(ws, msg); }
     async fetch(req: Request) {
+        const asset = new URL(req.url).pathname.match(/\/assets\/([^/]+)$/);
+        if (asset) {
+            const hash = asset[1]; if (!/^[\da-f]{64}$/.test(hash)) return new Response('Invalid hash', { status: 400 });
+            if (req.method === 'GET') { const value = await this.state.storage.get<{ type: string; bytes: ArrayBuffer }>('asset:' + hash); return value ? new Response(value.bytes, { headers: { 'content-type': value.type, 'cache-control': 'public, max-age=31536000, immutable' } }) : new Response('Not found', { status: 404 }); }
+            if (req.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
+            const type = req.headers.get('content-type') || ''; if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type)) return new Response('Unsupported image type', { status: 415 });
+            const limit = 1.5 * 1024 * 1024; if (Number(req.headers.get('content-length')) > limit) return new Response('Image too large', { status: 413 });
+            const reader = req.body?.getReader(), chunks: Uint8Array[] = []; let size = 0;
+            if (reader) for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > limit) { await reader.cancel(); return new Response('Image too large', { status: 413 }); } chunks.push(value); }
+            const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+            const actual = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join(''); if (actual !== hash) return new Response('Hash mismatch', { status: 400 });
+            await this.state.storage.put('asset:' + hash, { type, bytes: bytes.buffer }); return new Response(null, { status: 204 });
+        }
         if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket')
             return new Response('WebSocket required', { status: 426 });
         const pair = new WebSocketPair();
