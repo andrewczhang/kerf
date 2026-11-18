@@ -1,5 +1,7 @@
-import { children, type Node } from '../shared/doc';
-import { bounds, handles, world, type Rect } from '../shared/geometry';
+import { children, isTextNode, type Node } from '../shared/doc';
+import { bounds, handles, type Rect } from '../shared/geometry';
+import { world } from './geometry';
+import { font, measureTextNode } from './text-layout';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 export class Renderer {
@@ -26,7 +28,25 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        const drawNode = (n: Node) => { const r = world(store.doc, n); c.save(); c.globalAlpha *= n.opacity; c.beginPath(); if (n.type === 'ellipse')
+        const drawNode = (n: Node) => {
+            if (n.id === this.app.editingText)
+                return;
+            const r = world(store.doc, n);
+            c.save();
+            c.globalAlpha *= n.opacity;
+            if (isTextNode(n)) {
+                const { lines, leading } = measureTextNode(n);
+                c.fillStyle = n.fill;
+                c.font = font(n);
+                c.textAlign = n.textAlign;
+                const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } = c.measureText('');
+                const baseline = Number.isFinite(ascent + descent) ? (leading + ascent - descent) / 2 : n.fontSize;
+                const x = r.x + (n.textAlign === 'center' ? r.w / 2 : n.textAlign === 'right' ? r.w : 0);
+                lines.forEach((line, i) => c.fillText(line, x, r.y + baseline + i * leading));
+                c.restore();
+                return;
+            }
+            c.beginPath(); if (n.type === 'ellipse')
             c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
         else
             c.roundRect(r.x, r.y, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2)); c.fillStyle = n.fill; c.fill(); if (n.stroke) {
@@ -49,14 +69,15 @@ export class Renderer {
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
             if (n)
-                outline(world(store.doc, n), '#ff4f00');
+                if (n.id !== this.app.editingText)
+                    outline(world(store.doc, n), '#ff4f00');
         }
-        if (selected.length) {
+        if (selected.length && !this.app.editingText) {
             for (const n of selected)
                 outline(world(store.doc, n), '#ff4f00');
             const box = bounds(selected.map(n => world(store.doc, n)));
             outline(box, '#ff4f00');
-            for (const p of handles(box)) {
+            for (const p of selected.every(n => n.type !== 'text') ? handles(box) : []) {
                 c.fillStyle = '#fbfbf9';
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');

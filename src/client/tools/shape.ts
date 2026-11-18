@@ -1,5 +1,6 @@
 import { between, children, makeNode, type Node } from '../../shared/doc';
-import { hit, world, type Point } from '../../shared/geometry';
+import type { Point } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
 export class Shape implements Tool {
     cursor = 'crosshair';
