@@ -15,7 +15,11 @@ export function renderBounds(doc: Doc, node: Node, zoom: number, labelWidth = 0)
     for (const effect of node.effects ?? []) if (effect.visible) {
         if (effect.type === 'layer-blur') blur += effect.radius * 4;
         if (effect.type === 'drop-shadow') {
-            const caster = strokeBounds(strokeShadowCaster(node, Math.max(0, effect.spread)), shape, points);
+            let caster = strokeBounds(strokeShadowCaster(node, Math.max(0, effect.spread)), shape, points);
+            if (points.length) {
+                const sx = Math.max(.001, r.w + 2 * effect.spread) / r.w, sy = Math.max(.001, r.h + 2 * effect.spread) / r.h;
+                caster = bounds([caster, { x: r.x - effect.spread + (shape.x - r.x) * sx, y: r.y - effect.spread + (shape.y - r.y) * sy, w: shape.w * sx, h: shape.h * sy }]);
+            }
             const pad = Math.max(0, effect.spread) + effect.blur * 4;
             regions.push({ x: caster.x + effect.x - pad, y: caster.y + effect.y - pad, w: caster.w + 2 * pad, h: caster.h + 2 * pad });
         }

@@ -40,6 +40,19 @@ it('keeps text glyph overhang outside layout bounds and respects parent world po
     expect(inViewport(docOf(frame, text), text, view, 1)).toBe(true);
 });
 
+it('keeps spread path shadows whose distant points scale beyond the original path bounds', () => {
+    const path = { ...makeNode('path', 200, 300), w: 100, h: 100, closed: true, stroke: null, points: [{ x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 }, { x: 10, y: 0, ix: 10, iy: 0, ox: 10, oy: 0 }, { x: 10, y: 1, ix: 10, iy: 1, ox: 10, oy: 1 }] };
+    const effect = { type: 'drop-shadow' as const, x: 0, y: 0, blur: 0, spread: 10, color: '#000000', opacity: 1, visible: true };
+    const viewport = { x: 1380, y: 340, w: 5, h: 5 };
+    expect(inViewport(docOf(path), path, viewport, 1)).toBe(false);
+    const shadow = { ...path, effects: [effect] };
+    expect(inViewport(docOf(shadow), shadow, viewport, 1)).toBe(true);
+    for (const change of [{ visible: false }, { spread: 0 }]) {
+        const unchanged = { ...path, effects: [{ ...effect, ...change }] };
+        expect(inViewport(docOf(unchanged), unchanged, viewport, 1)).toBe(false);
+    }
+});
+
 it('avoids canvas work for culled nodes and preserves clipping before drawing frame descendants', () => {
     const operations: string[] = [];
     const c = new Proxy({ globalAlpha: 1, font: '11px system-ui', measureText: () => ({ width: 20 }) }, { get(target, key) { return key in target ? target[key as keyof typeof target] : () => operations.push(String(key)); }, set(target, key, value) { Reflect.set(target, key, value); return true; } }) as unknown as CanvasRenderingContext2D;
