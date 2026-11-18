@@ -1,6 +1,6 @@
 import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
-import { bounds } from '../shared/geometry';
-import { world } from './geometry';
+import { bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
+import { world, worldMatrix } from './geometry';
 import { drawNode } from './draw';
 import { loadAsset } from './assets';
 import { svgPaints, svgStroke } from './svg-paints';
@@ -29,10 +29,10 @@ export function exportBounds(doc: Doc, roots: Node[]) {
     const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
     roots.forEach(collect);
     const r = bounds(visible.map(n => {
-        let r = world(doc, n);
+        let r = { x: 0, y: 0, w: n.w, h: n.h };
         if (isTextNode(n)) {
             const ink = textPaintBounds(n);
-            r = { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+            r = ink;
         }
         const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
         if (n.type !== 'group')
@@ -53,7 +53,7 @@ export function exportBounds(doc: Doc, roots: Node[]) {
                 }
             } else if (e.type === 'layer-blur') blur += e.radius * 3;
         }
-        return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
+        return transformedBounds(worldMatrix(doc, n), { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 });
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
@@ -104,6 +104,9 @@ const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 
 export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<string, string> = new Map()): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
+    type Clip = { id: string; applied?: Mat };
+    const matrix = (m?: Mat) => m && m.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${m.join(' ')})"` : '';
+    const wrapped = (content: string, m?: Mat) => content && matrix(m) ? `<g${matrix(m)}>${content}</g>` : content;
     let clip = 0, paint = 0;
     const needsBackdrop = (nodes: Node[]): boolean => nodes.some(n => !n.hidden && ((n.type !== 'path' || n.closed) && n.effects?.some(e => e.visible && e.type === 'background-blur') || (n.type === 'frame' || n.type === 'group') && needsBackdrop(children(doc, n.id))));
     const hasBackdrop = needsBackdrop(roots);
@@ -116,25 +119,27 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         return `<use href="#${id}"/>`;
     };
     const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
-    const clipped = (content: string, clips: string[]) => clips.reduceRight((body, id) => `<g clip-path="url(#${id})">${body}</g>`, content);
-    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: string[] = []): string => {
+    const clipped = (content: string, clips: Clip[]) => clips.reduceRight((body, clip) => wrapped(`<g clip-path="url(#${clip.id})">${wrapped(body, clip.applied && inverse(clip.applied))}</g>`, clip.applied), content);
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat): string => {
         let output = '', below = backdrop;
-        for (const n of nodes) { if (n.hidden) continue; if (!plain && !hasBackdrop) { output += render(n, alpha, '', false, false, clips); continue; } const original = plainRef(n, alpha); if (plain) output += original; else { output += render(n, alpha, below, false, false, clips); below = extendBackdrop(below, clipped(original, clips)); } }
+        for (const n of nodes) { if (n.hidden) continue; if (!plain && !hasBackdrop) { output += render(n, alpha, '', false, false, clips, applied); continue; } const original = plainRef(n, alpha); if (plain) output += wrapped(original, applied && inverse(applied)); else { output += render(n, alpha, below, false, false, clips, applied); below = extendBackdrop(below, clipped(original, clips)); } }
         return output;
     };
-    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false, clips: string[] = []): string => {
+    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false, clips: Clip[] = [], applied?: Mat): string => {
         if (n.hidden)
             return '';
         if (n.type === 'group')
-            return renderList(children(doc, n.id), alpha, backdrop, plain, clips);
-        const r = world(doc, n), opacity = alpha * n.opacity;
+            return renderList(children(doc, n.id), alpha, backdrop, plain, clips, applied);
+        const r = world(doc, n), opacity = alpha * n.opacity, m = worldMatrix(doc, n);
+        const correction: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
+        const relative = applied ? multiply(inverse(applied), correction) : correction, transform = matrix(relative), localBackdrop = wrapped(backdrop, inverse(correction));
         const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur' && (!shell || e.type !== 'layer-blur')) } : n, nodeId = plain ? painted.id : n.id;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
-            if (n.fills !== undefined || n.effects !== undefined) return svgPaints(painted, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs, { images, backdrop, region: r });
-            return `<text id="${escape(nodeId)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+            if (n.fills !== undefined || n.effects !== undefined) return wrapped(svgPaints(painted, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs, { images, backdrop: localBackdrop, region: r }), relative);
+            return `<text id="${escape(nodeId)}" data-name="${escape(n.name)}"${transform} xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
@@ -143,15 +148,15 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
-            if (n.type === 'frame' && !shell) { const id = clipId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, id])}</g>`; }
-            return svgPaints(painted, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop, region: r, points });
+            if (n.type === 'frame' && !shell) { const id = clipId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied: correction }], correction)}</g>`; }
+            return wrapped(svgPaints(painted, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop: localBackdrop, region: r, points }), relative);
         }
         const stroke = svgStroke(painted, r, tag, geometry, points, opacity, clipId);
         const primitive = `<${tag} id="${escape(nodeId)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${stroke.fillRule}`}${stroke.inline}/>${stroke.extra}`;
         if (n.type !== 'frame' || shell)
-            return primitive;
+            return wrapped(primitive, relative);
         const id = clipId();
-        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, id])}</g>`;
+        return `${wrapped(primitive, relative)}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied }], applied)}</g>`;
     };
     const content = renderList(roots, 1, '');
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${definitions.length ? `<defs>${definitions.join('')}</defs>` : ''}${content}</svg>`;

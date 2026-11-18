@@ -1,5 +1,6 @@
 import { children, nodeFills, isTextNode, type Doc, type Effect, type Node } from '../shared/doc';
-import { world } from './geometry';
+import { world, worldMatrix } from './geometry';
+import { inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { font, measureTextNode, textPaintBounds } from './text-layout';
 import { paintStyle, rgba } from './paint';
 import { toAbs, trace, type PathPoint } from '../shared/path';
@@ -69,7 +70,7 @@ function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: Path
 
 type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void; viewport?: Rect };
 const labelWidths = new WeakMap<Node, number>();
-export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions) {
+export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied?: Mat) {
     if (blocked(doc, n, false) || opts.skip === n.id) return;
     if (opts.viewport) {
         let labelWidth = 0;
@@ -79,10 +80,16 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
         }
         if (!inViewport(doc, n, opts.viewport, opts.zoom, labelWidth)) return;
     }
-    if (n.type === 'group') { for (const child of children(doc, n.id)) drawNode(c, doc, child, opts); return; }
-    if (n.fills !== undefined || n.effects !== undefined) { drawPaintedNode(c, doc, n, opts); return; }
-    const r = world(doc, n);
+    if (n.type === 'group') {
+        for (const child of children(doc, n.id))
+            drawNode(c, doc, child, opts, applied);
+        return;
+    }
+    const r = world(doc, n), m = worldMatrix(doc, n), matrix: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
     c.save();
+    const relative = applied ? multiply(inverse(applied), matrix) : matrix;
+    if (relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10)) c.transform(...relative);
+    if (n.fills !== undefined || n.effects !== undefined) { drawPaintedNode(c, doc, n, opts, matrix); c.restore(); return; }
     c.globalAlpha *= n.opacity;
     if (isTextNode(n)) {
         const { lines, leading, baseline, offset } = measureTextNode(n);
@@ -114,26 +121,29 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
     }
     if (n.stroke && style) paintStroke(c, n, r, points, shape, n.stroke);
     if (n.type === 'frame') {
+        c.save();
         c.clip();
         for (const child of children(doc, n.id))
-            drawNode(c, doc, child, { ...opts, viewport: undefined });
+            drawNode(c, doc, child, { ...opts, viewport: undefined }, matrix);
+        c.restore();
     }
-    c.restore();
     if (n.type === 'frame' && opts.labels) {
         c.fillStyle = '#77766f';
         c.font = `${11 / opts.zoom}px system-ui`;
         c.fillText(n.name, r.x, r.y - 8 / opts.zoom);
     }
+    c.restore();
 }
 
 const snapshot = (source: HTMLCanvasElement) => { const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height; copy.getContext('2d')!.drawImage(source, 0, 0); return copy; };
-function drawStrokeShadow(target: CanvasRenderingContext2D, caster: Node, r: Rect, points: PathPoint[], shape: Path2D, effect: Extract<Effect, { spread: number }>, scale: number) {
-    const bounds = strokeBounds(caster, r, points), { e, f } = target.getTransform();
-    const dx = effect.x * scale, dy = effect.y * scale, blur = effect.blur * scale, pad = blur * 4 + 2;
-    const x = Math.floor(Math.max(bounds.x * scale + e - 1, -dx - pad));
-    const y = Math.floor(Math.max(bounds.y * scale + f - 1, -dy - pad));
-    const w = Math.ceil(Math.min((bounds.x + bounds.w) * scale + e + 1, target.canvas.width - dx + pad)) - x;
-    const h = Math.ceil(Math.min((bounds.y + bounds.h) * scale + f + 1, target.canvas.height - dy + pad)) - y;
+function drawStrokeShadow(target: CanvasRenderingContext2D, caster: Node, r: Rect, points: PathPoint[], shape: Path2D, effect: Extract<Effect, { spread: number }>, scale: number, applied: Mat) {
+    const { e, f } = target.getTransform(), m: Mat = [applied[0] * scale, applied[1] * scale, applied[2] * scale, applied[3] * scale, e, f];
+    const bounds = transformedBounds(m, strokeBounds(caster, r, points));
+    const dx = m[0] * effect.x + m[2] * effect.y, dy = m[1] * effect.x + m[3] * effect.y, blur = effect.blur * scale, pad = blur * 4 + 2;
+    const x = Math.floor(Math.max(bounds.x - 1, -dx - pad));
+    const y = Math.floor(Math.max(bounds.y - 1, -dy - pad));
+    const w = Math.ceil(Math.min(bounds.x + bounds.w + 1, target.canvas.width - dx + pad)) - x;
+    const h = Math.ceil(Math.min(bounds.y + bounds.h + 1, target.canvas.height - dy + pad)) - y;
     if (w <= 0 || h <= 0) return;
 
     // Rasterize the stroke separately so its alignment clip doesn't clip the offset shadow.
@@ -143,7 +153,7 @@ function drawStrokeShadow(target: CanvasRenderingContext2D, caster: Node, r: Rec
     const c = buffer.getContext('2d');
     if (!c) return;
     const sx = buffer.width / w, sy = buffer.height / h;
-    c.setTransform(scale * sx, 0, 0, scale * sy, (e - x) * sx, (f - y) * sy);
+    c.setTransform(m[0] * sx, m[1] * sy, m[2] * sx, m[3] * sy, (e - x) * sx, (f - y) * sy);
     paintStroke(c, caster, r, points, shape, '#000');
 
     const sourceX = -w - 2;
@@ -157,9 +167,9 @@ function drawStrokeShadow(target: CanvasRenderingContext2D, caster: Node, r: Rec
     target.restore();
 }
 
-function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, layered = false, backdrop?: HTMLCanvasElement) {
+function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied: Mat, layered = false, backdrop?: HTMLCanvasElement) {
     const r = world(doc, n), effects = (n.effects ?? []).filter(e => e.visible && (n.type !== 'path' || n.closed || e.type !== 'background-blur' && e.type !== 'inner-shadow')), scale = opts.scale ?? opts.zoom, layer = effects.filter(e => e.type === 'layer-blur');
-    if (layer.length && !layered) { const underneath = snapshot(target.canvas), buffer = snapshot(target.canvas), b = buffer.getContext('2d')!; b.clearRect(0, 0, buffer.width, buffer.height); b.setTransform(target.getTransform()); drawPaintedNode(b, doc, n, opts, true, underneath); target.save(); target.setTransform(1, 0, 0, 1, 0, 0); target.filter = layer.map(e => `blur(${e.type === 'layer-blur' ? e.radius * scale : 0}px)`).join(' '); target.drawImage(buffer, 0, 0); target.restore(); return; }
+    if (layer.length && !layered) { const underneath = snapshot(target.canvas), buffer = snapshot(target.canvas), b = buffer.getContext('2d')!; b.clearRect(0, 0, buffer.width, buffer.height); b.setTransform(target.getTransform()); drawPaintedNode(b, doc, n, opts, applied, true, underneath); target.save(); target.setTransform(1, 0, 0, 1, 0, 0); target.filter = layer.map(e => `blur(${e.type === 'layer-blur' ? e.radius * scale : 0}px)`).join(' '); target.drawImage(buffer, 0, 0); target.restore(); return; }
     const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
     const path = (spread = 0) => { const p = new Path2D(), w = Math.max(.001, r.w + 2 * spread), h = Math.max(.001, r.h + 2 * spread); if (n.type === 'path') { const original = new Path2D(); trace(original, points, !!n.closed); if (spread) p.addPath(original, new DOMMatrix([w / r.w, 0, 0, h / r.h, r.x - spread - r.x * w / r.w, r.y - spread - r.y * h / r.h])); else return original; } else if (n.type === 'ellipse') { p.ellipse(r.x + r.w / 2, r.y + r.h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); p.closePath(); } else p.roundRect(r.x - spread, r.y - spread, w, h, Math.max(0, Math.min(n.radius + spread, w / 2, h / 2))); return p; }, shape = path();
     target.save(); target.globalAlpha *= n.opacity;
@@ -167,12 +177,13 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
     const text = isTextNode(n) ? n : undefined, mask = text && effects.some(e => e.type === 'background-blur' || e.type === 'inner-shadow') ? textMask(target, text, r) : undefined;
     const clipShape = (draw: (c: CanvasRenderingContext2D) => void) => { if (mask) maskedText(target, mask, draw); else { target.save(); target.clip(shape); draw(target); target.restore(); } };
     const hasFill = (n.type !== 'path' || !!n.closed) && nodeFills(n).some(p => p.visible && p.opacity > 0 && (p.type !== 'linear' && p.type !== 'radial' || p.stops.some(s => s.opacity > 0))), hasStroke = !!n.stroke && n.strokeWidth > 0;
+    const shadowOffset = (c: CanvasRenderingContext2D, x: number, y: number, shift = 0) => { c.shadowOffsetX = (applied[0] * x + applied[2] * y) * scale + shift; c.shadowOffsetY = (applied[1] * x + applied[3] * y) * scale; };
     for (const e of effects) {
         if (e.type !== 'drop-shadow' || !hasFill && !hasStroke) continue;
         const align = strokeStyle(n).align, caster = strokeShadowCaster(n, e.spread);
         if (!text && !hasFill && caster.strokeWidth <= 0) continue;
         if (!text && !hasFill && (align !== 'center' || pathArrows(caster, points).length)) {
-            drawStrokeShadow(target, caster, r, points, shape, e, scale);
+            drawStrokeShadow(target, caster, r, points, shape, e, scale, applied);
             continue;
         }
         const ink = !text && !hasFill ? strokeBounds(caster, r, points) : r;
@@ -181,12 +192,12 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
         target.translate(-shift, 0);
         target.shadowColor = rgba(e.color, e.opacity);
         target.shadowBlur = e.blur * scale;
-        target.shadowOffsetX = (shift + e.x) * scale;
-        target.shadowOffsetY = e.y * scale;
+        shadowOffset(target, shift + e.x, e.y);
         target.fillStyle = '#000';
         if (text) {
             target.translate(shift, 0);
             const glyphs = textMask(target, text, r, e.spread, !hasFill);
+            shadowOffset(target, e.x, e.y, shift * scale);
             target.setTransform(1, 0, 0, 1, 0, 0);
             target.drawImage(glyphs.canvas, -shift * scale + glyphs.x, glyphs.y, glyphs.w, glyphs.h);
         }
@@ -205,7 +216,7 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
         if (text) { target.lineWidth = n.strokeWidth; target.strokeStyle = n.stroke; textShape(target, text, r, true); }
         else paintStroke(target, n, r, points, shape, n.stroke);
     }
-    for (const e of effects) if (e.type === 'inner-shadow') { if (text && mask) { clipShape(c => { const hole = e.spread ? textMask(target, text, r, -e.spread) : mask, inverse = snapshot(hole.canvas), b = inverse.getContext('2d')!; b.globalCompositeOperation = 'source-out'; b.fillStyle = '#000'; b.fillRect(0, 0, inverse.width, inverse.height); const shift = hole.w + hole.h + e.blur * scale * 4; c.setTransform(1, 0, 0, 1, 0, 0); c.shadowColor = rgba(e.color, e.opacity); c.shadowBlur = e.blur * scale; c.shadowOffsetX = shift + e.x * scale; c.shadowOffsetY = e.y * scale; c.drawImage(inverse, -shift + hole.x, hole.y, hole.w, hole.h); }); continue; } target.save(); target.clip(shape); const ring = new Path2D(); const margin = Math.max(r.w, r.h) + e.blur * 4 + Math.abs(e.spread) + Math.abs(e.x) + Math.abs(e.y), shift = (target.canvas.width + target.canvas.height) / scale + margin * 4; ring.rect(r.x - margin, r.y - margin, r.w + margin * 2, r.h + margin * 2); ring.addPath(path(-e.spread)); target.fillStyle = '#000'; target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; target.shadowOffsetX = (shift + e.x) * scale; target.shadowOffsetY = e.y * scale; target.translate(-shift, 0); target.fill(ring, 'evenodd'); target.restore(); }
-    if (n.type === 'frame') { target.clip(shape); for (const child of children(doc, n.id)) drawNode(target, doc, child, { ...opts, viewport: undefined }); }
+    for (const e of effects) if (e.type === 'inner-shadow') { if (text && mask) { clipShape(c => { const hole = e.spread ? textMask(target, text, r, -e.spread) : mask, inverse = snapshot(hole.canvas), b = inverse.getContext('2d')!; b.globalCompositeOperation = 'source-out'; b.fillStyle = '#000'; b.fillRect(0, 0, inverse.width, inverse.height); const shift = hole.w + hole.h + e.blur * scale * 4; c.setTransform(1, 0, 0, 1, 0, 0); c.shadowColor = rgba(e.color, e.opacity); c.shadowBlur = e.blur * scale; shadowOffset(c, e.x, e.y, shift); c.drawImage(inverse, -shift + hole.x, hole.y, hole.w, hole.h); }); continue; } target.save(); target.clip(shape); const ring = new Path2D(); const margin = Math.max(r.w, r.h) + e.blur * 4 + Math.abs(e.spread) + Math.abs(e.x) + Math.abs(e.y), shift = (target.canvas.width + target.canvas.height) / scale + margin * 4; ring.rect(r.x - margin, r.y - margin, r.w + margin * 2, r.h + margin * 2); ring.addPath(path(-e.spread)); target.fillStyle = '#000'; target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; shadowOffset(target, shift + e.x, e.y); target.translate(-shift, 0); target.fill(ring, 'evenodd'); target.restore(); }
+    if (n.type === 'frame') { target.clip(shape); for (const child of children(doc, n.id)) drawNode(target, doc, child, { ...opts, viewport: undefined }, applied); }
     target.restore(); if (n.type === 'frame' && opts.labels) { target.fillStyle = '#77766f'; target.font = `${11 / opts.zoom}px system-ui`; target.fillText(n.name, r.x, r.y - 8 / opts.zoom); }
 }

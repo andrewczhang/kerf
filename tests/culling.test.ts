@@ -49,7 +49,20 @@ it('avoids canvas work for culled nodes and preserves clipping before drawing fr
     drawNode(c, docOf(frame, child), frame, { zoom: 1, labels: true, viewport: view });
     expect(operations.filter(op => op === 'roundRect')).toHaveLength(2);
     expect(operations.indexOf('clip')).toBeLessThan(operations.lastIndexOf('roundRect'));
-    expect(operations.at(-1)).toBe('fillText');
+    expect(operations).toContain('fillText');
+    expect(operations.at(-1)).toBe('restore');
     operations.length = 0;
     drawNode(c, docOf(frame, child), frame, { zoom: 1, labels: true, viewport: view, skip: frame.id }); expect(operations).toEqual([]);
+});
+
+it('culls in rotated world space, including rotated parents and frame labels', () => {
+    const node = { ...makeNode('rect', 110, 0), w: 20, h: 200, rotation: 90 };
+    expect(inViewport(docOf(node), node, view, 1)).toBe(true);
+    const parent = { ...makeNode('frame', 0, 0), w: 100, h: 100, rotation: 180 };
+    const child = { ...makeNode('rect', 150, 0), w: 20, h: 20, parent: parent.id };
+    expect(inViewport(docOf(parent, child), child, view, 1)).toBe(false);
+    expect(inViewport(docOf(parent, child), child, { x: -80, y: 70, w: 40, h: 40 }, 1)).toBe(true);
+    const frame = { ...makeNode('frame', 0, 110), w: 20, h: 20, rotation: 180 };
+    expect(inViewport(docOf(frame), frame, { x: 0, y: 135, w: 10, h: 10 }, 1)).toBe(false);
+    expect(inViewport(docOf(frame), frame, { x: 0, y: 135, w: 10, h: 10 }, 1, 40)).toBe(true);
 });

@@ -1,6 +1,6 @@
 import { between, children, makeNode, type Node } from '../../shared/doc';
-import type { Point } from '../../shared/geometry';
-import { hit, world } from '../geometry';
+import { identity, inverse, parentMatrix, transform, type Mat, type Point } from '../../shared/geometry';
+import { hit, worldMatrix } from '../geometry';
 import { MAX_POINTS, corner, fit, nearest, reverse, smooth, snap45, split, toAbs, trace, type PathPoint } from '../../shared/path';
 import type { Context, Tool } from './tool';
 import { blocked } from '../../shared/layers';
@@ -9,6 +9,7 @@ type Part = { kind: 'anchor' | 'in' | 'out'; index: number };
 type Drag = { kind: 'anchor' | 'in' | 'out' | 'handles'; index: number; start: Point; abs: PathPoint[]; moved: boolean; free?: boolean };
 
 const ORANGE = '#ff4f00', PAPER = '#fbfbf9';
+function mapped(abs: PathPoint[], m: Mat): PathPoint[] { return abs.map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }); }
 
 /** Pen: click adds corners, drag pulls bezier handles, click the first anchor to close. With a path selected it edits anchors and handles. */
 export class Pen implements Tool {
@@ -28,12 +29,12 @@ export class Pen implements Tool {
         const n = this.ctx.store.doc.get([...s][0]);
         return n?.type === 'path' && n.points && !blocked(this.ctx.store.doc, n) ? n : undefined;
     }
-    abs(n: Node) { return toAbs(n.points!, world(this.ctx.store.doc, n)); }
-    origin(n: Node): Point { const p = n.parent ? this.ctx.store.doc.get(n.parent) : undefined; return p ? world(this.ctx.store.doc, p) : { x: 0, y: 0 }; }
+    abs(n: Node) { return mapped(toAbs(n.points!, { x: 0, y: 0, w: n.w, h: n.h }), worldMatrix(this.ctx.store.doc, n)); }
     write(n: Node, abs: PathPoint[], closed = !!n.closed) {
         if (abs.length > MAX_POINTS) return false;
-        const f = fit(abs, closed, this.origin(n));
-        this.ctx.store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(closed !== !!n.closed ? { closed } : {}) });
+        const doc = this.ctx.store.doc, m = worldMatrix(doc, n), f = fit(mapped(abs, inverse(m)), closed, { x: 0, y: 0 });
+        const c = transform(inverse(parentMatrix(doc, n)), transform(m, { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
+        this.ctx.store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(closed !== !!n.closed ? { closed } : {}) });
         return true;
     }
     /** Handles are shown for the selected anchor, its neighbours and the anchor being drawn. */
@@ -120,7 +121,7 @@ export class Pen implements Tool {
     create(p: Point) {
         const { store } = this.ctx, doc = store.doc, target = hit(doc, p);
         const parent = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined;
-        const origin = parent ? world(doc, parent) : { x: 0, y: 0 }, abs = [corner(p.x, p.y)], f = fit(abs, false, origin);
+        const m = parent ? worldMatrix(doc, parent) : identity, abs = [corner(p.x, p.y)], f = fit(mapped(abs, inverse(m)), false, { x: 0, y: 0 });
         const node: Node = { ...makeNode('path', f.x, f.y, between(children(doc, parent?.id ?? null).at(-1)?.index ?? null)), parent: parent?.id ?? null, w: f.w, h: f.h, points: f.points };
         store.commit([{ t: 'create', node }]);
         store.selection.clear();

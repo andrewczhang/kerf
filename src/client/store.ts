@@ -1,4 +1,4 @@
-import { applyOp, descendants, isTextNode, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, isTextNode, normalizeNode, normalizeRotation, type Doc, type Op, type Key } from '../shared/doc';
 import { applyLayout, type MeasureText } from '../shared/layout';
 import { MAX_OPS } from '../shared/protocol';
 import { docIndex, indexDoc } from '../shared/doc-index';
@@ -49,6 +49,7 @@ export class Store extends EventTarget {
         this.redoStack = [];
     } this.group = null; }
     commit(ops: Op[], record = true) {
+        ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         if (record) {
             const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
             ops = ops.flatMap(op => {

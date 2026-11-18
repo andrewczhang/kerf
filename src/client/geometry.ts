@@ -1,9 +1,9 @@
 import { isTextNode, type Doc, type Node } from '../shared/doc';
-import { hit as hitWithSize, world as worldWithSize, type Point } from '../shared/geometry';
+import { aabb as aabbWithSize, nodeHandles as handlesWithSize, worldMatrix as matrixWithSize, worldCorners as cornersWithSize, hit as hitWithSize, world as worldWithSize, type Point } from '../shared/geometry';
 import { measureTextNode } from './text-layout';
 import { docIndex } from '../shared/doc-index';
 
-const sizeOf = (node: Node) => isTextNode(node) ? measureTextNode(node) : node;
+export const sizeOf = (node: Node) => isTextNode(node) ? measureTextNode(node) : node;
 const worlds = new WeakMap<Doc, { revision: number; nodes: WeakMap<Node, ReturnType<typeof worldWithSize>> }>();
 export const world = (doc: Doc, node: Node) => {
     const index = docIndex(doc);
@@ -17,4 +17,8 @@ export const world = (doc: Doc, node: Node) => {
     if (!r || r.w !== size.w || r.h !== size.h) { r = worldWithSize(doc, node, () => size); cache.nodes.set(node, r); }
     return r;
 };
+export const worldMatrix = (doc: Doc, node: Node) => matrixWithSize(doc, node, sizeOf);
+export const worldCorners = (doc: Doc, node: Node) => cornersWithSize(doc, node, sizeOf);
+export const aabb = (doc: Doc, node: Node) => aabbWithSize(doc, node, sizeOf);
+export const nodeHandles = (doc: Doc, node: Node) => handlesWithSize(doc, node, sizeOf);
 export const hit = (doc: Doc, point: Point, tol?: number, parent: string | null = null) => hitWithSize(doc, point, parent, sizeOf, tol);

@@ -1,8 +1,8 @@
 import { isTextNode, type Doc, type Node } from '../shared/doc';
-import { bounds, intersects, type Rect } from '../shared/geometry';
+import { bounds, intersects, transformedBounds, type Rect } from '../shared/geometry';
 import { toAbs } from '../shared/path';
 import { strokeBounds, strokeShadowCaster } from '../shared/stroke';
-import { world } from './geometry';
+import { world, worldMatrix } from './geometry';
 import { textPaintBounds } from './text-layout';
 
 export function renderBounds(doc: Doc, node: Node, zoom: number, labelWidth = 0): Rect {
@@ -22,7 +22,8 @@ export function renderBounds(doc: Doc, node: Node, zoom: number, labelWidth = 0)
     }
     const box = bounds(regions), pad = blur + 2 / zoom;
     const result = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
-    return node.type === 'frame' && labelWidth > 0 ? bounds([result, { x: r.x - 2 / zoom, y: r.y - 24 / zoom, w: (labelWidth + 4) / zoom, h: 26 / zoom }]) : result;
+    const labeled = node.type === 'frame' && labelWidth > 0 ? bounds([result, { x: r.x - 2 / zoom, y: r.y - 24 / zoom, w: (labelWidth + 4) / zoom, h: 26 / zoom }]) : result;
+    return transformedBounds(worldMatrix(doc, node), { ...labeled, x: labeled.x - r.x, y: labeled.y - r.y });
 }
 
 export function inViewport(doc: Doc, node: Node, viewport: Rect, zoom: number, labelWidth = 0) {

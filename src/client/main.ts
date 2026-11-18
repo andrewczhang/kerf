@@ -26,6 +26,7 @@ import { downloadSelection } from './export';
 import { home } from './ui/home';
 import { trackRecent } from './recent-preview';
 import { editorCommands } from './ui/editor-commands';
+import { fileName } from './ui/file-name';
 if (location.pathname === '/') home();
 else bootEditor();
 function bootEditor() {
@@ -77,6 +78,7 @@ features(renderer, sync, ctx, choose);
 const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
 editorCommands(ctx, renderer, choose, isInspecting);
 trackRecent(store, file);
+fileName(sync, () => !isInspecting() && !renderer.preview);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (isInspecting() || active.id !== 'select') return;
