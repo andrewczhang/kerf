@@ -1,6 +1,6 @@
 import { pageDocument } from '../../shared/pages';
 import { applyOp, between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
-import { bounds, handles, intersects, inverse, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
+import { bounds, handles, intersects, inverse, localMatrix, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, world, worldMatrix } from '../geometry';
 import type { Store } from '../store';
 import { copyAsset } from '../assets';
@@ -384,6 +384,7 @@ export async function pasteLayers(store: Store, file = currentFile()) {
     clip.pastes++;
     writeClipboard(clip);
     const source = new Map([...(clip.components ?? []), ...clip.nodes].map(n => [n.id, n]));
+    const matrices = { ...clip.matrices };
     for (const n of source.values()) if (n.parent && !source.has(n.parent)) source.set(n.id, { ...n, parent: null });
     const pasted = new Set(clip.nodes.map(n => n.id));
     for (const id of pasted) {
@@ -394,6 +395,7 @@ export async function pasteLayers(store: Store, file = currentFile()) {
             applyOp(source, op);
             if (op.t === 'create') pasted.add(op.node.id);
         }
+        if (clip.roots.includes(id) && matrices[id]) matrices[id] = multiply(matrices[id], multiply(inverse(localMatrix(n)), localMatrix(source.get(id)!)));
     }
     const nodes = [...pasted].map(id => source.get(id)!);
     if (clip.file && clip.file !== file) {
@@ -419,7 +421,7 @@ export async function pasteLayers(store: Store, file = currentFile()) {
         if (clip.roots.includes(n.id)) {
             const parent = target(n.id);
             copy.parent = parent?.id ?? store.currentPage ?? null;
-            const m = clip.matrices?.[n.id];
+            const m = matrices[n.id];
             if (parent || !m) {
                 copy.x = n.x + 20 * clip.pastes;
                 copy.y = n.y + 20 * clip.pastes;
