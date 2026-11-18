@@ -1,5 +1,6 @@
 import './home.css';
 import { readRecent, removeRecent, newFile, fileId } from '../recent-files';
+import { homeTemplates } from './templates';
 export function openedAgo(time: number) {
     const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
     if (minutes < 1) return 'Opened just now';
@@ -11,6 +12,7 @@ export function home() {
     const app = document.querySelector('#app')!;
     app.innerHTML = '<header><a class="wordmark" href="/">kerf</a><span>Space for your next idea.</span></header><main class="home"><div class="home-title"><h1>All files</h1><button class="new-file">New file +</button></div><form class="open-file"><label for="file-link">Open a shared file</label><input id="file-link" placeholder="Paste a file link or ID" required><button>Open ↗</button><span role="alert"></span></form><div class="recent-heading"><span>Recent files</span><span>Stored on this browser</span></div><div class="recent-list"></div></main>';
     app.querySelector('.new-file')!.addEventListener('click', newFile);
+    app.querySelector('.recent-heading')!.before(homeTemplates());
     const form = app.querySelector('form')!; form.onsubmit = e => { e.preventDefault(); const id = fileId(form.querySelector('input')!.value); if (id) location.assign('/f/' + id); else form.querySelector('[role=alert]')!.textContent = 'Enter a valid file link or ID.'; };
     function render() {
         const list = app.querySelector('.recent-list')!; list.replaceChildren();
