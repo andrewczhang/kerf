@@ -1,5 +1,5 @@
 import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
-import { ancestorMasks, bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
+import { activeMask, ancestorMasks, bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { world, worldMatrix } from './geometry';
 import { clipMask, drawNode } from './draw';
 import { loadAsset } from './assets';
@@ -121,11 +121,12 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
     };
     const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
     const clipped = (content: string, clips: Clip[]) => clips.reduceRight((body, clip) => wrapped(`<g clip-path="url(#${clip.id})">${wrapped(body, clip.applied && inverse(clip.applied))}</g>`, clip.applied), content);
-    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat): string => {
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat, roots = false): string => {
         let output = '', below = backdrop;
         for (const n of nodes) {
             if (n.hidden || n.mask) continue;
-            const masks = ancestorMasks(doc, n).map(mask => {
+            const siblingMask = activeMask(doc, n), scopeMasks = roots ? ancestorMasks(doc, n) : siblingMask ? [siblingMask] : [];
+            const masks = scopeMasks.map(mask => {
                 let id: string; do { id = `mask-${clip++}`; } while (doc.has(id));
                 const r = { x: 0, y: 0, w: mask.w, h: mask.h }, m = worldMatrix(doc, mask), relative = applied ? multiply(inverse(applied), m) : m;
                 const shape = mask.type === 'ellipse' ? `<ellipse cx="${r.w / 2}" cy="${r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : mask.type === 'path' ? `<path d="${pathData(toAbs(mask.points ?? [], r), true)}"` : `<rect x="0" y="0" width="${r.w}" height="${r.h}" rx="${Math.min(mask.radius, r.w / 2, r.h / 2)}"`;
@@ -173,7 +174,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const id = clipId();
         return `${wrapped(primitive, relative)}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied }], applied)}</g>`;
     };
-    const content = renderList(roots, 1, '');
+    const content = renderList(roots, 1, '', false, [], undefined, true);
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${definitions.length ? `<defs>${definitions.join('')}</defs>` : ''}${content}</svg>`;
 }
 

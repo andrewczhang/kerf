@@ -8,6 +8,28 @@ import { exportBounds, exportSVG } from '../src/client/export';
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 const mask = (type: 'rect' | 'ellipse' = 'rect'): Node => ({ ...makeNode(type, 0, 0, 'A'), mask: true });
 
+it.each([false, true])('clips a blurred frame after filtering its children (inner mask: %s)', innerMask => {
+    const m = { ...mask(), w: 50 }, frame = { ...makeNode('frame', 0, 0, 'B'), fills: [], effects: [{ type: 'layer-blur' as const, radius: 10, visible: true }] };
+    const inner = { ...mask('ellipse'), parent: frame.id }, child = { ...makeNode('rect', 40, 0, 'B'), parent: frame.id, w: 60, fill: '#123456' };
+    const doc = docOf(m, frame, child, ...(innerMask ? [inner] : [])), svg = exportSVG(doc, [m.id, frame.id]);
+    const stack: string[] = [];
+    let ancestors: string[] = [];
+    for (const token of svg.match(/<g\b[^>]*>|<\/g>|<rect\b[^>]*>/g) ?? []) {
+        if (token.startsWith('<g ')) stack.push(token);
+        else if (token === '</g>') stack.pop();
+        else if (token.includes(`id="${child.id}"`)) ancestors = [...stack];
+    }
+    const outerMask = ancestors.findIndex(tag => tag.includes('clip-path="url(#mask-'));
+    const blur = ancestors.findIndex(tag => tag.includes(`id="${frame.id}"`) && tag.includes('filter='));
+    expect(outerMask).toBeGreaterThanOrEqual(0);
+    expect(blur).toBeGreaterThan(outerMask);
+    expect(ancestors.filter(tag => tag.includes('clip-path="url(#mask-'))).toHaveLength(innerMask ? 2 : 1);
+    expect(svg).toContain('in="SourceGraphic" stdDeviation="10"');
+    const selectedChild = exportSVG(doc, [child.id]);
+    expect(selectedChild.match(/<g clip-path="url\(#mask-/g)).toHaveLength(innerMask ? 2 : 1);
+    expect(selectedChild).not.toContain('stdDeviation="10"');
+});
+
 it('rotates mask hits, SVG clips and export bounds with the mask world matrix', () => {
     const m = { ...mask(), w: 100, h: 20, rotation: 90 }, n = { ...makeNode('rect', -100, -100, 'B'), w: 300, h: 300 }, doc = docOf(m, n);
     expect(hit(doc, { x: 50, y: 50 })?.id).toBe(n.id);
