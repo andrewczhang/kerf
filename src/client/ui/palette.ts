@@ -40,7 +40,7 @@ export function installPalette(canvas: HTMLCanvasElement, prepare = () => {}) {
     async function run(command: Command) {
         if (command.enabled && !command.enabled()) return;
         close();
-        try { await command.run(); canvas.focus(); } catch { overlay.hidden = false; overlay.querySelector('.palette-error')!.textContent = 'Command failed. Please try again.'; input.focus(); }
+        try { await command.run(); } catch { overlay.hidden = false; overlay.querySelector('.palette-error')!.textContent = 'Command failed. Please try again.'; input.focus(); }
     }
     function render() {
         results = rankCommands(commands.values(), input.value);

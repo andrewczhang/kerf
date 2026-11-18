@@ -1,5 +1,5 @@
-import type { Point } from '../../shared/geometry';
-import { hit, world } from '../geometry';
+import { inverse, transform, type Point } from '../../shared/geometry';
+import { hit, worldMatrix } from '../geometry';
 import type { Comment } from '../../shared/comments';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
@@ -8,7 +8,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     const wrap = canvas.parentElement!, pins = document.createElement('div'), pop = document.createElement('div');
     pop.className = 'comment-pop'; pop.hidden = true; wrap.append(pins, pop);
     let open: string | null = null, draft: { x: number; y: number; node?: string } | null = null, showResolved = false;
-    const position = (c: { x: number; y: number; node?: string }) => { const n = c.node && ctx.store.doc.get(c.node), r = n ? world(ctx.store.doc, n) : { x: 0, y: 0 }; return ctx.viewport.screen({ x: c.x + r.x, y: c.y + r.y }); };
+    const position = (c: { x: number; y: number; node?: string }) => { const n = c.node && ctx.store.doc.get(c.node); return ctx.viewport.screen(n ? transform(worldMatrix(ctx.store.doc, n), c) : c); };
     function close() { open = null; draft = null; pop.hidden = true; }
     function placePop(p: Point) {
         pop.style.maxHeight = Math.max(0, wrap.clientHeight - 16) + 'px';
@@ -54,8 +54,8 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         button('Close', close); render(); input.focus();
     }
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
-        const n = hit(ctx.store.doc, p), r = n && world(ctx.store.doc, n);
-        draft = { x: p.x - (r?.x ?? 0), y: p.y - (r?.y ?? 0), ...(n ? { node: n.id } : {}) }; open = null; thread();
+        const n = hit(ctx.store.doc, p), local = n ? transform(inverse(worldMatrix(ctx.store.doc, n)), p) : p;
+        draft = { ...local, ...(n ? { node: n.id } : {}) }; open = null; thread();
     }, onPointerMove() {}, onPointerUp() {} });
     const b = document.createElement('button'); b.className = 'feature-button'; b.dataset.tool = 'comment'; b.title = 'Comment (C)'; b.textContent = 'Comment'; b.onclick = () => choose('comment');
     const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.onchange = () => { showResolved = check.checked; render(); }; label.append(check, ' Show resolved');

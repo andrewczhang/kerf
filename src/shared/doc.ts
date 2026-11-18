@@ -51,6 +51,7 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group';
     hidden: boolean;
     locked: boolean;
+    rotation?: number;
     parent: string | null;
     index: string;
     name: string;
@@ -202,7 +203,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
@@ -222,7 +223,7 @@ export function applyOp(doc: Doc, op: Op): void {
     }
     const next = { ...n, [op.key]: op.value };
     if (validNode(next) && (op.key !== 'parent' || !componentCycle(doc, next)))
-        doc.set(n.id, next);
+        doc.set(n.id, normalizeNode(next));
 }
 export function overridable(key: string): key is Key { return !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
 function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group'].includes(p.type) && !p.instanceOf); }
@@ -262,6 +263,7 @@ function validOverrides(value: unknown): boolean {
     return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
+    if (key === 'rotation') return value === undefined || typeof value === 'number' && Number.isFinite(value);
     if (key === 'constraintH') return value === undefined || horizontalConstraints.includes(value as typeof horizontalConstraints[number]);
     if (key === 'constraintV') return value === undefined || verticalConstraints.includes(value as typeof verticalConstraints[number]);
     if ((strokeKeys as string[]).includes(key)) return validStroke({ [key]: value } as unknown as Node);
@@ -294,8 +296,9 @@ function validProperty(key: string, value: unknown): boolean {
     return key === 'x' || key === 'y' || value >= 0;
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
-export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
-export function validNode(n: Node): boolean { return !!n && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function normalizeRotation(angle: number): number { return ((angle + 180) % 360 + 360) % 360 - 180; }
+export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
+export function validNode(n: Node): boolean { return !!n && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))
@@ -310,8 +313,8 @@ export function makeNode(type: Node['type'], x: number, y: number, index?: strin
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
     const node = { id: crypto.randomUUID(), type, hidden: false, locked: false, parent: null, index, name: { group: 'Group', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
-        return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
+        return { ...node, rotation: 0, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
     if (type === 'path')
-        return { ...node, stroke: '#272822', strokeWidth: 2, points: [corner(0, 0)], closed: false };
-    return node;
+        return { ...node, rotation: 0, stroke: '#272822', strokeWidth: 2, points: [corner(0, 0)], closed: false };
+    return { ...node, rotation: 0 };
 }

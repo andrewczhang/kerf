@@ -7,12 +7,15 @@ import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
-import { sizeOf, world } from '../geometry';
+import { world } from '../geometry';
 import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { normalizeGroups } from '../../shared/layers';
+import { sizeOf, worldMatrix } from '../geometry';
+import { inverse, parentMatrix, transform } from '../../shared/geometry';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
@@ -152,9 +155,10 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             label.classList.toggle('overridden', overridden);
             if (overridden) label.title = 'Overridden';
             const span = document.createElement('span');
-            const caption = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width', strokeAlign: 'Align', strokeDash: 'Dash', strokeGap: 'Gap', strokeCap: 'Cap', strokeJoin: 'Join', strokeMiterLimit: 'Miter limit', strokeStart: 'Start', strokeEnd: 'End' } as Record<string, string>)[key] ?? key.toUpperCase();
+            const caption = ({ rotation: '°', strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width', strokeAlign: 'Align', strokeDash: 'Dash', strokeGap: 'Gap', strokeCap: 'Cap', strokeJoin: 'Join', strokeMiterLimit: 'Miter limit', strokeStart: 'Start', strokeEnd: 'End' } as Record<string, string>)[key] ?? key.toUpperCase();
             span.textContent = caption;
-            const values = stroke ? strokeValues.map(n => n[key as keyof typeof n]) : nodes.map(n => n[key]);
+            const valueOf = (n: Node) => key === 'rotation' ? n.rotation ?? 0 : n[key];
+            const values = stroke ? strokeValues.map(n => n[key as keyof typeof n]) : nodes.map(valueOf);
             const mixed = values.some(value => value !== values[0]);
             const options = choices[key];
             if (options) {
@@ -177,7 +181,9 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
                 grid.append(label);
                 continue;
             }
-            const input = inputElement(stroke ? caption : key === 'fontSize' ? 'Font size' : key);
+            const input = inputElement(stroke ? caption : key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
+            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
+            if (key === 'rotation') input.disabled = nodes.every(n => n.type === 'group');
             input.placeholder = mixed ? 'Mixed' : '';
             if (key === 'fill' || key === 'stroke') {
                 label.classList.add('color-field');
@@ -206,15 +212,15 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             if (key === 'fontSize') input.max = String(maxFontSize);
             if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
             if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
-            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(nodes[0][key]));
+            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
             let base = store.doc;
             input.onfocus = () => { if (!input.readOnly) { base = new Map(store.doc); store.begin(); } };
             input.oninput = () => { if (input.readOnly || !input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                write(n, key, value); if (key === 'fontSize') write(n, 'textStyle', null);
+                if (key !== 'rotation' || n.type !== 'group') write(n, key, value); if (key === 'fontSize') write(n, 'textStyle', null);
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
-            input.onblur = () => { store.end(); render(); };
+            input.onblur = () => { store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); render(); };
             label.append(span, input);
             if (!input.readOnly) sizingControl(label, input, key, nodes, store);
             grid.append(label);
@@ -231,15 +237,15 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
                 store.begin();
                 if (virtual) write(first, 'closed', box.checked);
                 else {
-                    const parent = first.parent ? store.doc.get(first.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
-                    const f = fit(toAbs(first.points ?? [], world(store.doc, first)), box.checked, origin);
-                    store.set(first.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked });
+                    const f = fit(toAbs(first.points ?? [], { x: 0, y: 0, w: first.w, h: first.h }), box.checked, { x: 0, y: 0 });
+                    const c = transform(inverse(parentMatrix(store.doc, first)), transform(worldMatrix(store.doc, first), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
+                    store.set(first.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, closed: box.checked });
                 }
                 store.end();
             };
         }
         if (nodes.every(isTextNode)) {
-            fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
+            fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w', 'rotation'] : ['x', 'y', 'rotation']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
             fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);
@@ -247,7 +253,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             effectsSection(content, store, nodes);
         }
         else {
-            fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
+            fields('Layout', nodes.some(isTextNode) ? ['x', 'y', 'rotation'] : ['x', 'y', 'w', 'h', 'rotation']);
             if (!virtual) autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
             fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);

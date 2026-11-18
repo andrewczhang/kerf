@@ -26,6 +26,15 @@ function setup() {
     const store = new Store(), sync = new Sync(store, 'test');
     return { store, sync, socket: sync.socket as unknown as Socket };
 }
+it('receives initial and broadcast names without adding undo history', () => {
+    const { store, sync, socket } = setup();
+    const changed = vi.fn(); sync.addEventListener('name-change', changed);
+    socket.receive({ type: 'init', name: 'Initial name', nodes: [], peers: [], comments: [], versions: [] });
+    expect(sync.name).toBe('Initial name');
+    socket.receive({ type: 'name', name: 'Remote name' });
+    expect(sync.name).toBe('Remote name'); expect(changed).toHaveBeenCalledTimes(2);
+    expect(store.undoStack).toEqual([]); expect(store.pending.size).toBe(0);
+});
 it('reapplies and retains in-transit local edits after restore until ack', () => {
     const { store, socket } = setup(), n = makeNode('rect', 0, 0);
     store.init([n]); store.set(n.id, { x: 20 });

@@ -1,4 +1,4 @@
-import { applyOp, descendants, isTextNode, normalizeNode, layoutDefaults, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, isTextNode, normalizeNode, normalizeRotation, layoutDefaults, type Doc, type Op, type Key } from '../shared/doc';
 import { applyLayout, type MeasureText } from '../shared/layout';
 import { detachOps, expand, resizeFollowOps, isVirtual, splitVirtual } from '../shared/components';
 import { MAX_OPS } from '../shared/protocol';
@@ -45,8 +45,9 @@ export class Store extends EventTarget {
         this.redoStack = [];
     } this.group = null; }
     commit(ops: Op[], record = true) {
+        ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         ops = ops.map(op => {
-            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
+            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['rotation', 'fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
             const { instance, target } = splitVirtual(op.id);
             return { t: 'override', id: instance, target, key: op.key, value: op.value };
         });

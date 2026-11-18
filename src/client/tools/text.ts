@@ -1,6 +1,6 @@
 import { between, children, isTextNode, makeNode, maxTextLength, type TextNode } from '../../shared/doc';
-import type { Point } from '../../shared/geometry';
-import { hit, world } from '../geometry';
+import { identity, inverse, matrixAngle, transform, type Point } from '../../shared/geometry';
+import { hit, world, worldMatrix } from '../geometry';
 import { fontFamilies, lineHeight } from '../text-layout';
 import type { Context, Tool } from './tool';
 
@@ -95,14 +95,14 @@ export class TextEditor {
             input.value = value;
             input.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
         }
-        const r = world(store.doc, node), p = viewport.screen(r), auto = node.textWidth === 'auto';
+        const r = world(store.doc, node), m = worldMatrix(store.doc, node), p = viewport.screen(transform(m, { x: 0, y: 0 })), auto = node.textWidth === 'auto';
         input.wrap = auto ? 'off' : 'soft';
         Object.assign(input.style, {
             left: `${p.x}px`,
             top: `${p.y}px`,
             width: `${auto ? Math.max(12, Math.ceil(r.w) + 2) : r.w}px`,
             height: `${Math.ceil(r.h) + 1}px`,
-            transform: `scale(${viewport.zoom})`,
+            transform: `rotate(${matrixAngle(m)}deg) scale(${viewport.zoom})`,
             fontFamily: fontFamilies[node.fontFamily],
             fontSize: `${node.fontSize}px`,
             fontWeight: String(node.fontWeight),
@@ -129,9 +129,9 @@ export class TextTool implements Tool {
         }
         const frame = target?.type === 'frame' ? target : target?.parent ? store.doc.get(target.parent) : undefined;
         const parent = frame?.instanceOf ? undefined : frame;
-        const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
+        const local = transform(inverse(parent ? worldMatrix(store.doc, parent) : identity), p);
         const index = between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null);
-        const node = makeNode('text', p.x - origin.x, p.y - origin.y, index);
+        const node = makeNode('text', local.x, local.y, index);
         node.parent = parent?.id ?? null;
         this.edit(node, true);
     }

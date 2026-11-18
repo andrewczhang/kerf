@@ -1,5 +1,5 @@
 import { type Doc, type Node } from './doc';
-import { bounds, world, type Rect } from './geometry';
+import { aabb, bounds, type Rect } from './geometry';
 import { blocked } from './layers';
 
 export type Alignment = 'left' | 'hcenter' | 'right' | 'top' | 'vmiddle' | 'bottom' | 'horizontal' | 'vertical' | 'tidy';
@@ -24,7 +24,7 @@ function clusters(items: Item[], axis: 'x' | 'y') {
     }
     return groups.map(g => g.items);
 }
-export function align(doc: Doc, ids: Iterable<string>, action: Alignment, rectOf: (doc: Doc, node: Node) => Rect = world): Move[] {
+export function align(doc: Doc, ids: Iterable<string>, action: Alignment, rectOf: (doc: Doc, node: Node) => Rect = aabb): Move[] {
     const nodes = eligible(doc, ids), items = nodes.map(n => ({ id: n.id, ...rectOf(doc, n) }));
     if (!items.length) return [];
     const box = bounds(items), moves = new Map<string, Move>();

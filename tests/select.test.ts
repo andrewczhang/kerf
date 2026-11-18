@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { center, matrixAngle, transform, worldCorners } from '../src/shared/geometry';
 import { Select } from '../src/client/tools/select';
 import { Store } from '../src/client/store';
 import { Viewport } from '../src/client/viewport';
@@ -88,6 +89,7 @@ it.each(['ctrlKey', 'metaKey'])('does not replay a completed drag after %s deep 
 
 const layerKey = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setupLayers = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
+import { aabb, worldMatrix } from '../src/client/geometry';
 import { duplicateNodes } from '../src/client/tools/duplicate';
 import * as autolayout from '../src/client/autolayout';
 const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
@@ -224,6 +226,35 @@ it('handles empty grouping, ungrouping, nudge and delete selections', () => {
     const { store, tool } = setupLayers(); layerKey(tool, 'g', { ctrlKey: true }); layerKey(tool, 'G', { ctrlKey: true, shiftKey: true }); layerKey(tool, 'ArrowRight'); layerKey(tool, 'Delete'); expect(store.doc.size).toBe(0); expect(store.undoStack).toHaveLength(0);
 });
 
+it('resizes grouped auto-width text around its measured center without a persistent jump', () => {
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText: (line: string) => ({ width: line.length * 10 }) }) }) });
+    try {
+        const { store, tool } = setupCanvas(), g = { ...makeNode('group', 100, 100), w: 200, h: 100 }, rect = { ...makeNode('rect', 0, 0), w: 200, h: 100, parent: g.id }, text = { ...makeNode('text', 20, 20), parent: g.id };
+        store.init([g, rect, text]); store.selection.add(g.id);
+        const before = aabb(store.doc, text), start = tool.selectionHandles()[4], end = { x: start.x + 200, y: start.y + 100 }, event = { timeStamp: 1000 } as PointerEvent;
+        expect(before.w).toBe(40); expect(text.w).toBe(240);
+        tool.onPointerDown(start, event); tool.onPointerMove(end, event);
+        const expected = { x: 180, y: 168.8 };
+        const check = () => { const r = aabb(store.doc, store.doc.get(text.id)!); expect(r.x + r.w / 2).toBeCloseTo(expected.x); expect(r.y + r.h / 2).toBeCloseTo(expected.y); expect(r.w).toBeCloseTo(before.w); expect(r.h).toBeCloseTo(before.h); };
+        check(); tool.onPointerUp(end); check(); expect(store.undoStack).toHaveLength(1);
+        store.history(); expect(aabb(store.doc, store.doc.get(text.id)!)).toEqual(before); store.history(true); check();
+    } finally { vi.unstubAllGlobals(); }
+});
+
+it.each([90, 30])('resizes a group inside a %s degree frame along its displayed axes', rotation => {
+    const { store, tool } = setupCanvas(), frame = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation }, g = { ...makeNode('group', 100, 100), w: 200, h: 100, parent: frame.id }, nested = { ...makeNode('group', 0, 0), w: 80, h: 100, parent: g.id }, a = { ...makeNode('rect', 0, 0), w: 80, h: 100, parent: nested.id }, b = { ...makeNode('rect', 120, 0), w: 80, h: 100, parent: g.id };
+    store.init([frame, g, nested, a, b]); store.selection.add(g.id);
+    const hs = tool.selectionHandles(), matrix = worldMatrix(store.doc, g), end = transform(matrix, { x: 300, y: 50 }), event = { timeStamp: 1000 } as PointerEvent;
+    tool.onPointerDown(hs[3], event); expect(tool.original.size).toBe(4);
+    tool.onPointerMove(transform(matrix, { x: 250, y: 50 }), event); tool.onPointerMove(end, event); tool.onPointerUp(end);
+    const result = store.doc.get(g.id)!;
+    expect(result.w).toBeCloseTo(300); expect(result.h).toBeCloseTo(100);
+    expect(store.doc.get(a.id)?.w).toBeCloseTo(120); expect(store.doc.get(a.id)?.x).toBeCloseTo(0); expect(store.doc.get(b.id)?.x).toBeCloseTo(180);
+    expect(tool.selectionHandles()[7].x).toBeCloseTo(hs[7].x); expect(tool.selectionHandles()[7].y).toBeCloseTo(hs[7].y);
+    expect(tool.selectionHandles()[3].x).toBeCloseTo(end.x); expect(tool.selectionHandles()[3].y).toBeCloseTo(end.y);
+    expect(store.undoStack).toHaveLength(1); store.history(); expect(store.doc.get(g.id)?.w).toBe(200); store.history(true); expect(store.doc.get(g.id)?.w).toBeCloseTo(300);
+});
+
 it('duplicates a sibling whose index ties with the next one', () => {
         const doc = new Map() as any;
         const base = { type: 'rect', x: 0, y: 0, w: 10, h: 10, parent: null, index: 'a' };
@@ -231,4 +262,35 @@ it('duplicates a sibling whose index ties with the next one', () => {
         doc.set('b', { ...base, id: 'b', name: 'b' });
         const copies = duplicateNodes(doc, [doc.get('a')]);
         expect([...copies.values()][0].index > 'a').toBe(true);
+});
+
+it('alt-drags a group in a rotated frame by the world delta and preserves its descendants', () => {
+    const { store, tool } = setupCanvas(), parent = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation: 30 }, group = { ...makeNode('group', 100, 100), parent: parent.id }, child = { ...makeNode('rect', 0, 0), parent: group.id };
+    store.init([parent, group, child]); store.selection.add(group.id);
+    const before = worldCorners(store.doc, child), start = center(store.doc, group), end = { x: start.x + 20, y: start.y + 40 };
+    tool.onPointerMove(start, pointer(true)); expect(tool.cursor).toBe('copy');
+    tool.onPointerDown(start, pointer(true)); tool.onPointerMove(end, pointer(true)); tool.onPointerUp(end);
+    const copy = store.doc.get([...store.selection][0])!, nested = children(store.doc, copy.id)[0];
+    expect(copy.id).not.toBe(group.id); expect(nested.id).not.toBe(child.id); expect(matrixAngle(worldMatrix(store.doc, nested))).toBeCloseTo(30);
+    for (const [i, point] of worldCorners(store.doc, nested).entries()) { expect(point.x).toBeCloseTo(before[i].x + 20); expect(point.y).toBeCloseTo(before[i].y + 40); }
+    expect(worldCorners(store.doc, child)).toEqual(before); expect(store.undoStack).toHaveLength(1);
+    store.history(); expect(store.doc.size).toBe(3); store.history(true); expect(store.doc.has(nested.id)).toBe(true);
+});
+
+it('keeps the rotate affordance and rotation drag when Alt is held instead of duplicating', () => {
+    const { store, tool } = setupCanvas(), node = makeNode('rect', 0, 0), start = { x: -8, y: -8 }, end = { x: 108, y: -8 };
+    store.init([node]); store.selection.add(node.id);
+    tool.onPointerMove(start, pointer(true)); expect(tool.cursor).toBe(tool.rotateCursor);
+    tool.onPointerDown(start, pointer(true)); tool.onPointerMove(end, pointer(true)); tool.onPointerUp(end);
+    expect(store.doc.size).toBe(1); expect(store.doc.get(node.id)?.rotation).toBeCloseTo(90); expect(store.undoStack).toHaveLength(1);
+    store.history(); expect(store.doc.get(node.id)?.rotation).toBe(0);
+});
+it('rotates instances through root overrides without rotating the main', () => {
+    const { store, select, instance, main } = setup(), start = { x: 192, y: -8 }, end = { x: 308, y: -8 }, event = { buttons: 1 } as PointerEvent;
+    store.selection.add(instance.id);
+    select.onPointerDown(start, event); select.onPointerMove(end, event); select.onPointerUp(end);
+    expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(90);
+    expect(store.doc.get(main.id)?.rotation).toBe(0);
+    store.history(); expect(expand(store.doc).get(instance.id)?.rotation).toBe(0);
+    store.history(true); expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(90);
 });

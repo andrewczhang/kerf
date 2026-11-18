@@ -1,12 +1,19 @@
 import { expect, it } from 'vitest';
-import { addAutoLayout, dragInsertion, insertionSlot, isAutoLayout, layoutInsertions, reorderInAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
+import { addAutoLayout, dragInsertion, eligibleDropFrames, insertionSlot, isAutoLayout, layoutInsertions, reorderInAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
 import { Store } from '../src/client/store';
 import { children, makeNode, type Node } from '../src/shared/doc';
-import { world } from '../src/shared/geometry';
+import { center, matrixAngle, transform, world, worldMatrix } from '../src/shared/geometry';
 import { Select } from '../src/client/tools/select';
 import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
+
+it.each([30, 90])('requires complete sibling-frame containment in a %s degree drop target', rotation => {
+    const parent = { ...makeNode('frame', 100, 100), w: 300, h: 300, rotation }, child = { ...makeNode('frame', 200, 200), rotation }, s = setup([parent, child]), pointer = { x: 250, y: 250 };
+    expect(eligibleDropFrames(s.doc, [child], pointer, pointer).map(n => n.id)).toEqual([parent.id]);
+    s.set(child.id, { x: 50, y: 50, w: 400, h: 400 });
+    expect(eligibleDropFrames(s.doc, [s.doc.get(child.id)!], pointer, pointer)).toEqual([]);
+});
 it('rejects overlapping sibling auto-layout targets and ignores ineligible manual targets', () => {
     const moving = makeNode('frame', 50, 0), overlap = { ...makeNode('frame', 100, 0), layout: 'horizontal' as const };
     const s = setup([moving, overlap]), pointer = { x: 125, y: 50 }, start = { x: 75, y: 50 };
@@ -130,6 +137,27 @@ function stack(direction: 'horizontal' | 'vertical' = 'horizontal') {
     const items = ['A', 'B', 'C'].map(index => ({ ...makeNode('rect', 0, 0, index), parent: p.id, w: 50, h: 50 }));
     const s = setup([p, ...items]); return { s, p: s.doc.get(p.id)!, items: items.map(n => s.doc.get(n.id)!) };
 }
+
+it.each([30, 90])('computes insertion slots and lines in a %s degree frame', rotation => {
+    const { s, p, items } = stack(); s.set(p.id, { rotation }); const frame = s.doc.get(p.id)!, m = worldMatrix(s.doc, frame);
+    const pointer = transform(m, { x: 110, y: 40 }), insertion = insertionSlot(s.doc, frame, pointer, new Set([items[1].id]));
+    expect(insertion.slot).toBe(1); expect(insertion.from).toEqual(transform(m, { x: 105, y: 20 })); expect(insertion.to).toEqual(transform(m, { x: 105, y: 280 }));
+    expect(dragInsertion(s.doc, [items[1]], pointer, transform(m, { x: 105, y: 45 }))?.slot).toBe(1);
+});
+
+it('preserves accumulated angles when wrapping nodes from rotated parents', () => {
+    const parent = { ...makeNode('frame', 100, 100), rotation: 45 }, a = { ...makeNode('rect', 10, 20), parent: parent.id, rotation: 20 }, b = { ...makeNode('rect', 400, 400), rotation: -30 }, s = setup([parent, a, b]);
+    const frame = wrapInAutoLayout(s, [a, b])!;
+    expect(frame.parent).toBeNull(); expect(matrixAngle(worldMatrix(s.doc, s.doc.get(a.id)!))).toBeCloseTo(65); expect(matrixAngle(worldMatrix(s.doc, s.doc.get(b.id)!))).toBeCloseTo(-30);
+    s.history(); expect(s.doc.get(a.id)?.parent).toBe(parent.id); expect(s.doc.get(a.id)?.rotation).toBe(20);
+});
+
+it('drops a child out of a rotated auto-layout at the dragged world center', () => {
+    const { s, p, items } = stack(); s.set(p.id, { rotation: 90 }); s.selection.add(items[0].id);
+    const tool = new Select({ store: s, viewport: { zoom: 1 }, invalidate() {} } as Context), start = center(s.doc, s.doc.get(items[0].id)!), end = { x: 1000, y: 600 }, event = {} as PointerEvent;
+    tool.onPointerDown(start, event); tool.onPointerMove(end, event); tool.onPointerUp(end);
+    const result = s.doc.get(items[0].id)!; expect(result.parent).toBeNull(); expect(center(s.doc, result).x).toBeCloseTo(end.x); expect(center(s.doc, result).y).toBeCloseTo(end.y); expect(matrixAngle(worldMatrix(s.doc, result))).toBeCloseTo(90);
+});
 
 it.each(['horizontal', 'vertical'] as const)('computes %s slots in world space, excluding dragged items', direction => {
     const { s, p, items } = stack(direction), horizontal = direction === 'horizontal';
