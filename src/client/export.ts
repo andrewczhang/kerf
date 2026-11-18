@@ -79,12 +79,12 @@ export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Prom
 
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
-    if (!roots.length || !Number.isFinite(scale) || scale <= 0)
-        throw new Error('Select objects and use a positive export scale.');
+    if (!roots.length || !validExportScale(scale))
+        throw new Error('Select objects and use a positive export scale (0.5–4 in steps of 0.5).');
     const file = exportFile(); await Promise.all([...exportImages(doc, roots.map(n => n.id))].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
-    canvas.width = r.w * scale;
-    canvas.height = r.h * scale;
+    canvas.width = Math.max(1, Math.ceil(r.w * scale));
+    canvas.height = Math.max(1, Math.ceil(r.h * scale));
     const c = canvas.getContext('2d');
     if (!c)
         throw new Error('Canvas rendering is unavailable.');
@@ -181,7 +181,22 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
 export function exportFilename(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1): string {
     const roots = exportRoots(doc, ids);
     const name = (roots.length === 1 ? roots[0].name : 'Export').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').trim() || 'Export';
-    return `${name}${format === 'png' && scale === 2 ? '@2x' : ''}.${format}`;
+    return `${name}${format === 'png' && scale !== 1 ? '@' + scale + 'x' : ''}.${format}`;
+}
+
+export function validExportScale(scale: number) { return Number.isFinite(scale) && scale >= .5 && scale <= 4 && Number.isInteger(scale * 2); }
+
+export function exportJobs(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1, mode: 'combined' | 'each' = 'combined') {
+    if (format === 'png' && !validExportScale(scale)) throw Error('PNG scale must be 0.5–4 in steps of 0.5.');
+    const roots = exportRoots(doc, ids), selections = mode === 'each' ? roots.map(n => [n.id]) : roots.length ? [roots.map(n => n.id)] : [];
+    const used = new Set<string>();
+    return selections.map(selection => {
+        const filename = exportFilename(doc, selection, format, scale), stem = filename.slice(0, -(format.length + 1));
+        let unique = filename, count = 2;
+        while (used.has(unique.toLowerCase())) unique = `${stem} (${count++}).${format}`;
+        used.add(unique.toLowerCase());
+        return { ids: selection, filename: unique, bounds: exportBounds(doc, exportRoots(doc, selection)) };
+    });
 }
 
 export function download(blob: Blob, filename: string) {
@@ -192,11 +207,9 @@ export function download(blob: Blob, filename: string) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1) {
-    const selection = [...ids];
-    if (!exportRoots(doc, selection).length)
-        return;
-    const filename = exportFilename(doc, selection, format, scale);
-    const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, selection)], { type: 'image/svg+xml' }) : await exportPNG(doc, selection, scale);
-    download(blob, filename);
+export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1, mode: 'combined' | 'each' = 'combined') {
+    for (const job of exportJobs(doc, ids, format, scale, mode)) {
+        const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, job.ids)], { type: 'image/svg+xml' }) : await exportPNG(doc, job.ids, scale);
+        download(blob, job.filename);
+    }
 }
