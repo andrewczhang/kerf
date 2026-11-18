@@ -4,6 +4,7 @@ import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 import { MAX_OPS } from '../src/shared/protocol';
 import { Features } from './features';
+import { resolveStyleOps } from '../src/shared/styles';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 export class Room {
@@ -54,10 +55,13 @@ export class Room {
                 if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
+                const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);
+                for (const op of resolved) applyOp(this.doc, op);
                 applyLayout(this.doc);
                 await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
+                if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });

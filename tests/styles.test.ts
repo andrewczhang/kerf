@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { applyOp, makeNode, validNode, type Doc, type Op } from '../src/shared/doc';
-import { detachOps, styleOps, validStyle, type Style } from '../src/shared/styles';
+import { detachOps, resolveStyleOps, styleOps, validStyle, type Style } from '../src/shared/styles';
 const color: Style = { id: 'orange', kind: 'color', name: 'Accent', color: '#123456' };
 describe('shared styles', () => {
+    it('resolves restored links using the latest style, only on relinked nodes', () => {
+        const n = { ...makeNode('rect', 0, 0), fillStyle: color.id, strokeStyle: color.id };
+        const text = { ...makeNode('text', 0, 0), textStyle: 'title' };
+        const other = { ...n, id: 'other' }, doc: Doc = new Map([n, text, other].map(node => [node.id, node]));
+        const links: Op[] = [{ t: 'set', id: n.id, key: 'fillStyle', value: color.id }, { t: 'set', id: n.id, key: 'strokeStyle', value: color.id }, { t: 'set', id: text.id, key: 'textStyle', value: 'title' }];
+        const styles: Style[] = [color, { id: 'title', kind: 'text', name: 'Title', fontFamily: 'serif', fontSize: 48, fontWeight: 700 }];
+        const resolved = resolveStyleOps(doc, styles, links);
+        expect(resolved.every(op => op.t === 'set' && op.id !== other.id)).toBe(true);
+        resolved.forEach(op => applyOp(doc, op));
+        expect(doc.get(n.id)).toMatchObject({ fill: color.color, stroke: color.color });
+        expect(doc.get(text.id)).toMatchObject({ fontFamily: 'serif', fontSize: 48, fontWeight: 700 });
+        expect(doc.get(other.id)?.fill).toBe('#ff4f00');
+        expect(resolveStyleOps(doc, styles, links)).toEqual([]);
+        expect(resolveStyleOps(doc, styles, [])).toEqual([]);
+        expect(resolveStyleOps(doc, [], links)).toEqual([]);
+        expect(resolveStyleOps(new Map(), styles, links)).toEqual([]);
+        applyOp(doc, { t: 'set', id: n.id, key: 'fillStyle', value: null });
+        expect(resolveStyleOps(doc, styles, [links[0]])).toEqual([]);
+    });
     it('validates color and text styles and rejects malformed values', () => {
         expect(validStyle(color)).toBe(true);
         expect(validStyle({ id: 't', kind: 'text', name: 'Title', fontFamily: 'sans', fontSize: 24, fontWeight: 700 })).toBe(true);

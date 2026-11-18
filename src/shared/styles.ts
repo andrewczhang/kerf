@@ -26,3 +26,14 @@ export function detachOps(doc: Doc, styleId: string): Op[] {
     for (const n of doc.values()) for (const key of ['fillStyle', 'strokeStyle', 'textStyle'] as const) if (n[key] === styleId) ops.push({ t: 'set', id: n.id, key, value: null });
     return ops;
 }
+export function resolveStyleOps(doc: Doc, styles: Style[], ops: Op[]): Op[] {
+    const linked = new Map<string, Doc>();
+    for (const op of ops) {
+        if (op.t !== 'set' || !['fillStyle', 'strokeStyle', 'textStyle'].includes(op.key) || typeof op.value !== 'string') continue;
+        const node = doc.get(op.id);
+        if (!node || node[op.key] !== op.value) continue;
+        const nodes = linked.get(op.value) ?? new Map();
+        nodes.set(node.id, node); linked.set(op.value, nodes);
+    }
+    return styles.flatMap(style => { const nodes = linked.get(style.id); return nodes ? styleOps(nodes, style) : []; });
+}
