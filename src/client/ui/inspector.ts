@@ -1,4 +1,6 @@
 import type { Store } from '../store';
+import type { Sync } from '../sync';
+import { styleControl, styleLibrary } from './styles';
 import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
@@ -28,7 +30,7 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
     }
 }
 
-export function inspector(el: HTMLElement, store: Store) {
+export function inspector(el: HTMLElement, store: Store, sync: Sync) {
     el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
@@ -53,6 +55,7 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
+            styleLibrary(content, store, sync);
             return;
         }
         content.innerHTML = '';
@@ -80,7 +83,10 @@ export function inspector(el: HTMLElement, store: Store) {
             strokeEnd: named(arrowheads),
         };
         const strokeValues = nodes.map(strokeOptions);
-        const fields = (title: string, keys: Key[], stroke = false) => { const section = document.createElement('section'); if (stroke) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!; for (const key of keys) {
+        const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const section = document.createElement('section'); if (target === true) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!;
+        if (target && target !== true && styleControl(section, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key));
+        for (const key of keys) {
+            const stroke = target === true;
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
@@ -101,7 +107,7 @@ export function inspector(el: HTMLElement, store: Store) {
                     const chosen = options.find(([value]) => String(value) === select.value);
                     if (!chosen) return;
                     store.begin();
-                    for (const node of nodes) store.set(node.id, { [key]: chosen[0] });
+                    for (const node of nodes) store.set(node.id, { [key]: chosen[0], ...(['fontFamily', 'fontWeight'].includes(key) ? { textStyle: null } : {}) });
                     store.end();
                     select.blur();
                     render();
@@ -127,9 +133,9 @@ export function inspector(el: HTMLElement, store: Store) {
                     input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
                     if (color === undefined) return;
                     swatch.value = color ?? '#000000';
-                    for (const n of nodes) store.set(n.id, { [key]: color });
+                    for (const n of nodes) store.set(n.id, { [key]: color, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) });
                 };
-                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value }); };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) }); };
                 input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
@@ -144,7 +150,7 @@ export function inspector(el: HTMLElement, store: Store) {
             let base = store.doc;
             input.onfocus = () => { base = new Map(store.doc); store.begin(); };
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value });
+                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
@@ -169,17 +175,18 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w', 'rotation'] : ['x', 'y', 'rotation']);
-            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
+            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
-            fillsSection(content, store, nodes);
+            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y', 'rotation'] : ['x', 'y', 'w', 'h', 'rotation']);
             autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            fillsSection(content, store, nodes);
-            fields('Stroke', ['stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
                 const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
                 if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');
@@ -219,6 +226,8 @@ export function inspector(el: HTMLElement, store: Store) {
         content.append(exports);
     };
     store.addEventListener('change', render);
+    sync.addEventListener('styles-change', render);
+    el.addEventListener('focusout', () => setTimeout(render, 0));
     render();
 }
 

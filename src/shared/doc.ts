@@ -43,6 +43,9 @@ interface StrokeProperties {
 
 export interface Node extends Partial<TextProperties & StrokeProperties> {
     grids?: LayoutGrid[];
+    fillStyle?: string | null;
+    strokeStyle?: string | null;
+    textStyle?: string | null;
     link?: string | null;
     id: string;
     type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group';
@@ -163,9 +166,9 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['rotation', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['rotation', 'grids', 'fillStyle', 'strokeStyle', 'textStyle', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
-    if (textKeys.some(key => key === op.key) && n.type !== 'text')
+    if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
     if (op.key === 'type' && (n.type === 'text' || op.value === 'text'))
         return;
@@ -189,7 +192,7 @@ export function normalizeRotation(angle: number): number { return ((angle + 180)
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function validNode(n: Node): boolean {
-    if (!n || !validLink(n.link) || !validStroke(n) || n.rotation !== undefined && !Number.isFinite(n.rotation)) return false;
+    if (!n || !validLink(n.link) || !validStroke(n) || n.rotation !== undefined && !Number.isFinite(n.rotation) || !validLink(n.fillStyle) || !validLink(n.strokeStyle) || !validLink(n.textStyle) || n.type !== 'text' && n.textStyle != null) return false;
     if (n.grids !== undefined && (n.type !== 'frame' || !Array.isArray(n.grids) || n.grids.length > 8 || !n.grids.every(validGrid))) return false;
     return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(n.type) && ['hidden', 'locked'].every(k => n[k as keyof Node] === undefined || typeof n[k as keyof Node] === 'boolean') && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.constraintH === undefined || horizontalConstraints.includes(n.constraintH)) && (n.constraintV === undefined || verticalConstraints.includes(n.constraintV)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
 }

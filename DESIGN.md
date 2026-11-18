@@ -66,6 +66,7 @@ Canvas and PNG export share `draw.ts`; PNG waits for image assets to decode and 
 - Drag moves send set ops throttled per frame so others see motion live.
 
 ## Prototype, comments and versions
+Shared styles live in DO `styles` storage and `init.styles`. Clients send `style-upsert {style}` or `style-delete {id}`; the server broadcasts `styles {styles}`, computes linked-node set ops (or clears links on delete), persists nodes, and sends normal `ops` to every peer including the sender. Node values remain denormalized; manual property edits detach links in the same undoable transaction.
 Prototype links are optional node properties. `draw.ts` shares Canvas2D drawing between editor and presentation. Presentation isolates the current top-level frame, with live navigation and ancestor hotspots. Comments are independent records (`comments` storage), with node-relative pins and no undo entries. `worker/features.ts` owns thread validation and version storage (`versions`, `version:<id>`). Restore broadcasts a minimal shared op diff, saves a safety snapshot first and clears client undo/pending state. History previews use a separate renderer document without mutating the live store. New surfaces retain flat hairline panels and the single orange navigation signal.
 
 ## Visual direction (acz hates stock "AI" look)
