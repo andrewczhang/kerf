@@ -91,3 +91,12 @@ it('renders transparent scaled PNGs without frame labels and reports encoding fa
     await expect(exportPNG(doc, [node.id], 1)).rejects.toThrow('PNG export failed');
     await expect(exportPNG(doc, [node.id], 0)).rejects.toThrow('positive export scale');
 });
+
+it('exports closed paths as filled cubic path data and open paths unfilled', () => {
+    const shape = { ...makeNode('path', 10, 20), id: 'shape', w: 100, h: 50, closed: true, points: [{ x: 0, y: 0, ix: 0, iy: 0, ox: .5, oy: 0 }, { x: 1, y: 1, ix: 1, iy: .5, ox: 1, oy: 1 }] };
+    const svg = exportSVG(docOf(shape), [shape.id]);
+    expect(svg).toContain('<path id="shape" data-name="Path" d="M10 20C60 20 110 45 110 70C110 70 10 20 10 20Z"');
+    expect(svg).toContain('fill="#ff4f00"');
+    const line = { ...shape, closed: false };
+    expect(exportSVG(docOf(line), [line.id])).toContain('fill="none"');
+});

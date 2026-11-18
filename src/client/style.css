@@ -5,3 +5,4 @@
 .field select:focus-visible{outline:1px solid #ff4f00}
 .text-editor{position:absolute;z-index:1;margin:0;border:0;padding:0;outline:1px solid #ff4f00;resize:none;overflow:hidden;background:transparent;transform-origin:top left;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;caret-color:#ff4f00}
 .text-editor[wrap=off]{white-space:pre}
+.path-closed{display:inline-flex;align-items:center;gap:6px;font-size:11px}.path-closed input{margin:0;accent-color:#ff4f00}.path-count{float:right;font-size:10px;color:#89887f;font-variant-numeric:tabular-nums}.path-hint{margin:12px 0 0;font-size:10px;color:#99988f}
