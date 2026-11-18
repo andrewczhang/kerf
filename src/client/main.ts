@@ -6,6 +6,9 @@ import { Presence } from './presence';
 import { Renderer } from './renderer';
 import { Select } from './tools/select';
 import { Shape } from './tools/shape';
+import { TextEditor, TextTool } from './tools/text';
+import { isTextNode } from '../shared/doc';
+import { hit } from './geometry';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
@@ -18,10 +21,12 @@ document.querySelector('#app')!.innerHTML = '<header></header><main><div class="
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
 const canvas = document.querySelector('canvas')!, store = new Store();
 let renderer: Renderer;
-const viewport = new Viewport(() => { renderer?.invalidate(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
+let textEditor: TextEditor;
+const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
 const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
+textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
@@ -35,16 +40,23 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { active = registry.get(id) ?? registry.get('select')!; canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
+function choose(id: string) { textEditor.close(); active = registry.get(id) ?? registry.get('select')!; canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
+registry.set('text', new TextTool(ctx, (node, creating) => { choose('select'); textEditor.open(node, creating); }));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
 choose('select');
 inspector(document.querySelector('aside')!, store);
 people(document.querySelector('#people')!, sync, viewport);
-const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+canvas.ondblclick = e => {
+    if (active.id !== 'select') return;
+    const node = hit(store.doc, viewport.world(local(e)));
+    if (isTextNode(node))
+        textEditor.open(node);
+};
 function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.x = pan.vx + p.x - pan.x;
     viewport.y = pan.vy + p.y - pan.y;
@@ -72,14 +84,14 @@ canvas.onpointerup = e => { if (pointer) {
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
 canvas.onpointerleave = () => presence.update(null);
-canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top }; if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
+canvas.parentElement!.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
 else {
     viewport.x -= e.deltaX;
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
@@ -93,11 +105,18 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     e.preventDefault();
     store.history(e.shiftKey);
     return;
+} if (e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
+    const node = store.doc.get([...store.selection][0]);
+    if (isTextNode(node)) {
+        e.preventDefault();
+        textEditor.open(node);
+        return;
+    }
 } if (e.key === 'Escape') {
     store.selection.clear();
     store.changed();
     choose('select');
-} const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', h: 'hand' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
+} const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', t: 'text', h: 'hand' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
     choose(keys[e.key.toLowerCase()]);
 else
     active.onKey?.(e); });

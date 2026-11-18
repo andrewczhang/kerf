@@ -1,5 +1,6 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
+import { bounds, contains, handles, intersects, type Point, type Rect } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
 export class Select implements Tool {
     id = 'select';
@@ -17,7 +18,7 @@ export class Select implements Tool {
         this.moved = false;
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
-        this.handle = this.box ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
+        this.handle = this.box && nodes.every(n => n.type !== 'text') ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
         const n = hit(store.doc, p);
         if (this.handle < 0) {
             if (n) {
