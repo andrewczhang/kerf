@@ -1,0 +1,80 @@
+import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
+type Change = {
+    before: Op;
+    after: Op;
+};
+export class Store extends EventTarget {
+    doc: Doc = new Map();
+    selection = new Set<string>();
+    pending = new Map<number, Op[]>();
+    seq = 0;
+    send: (ops: Op[], seq: number) => void = () => { };
+    undoStack: Change[][] = [];
+    redoStack: Change[][] = [];
+    group: Change[] | null = null;
+    changed() { this.dispatchEvent(new Event('change')); }
+    begin() { this.group = []; }
+    end() { if (this.group?.length) {
+        const merged: Change[] = [];
+        const keys = new Map<string, Change>();
+        for (const c of this.group) {
+            if (c.after.t === 'set') {
+                const key = c.after.id + ':' + c.after.key;
+                const old = keys.get(key);
+                if (old) {
+                    old.after = c.after;
+                    continue;
+                }
+                keys.set(key, c);
+            }
+            merged.push(c);
+        }
+        this.undoStack.push(merged);
+        this.redoStack = [];
+    } this.group = null; }
+    commit(ops: Op[], record = true) { const changes: Change[] = []; for (const op of ops) {
+        const n = op.t === 'create' ? undefined : this.doc.get(op.id);
+        if (op.t === 'create')
+            changes.push({ before: { t: 'delete', id: op.node.id }, after: op });
+        else if (n && op.t === 'set')
+            changes.push({ before: { t: 'set', id: n.id, key: op.key, value: n[op.key] }, after: op });
+        else if (n) {
+            for (const child of [n, ...descendants(this.doc, n.id)].reverse())
+                changes.push({ before: { t: 'create', node: { ...child } }, after: { t: 'delete', id: child.id } });
+        }
+        applyOp(this.doc, op);
+    } if (record && changes.length) {
+        if (this.group)
+            this.group.push(...changes);
+        else {
+            this.undoStack.push(changes);
+            this.redoStack = [];
+        }
+    } if (ops.length) {
+        const seq = ++this.seq;
+        this.pending.set(seq, ops);
+        this.send(ops, seq);
+    } this.changed(); }
+    set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
+    remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)
+        if (op.t !== 'set' || !keys.has(op.id + ':' + op.key))
+            applyOp(this.doc, op); this.changed(); }
+    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, n])); for (const ops of this.pending.values())
+        for (const op of ops)
+            applyOp(this.doc, op); this.changed(); }
+    history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
+        return; const source = redo ? group : [...group].reverse(); const ops: Op[] = [], accepted: Change[] = []; const shadow = new Map(this.doc); for (const c of source) {
+        const expected = redo ? c.before : c.after, next = redo ? c.after : c.before;
+        const n = expected.t === 'create' ? shadow.get(expected.node.id) : shadow.get(expected.id);
+        if (expected.t === 'set' && n?.[expected.key] !== expected.value)
+            continue;
+        if (expected.t === 'create' && !n)
+            continue;
+        if (expected.t === 'delete' && n)
+            continue;
+        ops.push(next);
+        accepted.push(c);
+        applyOp(shadow, next);
+    } this.commit(ops, false); if (accepted.length)
+        to.push(redo ? accepted : accepted.reverse()); }
+}
