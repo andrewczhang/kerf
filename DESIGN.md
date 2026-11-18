@@ -3,6 +3,7 @@
 Multiplayer browser design tool, written from scratch. No editor/canvas/design/UI libraries (no React, no Konva/Fabric/Yjs). TypeScript + Vite for the client, one Cloudflare Worker with a Durable Object for sync.
 
 ## Layout
+Canvas overlays include 20px top/left rulers, local ruler guides, smart alignment guides, gap measurements and selection size labels. Snapping/measurement math lives in `shared/snap.ts`; `client/snapping.ts` bridges tools and `client/guides.ts` owns overlays, ruler interaction and local preferences. Signal labels are square orange rectangles with small white tabular numerals.
 ```
 src/shared/       types + pure logic shared by client and worker
   doc.ts          Node types, Doc = Map<id, Node>, applyOp(doc, op), fractional index helpers

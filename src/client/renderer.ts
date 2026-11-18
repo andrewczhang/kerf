@@ -2,6 +2,7 @@ import { children, type Node } from '../shared/doc';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { drawGuides, drawSnapGrid } from './guides';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -18,6 +19,7 @@ export class Renderer {
         const c = this.ctx, { viewport: v, store } = this.app, d = devicePixelRatio || 1;
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
+        drawSnapGrid(c, this.app, this.width, this.height);
         c.fillStyle = '#d6d4ce';
         const spacing = 24 * v.zoom * 2 ** Math.max(0, Math.ceil(Math.log2(.5 / v.zoom)));
         for (let x = ((v.x % spacing) + spacing) % spacing; x < this.width; x += spacing)
@@ -100,5 +102,6 @@ export class Renderer {
             c.fillText(peer.name, 19, 33);
             c.restore();
         }
+        drawGuides(c, this.app, this.width, this.height);
     }
 }
