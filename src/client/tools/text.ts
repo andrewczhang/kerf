@@ -60,6 +60,7 @@ export class TextEditor {
         if (!this.input)
             return;
         if (this.input.value.length > maxTextLength) {
+            this.ctx.store.end();
             this.input.focus();
             return false;
         }
