@@ -2,11 +2,17 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { makeNode, type Node, type Paint, type Doc } from '../src/shared/doc';
 import { exportBounds, exportPNG, exportSVG } from '../src/client/export';
 import { loadAsset } from '../src/client/assets';
+import { svgPaints } from '../src/client/svg-paints';
 vi.mock('../src/client/assets', () => ({ loadAsset: vi.fn(), assetImage: vi.fn() }));
 afterEach(() => { vi.unstubAllGlobals(); vi.resetAllMocks(); });
 const solid: Paint = { type: 'solid', color: '#123456', opacity: .5, visible: true };
 const gradient: Paint = { type: 'linear', stops: [{ pos: 1, color: '#ffffff', opacity: .2 }, { pos: 0, color: '#000000', opacity: 1 }], from: { x: -.5, y: .5 }, to: { x: 1, y: .5 }, opacity: .75, visible: true };
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
+it('anchors radial text gradients to the layout box rather than the glyph bounds', () => {
+    const n = { ...makeNode('text', 20, 30), text: 'Hi', textWidth: 'fixed' as const, w: 400, h: 100, fills: [{ ...gradient, type: 'radial' as const, from: { x: .5, y: .5 }, to: { x: 1, y: .5 } }] };
+    const svg = svgPaints(n, n, 'text', 'font-size="24"', 1, '', () => 'gradient', '<tspan>Hi</tspan>');
+    expect(svg).toContain('gradientUnits="userSpaceOnUse" gradientTransform="matrix(400 0 0 100 20 30)" cx="0.5" cy="0.5" r="0.5"'); expect(svg).not.toContain('objectBoundingBox');
+});
 it('exports ordered solid and linear/radial paints with sorted stops, opacity and elliptical coordinates', () => {
     const n = { ...makeNode('ellipse', 20, 30), w: 200, h: 100, opacity: .5, fills: [solid, gradient, { ...gradient, type: 'radial' as const, from: { x: .5, y: .5 } }, { ...solid, color: '#ff0000', visible: false }] }, svg = exportSVG(docOf(n), [n.id]);
     expect(svg).toContain('fill="#123456" fill-opacity="0.5"'); expect(svg).toContain('opacity="0.5"'); expect(svg).toContain('<linearGradient'); expect(svg).toContain('gradientUnits="userSpaceOnUse" x1="-80" y1="80" x2="220" y2="80"'); expect(svg).toContain('<radialGradient'); expect(svg).toContain('gradientUnits="objectBoundingBox" cx="0.5" cy="0.5" r="0.5"'); expect(svg.indexOf('offset="0"')).toBeLessThan(svg.indexOf('offset="1"')); expect(svg.indexOf('fill="#123456"')).toBeLessThan(svg.indexOf('fill="url(')); expect(svg).toContain('fill-opacity="0.75"'); expect(svg).not.toContain('#ff0000');
