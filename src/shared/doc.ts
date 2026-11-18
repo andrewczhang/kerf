@@ -14,6 +14,10 @@ export const textAlignments = ['left', 'center', 'right'] as const;
 export const textWidths = ['auto', 'fixed'] as const;
 export const maxTextLength = 100000;
 export const maxFontSize = 512;
+export const strokeAlignments = ['inside', 'center', 'outside'] as const;
+export const strokeCaps = ['butt', 'round', 'square'] as const;
+export const strokeJoins = ['miter', 'round', 'bevel'] as const;
+export const arrowheads = ['none', 'line', 'triangle', 'circle', 'bar'] as const;
 
 interface TextProperties {
     text: string;
@@ -24,7 +28,18 @@ interface TextProperties {
     textWidth: typeof textWidths[number];
 }
 
-export interface Node extends Partial<TextProperties> {
+interface StrokeProperties {
+    strokeAlign: typeof strokeAlignments[number];
+    strokeDash: number;
+    strokeGap: number;
+    strokeCap: typeof strokeCaps[number];
+    strokeJoin: typeof strokeJoins[number];
+    strokeMiterLimit: number;
+    strokeStart: typeof arrowheads[number];
+    strokeEnd: typeof arrowheads[number];
+}
+
+export interface Node extends Partial<TextProperties & StrokeProperties> {
     grids?: LayoutGrid[];
     link?: string | null;
     id: string;
@@ -71,6 +86,20 @@ const layoutEnums: Record<'layout' | 'justify' | 'align' | 'sizeW' | 'sizeH', re
 export type TextNode = Node & TextProperties & { type: 'text' };
 export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
 const textKeys: (keyof TextProperties)[] = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'];
+const strokeKeys: (keyof StrokeProperties)[] = ['strokeAlign', 'strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin', 'strokeMiterLimit', 'strokeStart', 'strokeEnd'];
+export const isOpenPath = (node: Node) => node.type === 'path' && !node.closed;
+export function strokeOptions(node: Node): StrokeProperties {
+    return {
+        strokeAlign: isOpenPath(node) ? 'center' : node.strokeAlign ?? 'center',
+        strokeDash: node.strokeDash ?? 0,
+        strokeGap: node.strokeGap ?? 0,
+        strokeCap: node.strokeCap ?? (node.type === 'path' ? 'round' : 'butt'),
+        strokeJoin: node.strokeJoin ?? (node.type === 'path' ? 'round' : 'miter'),
+        strokeMiterLimit: node.strokeMiterLimit ?? 10,
+        strokeStart: node.strokeStart ?? 'none',
+        strokeEnd: node.strokeEnd ?? 'none',
+    };
+}
 export type Doc = Map<string, Node>;
 export interface LayoutGrid { type: 'columns' | 'rows' | 'grid'; count: number; size: number; gutter: number; margin: number; color: string; opacity: number; visible: boolean }
 function validGrid(g: LayoutGrid): boolean {
@@ -126,7 +155,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -151,9 +180,18 @@ export function applyOp(doc: Doc, op: Op): void {
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function validNode(n: Node): boolean {
-    if (!n || !validLink(n.link)) return false;
+    if (!n || !validLink(n.link) || !validStroke(n)) return false;
     if (n.grids !== undefined && (n.type !== 'frame' || !Array.isArray(n.grids) || n.grids.length > 8 || !n.grids.every(validGrid))) return false;
     return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(n.type) && ['hidden', 'locked'].every(k => n[k as keyof Node] === undefined || typeof n[k as keyof Node] === 'boolean') && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
+}
+function validStroke(n: Node): boolean {
+    const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
+    return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))
+        && (n.strokeCap === undefined || strokeCaps.includes(n.strokeCap))
+        && (n.strokeJoin === undefined || strokeJoins.includes(n.strokeJoin))
+        && (n.strokeStart === undefined || arrowheads.includes(n.strokeStart))
+        && (n.strokeEnd === undefined || arrowheads.includes(n.strokeEnd))
+        && length(n.strokeDash, 0) && length(n.strokeGap, 0) && length(n.strokeMiterLimit, 1);
 }
 function validText(n: Node): boolean {
     return typeof n.text === 'string' && n.text.length <= maxTextLength

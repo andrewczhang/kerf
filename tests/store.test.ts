@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { Store } from '../src/client/store';
-import { applyOp, makeNode, type Op } from '../src/shared/doc';
+import { applyOp, makeNode, strokeOptions, type Op } from '../src/shared/doc';
 import { groupOps } from '../src/shared/layers';
 import { MAX_OPS } from '../src/shared/protocol';
 it('sends large commits in ordered batches of at most 1000 with separate pending sequences', () => {
@@ -55,3 +55,16 @@ it('does not undo a remote property overwrite', () => { const s = new Store(), n
 it('protects pending properties and reapplies pending on init', () => { const s = new Store(), n = makeNode('rect', 0, 0); s.init([n]); s.set(n.id, { x: 20 }); s.remote([{ t: 'set', id: n.id, key: 'x', value: 99 }]); expect(s.doc.get(n.id)?.x).toBe(20); s.init([n]); expect(s.doc.get(n.id)?.x).toBe(20); });
 it('undoes frame deletion with descendants and handles empty history', () => { const s = new Store(), a = makeNode('frame', 0, 0), b = { ...makeNode('rect', 10, 10), parent: a.id }; s.history(); s.commit([{ t: 'create', node: a }, { t: 'create', node: b }]); s.commit([{ t: 'delete', id: a.id }]); s.history(); expect(s.doc.size).toBe(2); });
 it('redoes a shape creation and drag as one transaction', () => { const s = new Store(), n = makeNode('rect', 0, 0); s.begin(); s.commit([{ t: 'create', node: n }]); s.set(n.id, { w: 250, h: 150 }); s.end(); s.history(); expect(s.doc.size).toBe(0); s.history(true); expect(s.doc.get(n.id)?.w).toBe(250); expect(s.doc.get(n.id)?.h).toBe(150); });
+
+it('syncs stroke properties independently and undoes them back to legacy defaults', () => {
+    const local = new Store(), remote = new Store(), n = makeNode('path', 0, 0);
+    local.init([n]); remote.init([n]);
+    local.send = ops => remote.remote(JSON.parse(JSON.stringify(ops)));
+    local.begin(); local.set(n.id, { strokeDash: 6, strokeGap: 2, strokeCap: 'square', strokeEnd: 'bar' }); local.end();
+    expect(strokeOptions(remote.doc.get(n.id)!)).toMatchObject({ strokeDash: 6, strokeGap: 2, strokeCap: 'square', strokeEnd: 'bar' });
+    local.history();
+    expect(strokeOptions(remote.doc.get(n.id)!)).toEqual(strokeOptions(n));
+    local.history(true);
+    remote.remote([{ t: 'set', id: n.id, key: 'strokeGap', value: -1 }, { t: 'set', id: n.id, key: 'strokeMiterLimit', value: 0 }]);
+    expect(strokeOptions(remote.doc.get(n.id)!)).toEqual(strokeOptions(local.doc.get(n.id)!));
+});
