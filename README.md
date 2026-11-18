@@ -30,6 +30,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
 - The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates. Alt/Option-drag duplicates in place and moves the copies; press or release Alt/Option during a move to toggle copying. Alt/Option-click alone does not duplicate.
+- Align: Alt+A/H/D for left/center/right, Alt+W/V/S for top/middle/bottom. Alt+Shift+H/V distributes horizontal/vertical spacing; Ctrl+Alt+T tidies rows, columns and grids. A single child aligns within its frame.
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.

@@ -7,6 +7,7 @@ import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reor
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
+import { constraintOps } from '../../shared/constraints';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -169,6 +170,8 @@ export class Select implements Tool {
                 resized.set(n.id, { ...n, ...values });
                 for (const [key, value] of Object.entries(values))
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
+                if (n.type === 'frame')
+                    ops.push(...constraintOps(this.snapshot, n.id, values, id => this.original.has(id), store.doc));
             }
         }
         else {
