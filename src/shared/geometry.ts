@@ -1,5 +1,5 @@
 import { children, type Doc, type Node } from './doc';
-import { hitPath, toAbs } from './path';
+import { containsPath, hitPath, toAbs } from './path';
 import { arrowBounds, hitMiter, strokeBounds, strokeOutset, strokeStyle } from './stroke';
 export interface Point {
     x: number;
@@ -32,6 +32,18 @@ export function worldCorners(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Point[
 export function aabb(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { return bounds(worldCorners(doc, n, sizeOf).map(p => ({ ...p, w: 0, h: 0 }))); }
 export function nodeHandles(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Point[] { const { w, h } = sizeOf(n), m = worldMatrix(doc, n, sizeOf); return handles({ x: 0, y: 0, w, h }).map(p => transform(m, p)); }
 export function contains(r: Rect, p: Point) { return p.x >= r.x && p.y >= r.y && p.x <= r.x + r.w && p.y <= r.y + r.h; }
+export function activeMask(doc: Doc, n: Node): Node | undefined { if (n.mask && !n.hidden) return; let mask: Node | undefined; for (const sibling of children(doc, n.parent)) { if (sibling.id === n.id) break; if (sibling.mask && !sibling.hidden) mask = sibling; } return mask; }
+export function ancestorMasks(doc: Doc, n: Node): Node[] { const masks: Node[] = [], seen = new Set<string>(); let current: Node | undefined = n; while (current && !seen.has(current.id)) { seen.add(current.id); const mask = activeMask(doc, current); if (mask) masks.push(mask); current = current.parent ? doc.get(current.parent) : undefined; } return masks; }
+export function maskContains(doc: Doc, n: Node, p: Point, sizeOf?: SizeOf): boolean {
+    const { w, h } = sizeOf ? sizeOf(n) : n, r = { x: 0, y: 0, w, h };
+    p = transform(inverse(worldMatrix(doc, n, sizeOf)), p);
+    if (n.type === 'path') return containsPath(toAbs(n.points ?? [], r), p);
+    if (n.type === 'ellipse') return ((p.x - r.x - r.w / 2) / (r.w / 2)) ** 2 + ((p.y - r.y - r.h / 2) / (r.h / 2)) ** 2 <= 1;
+    if (!contains(r, p)) return false;
+    const radius = Math.min(n.radius, r.w / 2, r.h / 2);
+    const x = Math.max(r.x + radius, Math.min(p.x, r.x + r.w - radius)), y = Math.max(r.y + radius, Math.min(p.y, r.y + r.h - radius));
+    return (p.x - x) ** 2 + (p.y - y) ** 2 <= radius ** 2;
+}
 export function intersects(a: Rect, b: Rect) { return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y; }
 export type SizeOf = (node: Node) => Pick<Rect, 'w' | 'h'>;
 export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x = n.x, y = n.y, p = n.parent; const seen = new Set([n.id]); while (p && !seen.has(p)) {
@@ -59,6 +71,8 @@ function hitsEllipse(r: Rect, p: Point, outset: number) {
 export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf, tol = 4): Node | undefined {
     for (const n of children(doc, parent).reverse()) {
         if (n.hidden || n.locked) continue;
+        if (ancestorMasks(doc, n).some(mask => !maskContains(doc, mask, p, sizeOf))) continue;
+        if (n.mask) { if (maskContains(doc, n, p, sizeOf)) return n; continue; }
         const { w, h } = sizeOf ? sizeOf(n) : n, r = { x: 0, y: 0, w, h }, local = transform(inverse(worldMatrix(doc, n, sizeOf)), p);
         if (n.type === 'path') {
             const points = toAbs(n.points ?? [], r), outset = strokeOutset(n);

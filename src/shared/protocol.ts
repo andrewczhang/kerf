@@ -27,6 +27,7 @@ export type ClientMsg = FeatureClientMsg | {
     type: 'ops';
     ops: Op[];
     seq: number;
+    epoch?: number;
 } | ({
     type: 'presence';
 } & Omit<Peer, 'id' | 'color'>);
@@ -45,6 +46,7 @@ export type ServerMsg = FeatureServerMsg | {
     versions: Version[];
     peers: Peer[];
     you: Peer;
+    epoch?: number;
 } | {
     type: 'ops';
     ops: Op[];
@@ -52,6 +54,7 @@ export type ServerMsg = FeatureServerMsg | {
 } | {
     type: 'ack';
     seq: number;
+    text?: Op[];
 } | {
     type: 'presence';
     peer: Peer;

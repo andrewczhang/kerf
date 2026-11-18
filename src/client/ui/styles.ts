@@ -16,24 +16,30 @@ export function styleLibrary(parent: HTMLElement, store: Store, sync: Sync) {
         const section = document.createElement('section'), heading = document.createElement('div'); heading.className = 'style-heading'; heading.append(kind === 'color' ? 'Colors' : 'Text', button('+', () => create(sync, kind))); section.append(heading); parent.append(section);
         const styles = sync.styles.filter(s => s.kind === kind);
         if (!styles.length) { const empty = document.createElement('p'); empty.className = 'style-empty'; empty.textContent = 'No styles yet'; section.append(empty); }
-        for (const style of styles) {
+        for (let style of styles) {
             const row = document.createElement('button'); row.className = 'style-row';
             const sample = document.createElement('span'); sample.className = 'style-sample';
-            if (style.kind === 'color') sample.style.backgroundColor = style.color;
-            else { sample.textContent = 'Ag'; sample.style.fontFamily = fonts[style.fontFamily]; sample.style.fontWeight = String(style.fontWeight); }
-            const label = document.createElement('span'), name = document.createElement('span'), spec = document.createElement('small'); name.textContent = style.name;
+            const label = document.createElement('span'), name = document.createElement('span'), spec = document.createElement('small');
             const count = [...store.doc.values()].filter(n => n.fillStyle === style.id || n.strokeStyle === style.id || n.textStyle === style.id).length;
-            spec.textContent = (style.kind === 'color' ? style.color : `${style.fontFamily} ${style.fontSize} · ${style.fontWeight}`) + ` · ${count} layers`;
+            const refresh = (value: Style) => {
+                style = value;
+                name.textContent = style.name;
+                if (style.kind === 'color') sample.style.backgroundColor = style.color;
+                else { sample.textContent = 'Ag'; sample.style.fontFamily = fonts[style.fontFamily]; sample.style.fontWeight = String(style.fontWeight); }
+                spec.textContent = (style.kind === 'color' ? style.color : `${style.fontFamily} ${style.fontSize} · ${style.fontWeight}`) + ` · ${count} layers`;
+            };
+            refresh(style);
             label.append(name, spec); row.append(sample, label); section.append(row);
             row.onclick = () => {
                 if (row.nextElementSibling?.classList.contains('style-editor')) { row.nextElementSibling.remove(); return; }
                 const editor = document.createElement('div'); editor.className = 'style-editor'; row.after(editor); let draft = { ...style }; let timer: ReturnType<typeof setTimeout>;
+                const update = (key: string, value: string | number) => { draft = { ...draft, [key]: value }; if (validStyle(draft)) refresh(draft); };
                 const send = () => { if (validStyle(draft)) sync.send({ type: 'style-upsert', style: draft }); };
-                const input = (key: string, type: string, value: string) => { const label = document.createElement('label'); label.textContent = key === 'fontSize' ? 'Size' : key === 'fontFamily' ? 'Font' : key === 'fontWeight' ? 'Weight' : key; const field = document.createElement('input'); field.type = type; field.value = value; field.setAttribute('aria-label', 'Style ' + key); if (key === 'fontSize') { field.min = '1'; field.max = String(maxFontSize); } field.oninput = () => { draft = { ...draft, [key]: type === 'number' ? Number(field.value) : field.value }; clearTimeout(timer); if (type === 'color') send(); else timer = setTimeout(send, 250); }; field.onchange = () => { clearTimeout(timer); send(); }; label.append(field); editor.append(label); };
+                const input = (key: string, type: string, value: string) => { const label = document.createElement('label'); label.textContent = key === 'fontSize' ? 'Size' : key === 'fontFamily' ? 'Font' : key === 'fontWeight' ? 'Weight' : key; const field = document.createElement('input'); field.type = type; field.value = value; field.setAttribute('aria-label', 'Style ' + key); if (key === 'fontSize') { field.min = '1'; field.max = String(maxFontSize); } field.oninput = () => { update(key, type === 'number' ? Number(field.value) : field.value); clearTimeout(timer); if (type === 'color') send(); else timer = setTimeout(send, 250); }; field.onchange = () => { clearTimeout(timer); send(); }; label.append(field); editor.append(label); };
                 input('name', 'text', style.name);
                 if (style.kind === 'color') input('color', 'color', style.color);
                 else {
-                    for (const [key, values] of [['fontFamily', textFonts], ['fontWeight', textWeights]] as const) { const label = document.createElement('label'); label.textContent = key === 'fontFamily' ? 'Font' : 'Weight'; const select = document.createElement('select'); select.setAttribute('aria-label', 'Style ' + key); for (const value of values) select.append(new Option(String(value), String(value))); select.value = String(style[key]); select.onchange = () => { draft = { ...draft, [key]: key === 'fontWeight' ? Number(select.value) : select.value }; send(); }; label.append(select); editor.append(label); }
+                    for (const [key, values] of [['fontFamily', textFonts], ['fontWeight', textWeights]] as const) { const label = document.createElement('label'); label.textContent = key === 'fontFamily' ? 'Font' : 'Weight'; const select = document.createElement('select'); select.setAttribute('aria-label', 'Style ' + key); for (const value of values) select.append(new Option(String(value), String(value))); select.value = String(style[key]); select.onchange = () => { update(key, key === 'fontWeight' ? Number(select.value) : select.value); send(); }; label.append(select); editor.append(label); }
                     input('fontSize', 'number', String(style.fontSize));
                 }
                 editor.append(button('Delete style', () => { clearTimeout(timer); sync.send({ type: 'style-delete', id: style.id }); editor.remove(); }));

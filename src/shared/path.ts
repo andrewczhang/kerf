@@ -120,6 +120,17 @@ export function hitPath(abs: PathPoint[], closed: boolean, p: Point, tol: number
     }
     return inside;
 }
+export function containsPath(abs: PathPoint[], p: Point): boolean {
+    const poly = flatten(abs, true); let winding = 0;
+    for (let i = 1; i < poly.length; i++) {
+        const a = poly[i - 1], b = poly[i];
+        if (segmentDistance(p, a, b).d <= 1e-9) return true;
+        const side = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+        if (a.y <= p.y && b.y > p.y && side > 0) winding++;
+        else if (a.y > p.y && b.y <= p.y && side < 0) winding--;
+    }
+    return winding !== 0;
+}
 
 /** Snap p to the nearest 45° ray from a. */
 export function snap45(a: Point, p: Point): Point {
