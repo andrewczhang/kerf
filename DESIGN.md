@@ -16,6 +16,8 @@ src/client/
   presence.ts     remote cursors/selections state; throttled (~30Hz) local cursor broadcast
   viewport.ts     pan/zoom camera (screen<->world), wheel zoom at cursor, space/middle-drag pan, trackpad pinch (ctrl+wheel)
   renderer.ts     Canvas2D renderer, devicePixelRatio aware, rAF dirty-flag loop; draws grid dots at zoom, nodes (frames clip children, frame title label), selection outline + 8 handles, marquee, hover outline, remote cursors (arrow + name tag) and remote selections in user color
+  draw.ts         shared Canvas2D node drawing for the renderer and PNG export
+  export.ts       selection roots/bounds, PNG and SVG export, download helpers
   tools/
     tool.ts       Tool interface {id, cursor, onPointerDown/Move/Up, onKey?}; registry so pen/text can be added as new files
     select.ts     click select, shift toggle, marquee, drag move (multi), 8-handle resize (shift = keep aspect, alt = from center), arrow nudge (shift x10), delete, duplicate (ctrl+d), dragging into/out of frames reparents
@@ -30,6 +32,7 @@ worker/
   room.ts         Durable Object (SQLite-backed or KV storage API): holds Doc in memory, persists nodes, broadcasts
 ```
 Later features (pen/vector paths, text, layers panel, export) each land as a new tool file / ui file plus new Node type in doc.ts without touching sync.
+New node types must add a drawing case in both draw.ts and exportSVG in export.ts.
 
 ## Document model
 Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
