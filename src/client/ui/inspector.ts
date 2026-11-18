@@ -3,6 +3,7 @@ import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
+import { applyBoolean, booleanOps, canCombine } from '../boolean';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -91,6 +92,18 @@ export function inspector(el: HTMLElement, store: Store) {
                 box.blur();
                 store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked }); store.end();
             };
+            content.append(section);
+        }
+        if (canCombine(store)) {
+            const section = document.createElement('section'), mod = /Mac/.test(navigator.platform) ? '⌘⌥' : 'Ctrl+Alt+';
+            section.innerHTML = '<div class="section-label">Boolean</div><div class="boolean-buttons"></div>';
+            for (const [op, label, key] of booleanOps) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.title = `${label} (${mod}${key})`;
+                button.onclick = () => applyBoolean(store, op);
+                section.querySelector('.boolean-buttons')!.append(button);
+            }
             content.append(section);
         }
         if (nodes.every(isTextNode)) {

@@ -1,4 +1,4 @@
-import type { Point } from './doc';
+import type { Point } from './geometry';
 
 /** A region is a set of closed polygons filled even-odd. */
 export type Polygon = Point[];

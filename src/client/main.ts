@@ -16,6 +16,7 @@ import { inspector } from './ui/inspector';
 import { people } from './ui/people';
 import { installGuides } from './guides';
 import { downloadSelection } from './export';
+import { applyBoolean, booleanOps } from './boolean';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
@@ -106,6 +107,10 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
+    return;
+} const op = (e.ctrlKey || e.metaKey) && e.altKey && booleanOps.find(o => e.code === 'Key' + o[2]); if (op) {
+    e.preventDefault();
+    applyBoolean(store, op[0]);
     return;
 } if (e.code === 'Space') {
     e.preventDefault();
