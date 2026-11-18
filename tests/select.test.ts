@@ -70,6 +70,18 @@ it('toggles copies mid-drag, ignores stray moves, and undoes the final original 
     tool.onPointerUp({ x: 90, y: 110 }); expect(store.doc.get(a.id)?.x).toBe(60);
     store.history(); expect(store.doc.get(a.id)?.x).toBe(20);
 });
+it('cancels an alt-drag when its preview is deleted by a peer', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+    tool.onPointerMove({ x: 90, y: 110 }, pointer(true));
+    const copy = [...store.selection][0];
+    expect(copy).not.toBe(a.id);
+    store.remote([{ t: 'delete', id: copy }]);
+    tool.onPointerUp({ x: 90, y: 110 });
+    expect(tool.copies).toBeUndefined();
+    expect(store.group).toBeNull();
+    expect([...store.doc.keys()]).toEqual([a.id]);
+});
 it('drops an auto-layout duplicate in the last slot and removes it in one undo step', () => {
     const { store, tool } = setup();
     const frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 500, h: 100, gap: 10 };
