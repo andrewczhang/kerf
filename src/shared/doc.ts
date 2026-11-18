@@ -84,6 +84,8 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     points?: PathPoint[];
     /** path only */
     closed?: boolean;
+    /** path only: extra closed contours of a compound path (boolean results), normalized like points, filled even-odd */
+    contours?: PathPoint[][];
     /** how the node follows its parent frame's width; default left */
     constraintH?: typeof horizontalConstraints[number];
     /** how the node follows its parent frame's height; default top */
@@ -206,7 +208,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['mask', 'fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['mask', 'fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'contours', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
@@ -283,6 +285,7 @@ function validProperty(key: string, value: unknown): boolean {
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
     if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(value as string);
     if (key === 'points') return validPoints(value);
+    if (key === 'contours') return value === undefined || Array.isArray(value) && value.length <= 200 && value.every(validPoints);
     if (key === 'closed') return typeof value === 'boolean';
     if (key === 'text') return typeof value === 'string' && value.length <= maxTextLength;
     if (key === 'fontFamily') return textFonts.includes(value as typeof textFonts[number]);
@@ -305,7 +308,7 @@ export function validLink(link: unknown): boolean { return link == null || typeo
 export function normalizeRotation(angle: number): number { return ((angle + 180) % 360 + 360) % 360 - 180; }
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
 export function maskEligible(n: Node): boolean { return n.type === 'rect' || n.type === 'ellipse' || n.type === 'path' && !!n.closed; }
-export function validNode(n: Node): boolean { return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed', 'contours'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))

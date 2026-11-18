@@ -13,6 +13,7 @@ import { fit, toAbs } from '../../shared/path';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { applyBoolean, booleanOps, canCombine } from '../boolean';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
 import { inverse, parentMatrix, transform } from '../../shared/geometry';
@@ -244,12 +245,24 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
                 store.begin();
                 if (virtual) write(first, 'closed', box.checked);
                 else {
-                    const f = fit(toAbs(first.points ?? [], { x: 0, y: 0, w: first.w, h: first.h }), box.checked, { x: 0, y: 0 });
+                    const f = fit(toAbs(first.points ?? [], { x: 0, y: 0, w: first.w, h: first.h }), box.checked, { x: 0, y: 0 }, (first.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: first.w, h: first.h })));
                     const c = transform(inverse(parentMatrix(store.doc, first)), transform(worldMatrix(store.doc, first), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
-                    store.set(first.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, closed: box.checked });
+                    store.set(first.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked });
                 }
                 store.end();
             };
+        }
+        if (canCombine(store)) {
+            const section = document.createElement('section'), mod = /Mac/.test(navigator.platform) ? '⌘⌥' : 'Ctrl+Alt+';
+            section.innerHTML = '<div class="section-label">Boolean</div><div class="boolean-buttons"></div>';
+            for (const [op, label, key] of booleanOps) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.title = `${label} (${mod}${key})`;
+                button.onclick = () => { button.blur(); applyBoolean(store, op); };
+                section.querySelector('.boolean-buttons')!.append(button);
+            }
+            content.append(section);
         }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w', 'rotation'] : ['x', 'y', 'rotation']);
