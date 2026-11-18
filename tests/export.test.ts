@@ -5,6 +5,14 @@ import { instanceNode } from '../src/shared/components';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 afterEach(() => vi.unstubAllGlobals());
+it('coerces numeric SVG attributes and escapes untrusted string attributes', () => {
+    const node = { ...makeNode('rect', 0, 0), stroke: '#123456', strokeWidth: '1" onload="bad', fill: '" onload="bad', name: 123 } as unknown as Node;
+    const svg = exportSVG(docOf(node), [node.id]);
+    expect(svg).not.toContain(' onload="');
+    expect(svg).toContain('fill="&quot; onload=&quot;bad"');
+    expect(svg).toContain('data-name="123"');
+    expect(svg).not.toContain('stroke-width=');
+});
 it('exports resolved instance children and virtual layer selections with overrides', () => {
     const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 10, 20), parent: main.id };
     const instance = { ...instanceNode(main, 200, 0), overrides: { [child.id]: { fill: '#123456' } } };

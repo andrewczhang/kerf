@@ -76,7 +76,7 @@ export function applyOp(doc: Doc, op: Op): void {
         if (op.clear)
             delete values[op.key];
         else {
-            if (!validNode({ ...n, [op.key]: op.value }))
+            if (!validProperty(op.key, op.value))
                 return;
             values[op.key] = op.value;
         }
@@ -144,5 +144,23 @@ function componentCycle(doc: Doc, next: Node): boolean {
     };
     return instances.some(n => reaches(n.instanceOf!));
 }
-export function validNode(n: Node): boolean { return !!n && (n.component === undefined || typeof n.component === 'boolean') && (n.instanceOf === undefined || typeof n.instanceOf === 'string') && (n.overrides === undefined || (!!n.overrides && Object.getPrototypeOf(n.overrides) === Object.prototype)) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse'].includes(n.type) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)); }
+function plain(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype; }
+function validOverrides(value: unknown): boolean {
+    return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
+}
+function validProperty(key: string, value: unknown): boolean {
+    if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
+    if (key === 'type') return ['frame', 'rect', 'ellipse'].includes(value as string);
+    if (key === 'parent') return value === null || typeof value === 'string';
+    if (key === 'component') return value === undefined || typeof value === 'boolean';
+    if (key === 'instanceOf') return value === undefined || typeof value === 'string';
+    if (key === 'overrides') return value === undefined || validOverrides(value);
+    if (key === 'stroke' && value === null) return true;
+    if (key === 'fill' || key === 'stroke') return typeof value === 'string' && /^#[\da-f]{6}$/i.test(value);
+    if (!['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].includes(key) || typeof value !== 'number' || !Number.isFinite(value)) return false;
+    if (key === 'w' || key === 'h') return value >= 1;
+    if (key === 'opacity') return value >= 0 && value <= 1;
+    return key === 'x' || key === 'y' || value >= 0;
+}
+export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides'].every(key => validProperty(key, n[key as keyof Node])); }
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node { return { id: crypto.randomUUID(), type, parent: null, index, name: type === 'frame' ? 'Frame' : type === 'rect' ? 'Rectangle' : 'Ellipse', x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 }; }

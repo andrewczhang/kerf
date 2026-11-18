@@ -11,6 +11,16 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it('validates every embedded override and rejects invalid direct overrides', () => {
+        const { doc, instance } = setup();
+        for (const values of [{ strokeWidth: '2' }, { strokeWidth: Infinity }, { fill: 123 }, { stroke: {} }, { opacity: 2 }, { x: 10 }, { unknown: 1 }]) {
+            expect(validNode({ ...instance, overrides: { x: values } } as unknown as Node)).toBe(false);
+            for (const [key, value] of Object.entries(values)) applyOp(doc, { t: 'override', id: instance.id, target: 'x', key: key as Key, value });
+        }
+        expect(doc.get(instance.id)?.overrides).toBeUndefined();
+        expect(validNode({ ...instance, overrides: { x: { fill: '#123456', strokeWidth: 2, stroke: null } } })).toBe(true);
+        expect(validNode({ ...instance, overrides: {} })).toBe(true);
+    });
     it('creates plain nodes quickly in large docs even with an unrelated corrupt cycle', () => {
         const doc: Doc = new Map();
         for (let i = 0; i < 2000; i++) {
