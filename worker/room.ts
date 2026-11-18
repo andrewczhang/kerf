@@ -12,11 +12,17 @@ declare const WebSocketRequestResponsePair: typeof import('@cloudflare/workers-t
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 declare const Request: typeof import('@cloudflare/workers-types').Request;
 type Connection = { peer: Peer; role: Role; receiptKey?: string; joinedEpoch: number; target: string; overflow?: boolean };
+const MAX_PRESENCE_ID = 128;
+const MAX_SELECTION = 4096;
+function presencePoint(value: Peer['cursor']) {
+    return value && Number.isFinite(value.x) && Number.isFinite(value.y) ? { x: value.x, y: value.y } : null;
+}
 export class Room {
     doc = new StoredDocument();
     name = '';
     private connections = new Map<WebSocket, Connection>();
     private departed = new WeakSet<WebSocket>();
+    private hasSelectionTable = false;
     features: Features;
     constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) {
         this.features = new Features(state.storage, this.doc, m => this.broadcast(m));
@@ -25,19 +31,21 @@ export class Room {
             this.name = await state.storage.get<string>('file-name') ?? '';
             await this.doc.load(state.storage);
             await this.features.load();
-            const overflow = await state.storage.list<string[]>({ prefix: 'socket:' });
             for (const ws of state.getWebSockets()) {
                 const connection = this.attachment(ws);
                 if (!connection) continue;
-                if (connection.overflow) {
-                    const key = 'socket:' + connection.peer.id;
-                    connection.peer.selection = overflow.get(key) ?? [];
-                    overflow.delete(key);
-                }
                 this.connections.set(ws, connection);
             }
-            const stale = [...overflow.keys()];
-            for (let i = 0; i < stale.length; i += 128) await state.storage.delete(stale.slice(i, i + 128));
+            const { sql } = state.storage;
+            this.hasSelectionTable = sql.exec("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'room_selections'").toArray().length > 0;
+            if (this.hasSelectionTable) {
+                const peers = [...this.connections.values()].filter(c => c.overflow).map(c => c.peer);
+                sql.exec('DELETE FROM room_selections WHERE peer_id NOT IN (SELECT value FROM json_each(?))', JSON.stringify(peers.map(p => p.id)));
+                for (const peer of peers) {
+                    const [row] = sql.exec<{ selection: string }>('SELECT selection FROM room_selections WHERE peer_id = ?', peer.id).toArray();
+                    if (row) peer.selection = JSON.parse(row.selection);
+                }
+            }
         });
     }
     private attachment(ws: WebSocket): Connection | undefined {
@@ -45,24 +53,26 @@ export class Room {
         if (data instanceof Uint8Array) return JSON.parse(new TextDecoder().decode(data));
     }
     private saveConnection(ws: WebSocket, connection: Connection, selectionChanged = false) {
-        const id = connection.peer.id, key = 'socket:' + id, encoder = new TextEncoder();
+        const { peer } = connection, { sql } = this.state.storage, encoder = new TextEncoder();
         const data = encoder.encode(JSON.stringify({ ...connection, overflow: undefined }));
         // Leave room for the structured-clone header within the 16 KiB attachment limit.
         if (data.length <= 16000) {
             ws.serializeAttachment(data);
             if (connection.overflow) {
+                sql.exec('DELETE FROM room_selections WHERE peer_id = ?', peer.id);
                 connection.overflow = undefined;
-                return this.state.storage.delete(key);
             }
             return;
         }
-        const attachment = encoder.encode(JSON.stringify({ ...connection, peer: { ...connection.peer, selection: [] }, overflow: true }));
-        const attach = () => {
-            ws.serializeAttachment(attachment);
-            connection.overflow = true;
-        };
-        if (!connection.overflow || selectionChanged) return this.state.storage.put(key, connection.peer.selection).then(attach);
-        attach();
+        ws.serializeAttachment(encoder.encode(JSON.stringify({ ...connection, peer: { ...peer, selection: [] }, overflow: true })));
+        const needsWrite = !connection.overflow || selectionChanged;
+        connection.overflow = true;
+        if (!needsWrite) return;
+        if (!this.hasSelectionTable) {
+            sql.exec('CREATE TABLE IF NOT EXISTS room_selections (peer_id TEXT PRIMARY KEY, selection TEXT NOT NULL)');
+            this.hasSelectionTable = true;
+        }
+        sql.exec('INSERT OR REPLACE INTO room_selections (peer_id, selection) VALUES (?, ?)', peer.id, JSON.stringify(peer.selection));
     }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
@@ -108,9 +118,11 @@ export class Room {
         }
         if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket')
             return new Response('WebSocket required', { status: 426 });
+        const clientId = url.searchParams.get('clientId');
+        const target = url.pathname.split('/')[2];
+        if (!target || target.length > 512 || (clientId?.length ?? 0) > MAX_PRESENCE_ID) return new Response('Invalid socket identifiers', { status: 400 });
         const pair = new WebSocketPair();
         const [client, ws] = Object.values(pair);
-        const clientId = url.searchParams.get('clientId');
         const receiptKey = clientId ? 'receipt:' + clientId : undefined;
         const ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
@@ -126,10 +138,9 @@ export class Room {
         } while (usedColors.has(color) || usedNames.has(name));
         const peer: Peer = { id: crypto.randomUUID(), name, color, cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
         const joinedEpoch = this.features.epoch;
-        const connection: Connection = { peer, role, receiptKey, joinedEpoch, target: url.pathname.split('/')[2] };
+        const connection: Connection = { peer, role, receiptKey, joinedEpoch, target };
         this.state.acceptWebSocket(ws);
-        const saved = this.saveConnection(ws, connection);
-        if (saved) await saved;
+        this.saveConnection(ws, connection);
         this.send(ws, { type: 'init', role, name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers, you: peer, epoch: joinedEpoch });
         this.connections.set(ws, connection);
         this.broadcast({ type: 'presence', peer }, ws);
@@ -190,25 +201,28 @@ export class Room {
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
-                const selectionChanged = connection.overflow && (peer.selection.length !== msg.selection.length || peer.selection.some((id, i) => id !== msg.selection[i]));
-                peer.page = typeof msg.page === 'string' ? msg.page : undefined;
-                peer.cursor = msg.cursor;
-                peer.selection = msg.selection;
-                peer.viewport = msg.viewport;
-                peer.name = String(msg.name || peer.name).slice(0, 32);
+                const viewport = presencePoint(msg.viewport);
+                if (!viewport || !Number.isFinite(msg.viewport.zoom)) return;
+                const selection = msg.selection.slice(0, MAX_SELECTION).filter(id => typeof id === 'string' && id.length <= MAX_PRESENCE_ID);
+                const selectionChanged = connection.overflow && (peer.selection.length !== selection.length || peer.selection.some((id, i) => id !== selection[i]));
+                peer.page = typeof msg.page === 'string' && msg.page.length <= MAX_PRESENCE_ID ? msg.page : undefined;
+                peer.cursor = presencePoint(msg.cursor);
+                peer.selection = selection;
+                peer.viewport = { ...viewport, zoom: msg.viewport.zoom };
+                if (typeof msg.name === 'string' && msg.name) peer.name = msg.name.slice(0, 32);
                 const spotlight = typeof msg.spotlight === 'boolean' && !!peer.spotlight !== msg.spotlight;
                 if (spotlight) {
                     if (msg.spotlight) {
                         for (const [otherSocket, other] of this.connections) {
                             if (!other.peer.spotlight) continue;
                             other.peer.spotlight = false;
-                            await this.saveConnection(otherSocket, other);
+                            this.saveConnection(otherSocket, other);
                             this.broadcast({ type: 'presence', peer: other.peer });
                         }
                     }
                     peer.spotlight = msg.spotlight;
                 }
-                await this.saveConnection(ws, connection, selectionChanged);
+                this.saveConnection(ws, connection, selectionChanged);
                 this.broadcast({ type: 'presence', peer }, spotlight ? undefined : ws);
             }
             else if (msg.type !== 'ops' && msg.type !== 'presence') await this.features.message(msg, peer, m => this.send(ws, m));
@@ -217,7 +231,7 @@ export class Room {
             ws.close(1003, 'Invalid message');
         } });
     }
-    private async leave(ws: WebSocket) {
+    private leave(ws: WebSocket) {
         if (this.departed.has(ws)) return;
         const connection = this.connections.get(ws) ?? this.attachment(ws);
         if (!connection) return;
@@ -225,7 +239,7 @@ export class Room {
         this.connections.delete(ws);
         const id = connection.peer.id;
         this.broadcast({ type: 'leave', id });
-        if (connection.overflow) await this.state.storage.delete('socket:' + id);
+        if (connection.overflow && this.hasSelectionTable) this.state.storage.sql.exec('DELETE FROM room_selections WHERE peer_id = ?', id);
     }
     webSocketClose(ws: WebSocket, code: number, reason: string) {
         const left = this.leave(ws);

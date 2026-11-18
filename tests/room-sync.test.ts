@@ -20,6 +20,9 @@ function setup() {
     vi.stubGlobal('WebSocketRequestResponsePair', class { constructor(public request: string, public response: string) {} });
     vi.stubGlobal('Response', class {});
     const data = new Map<string, unknown>();
+    const selections = new Map<string, string>();
+    const selectionReads: string[] = [];
+    let hasSelectionTable = false;
     const sockets = new Set<Socket>();
     let work: Promise<unknown> = Promise.resolve();
     const setWebSocketAutoResponse = vi.fn();
@@ -29,6 +32,21 @@ function setup() {
         getWebSockets() { return [...sockets]; },
         blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; },
         storage: {
+            sql: {
+                exec(query: string, id: string, selection: string) {
+                    if (query.startsWith('SELECT name FROM sqlite_schema')) return { toArray: () => hasSelectionTable ? [{ name: 'room_selections' }] : [] };
+                    if (query.startsWith('CREATE TABLE IF NOT EXISTS room_selections')) hasSelectionTable = true;
+                    else if (query.startsWith('INSERT OR REPLACE INTO room_selections')) selections.set(id, selection);
+                    else if (query === 'SELECT selection FROM room_selections WHERE peer_id = ?') {
+                        selectionReads.push(id);
+                        return { toArray: () => selections.has(id) ? [{ selection: selections.get(id) }] : [] };
+                    } else if (query === 'DELETE FROM room_selections WHERE peer_id = ?') selections.delete(id);
+                    else if (query.startsWith('DELETE FROM room_selections WHERE peer_id NOT IN')) {
+                        const live = new Set(JSON.parse(id));
+                        for (const key of selections.keys()) if (!live.has(key)) selections.delete(key);
+                    } else throw Error('Unexpected query: ' + query);
+                },
+            },
             async get(key: string) { return data.get(key); },
             async list({ prefix }: { prefix: string }) { return new Map([...data].filter(([key]) => key.startsWith(prefix))); },
             async transaction(fn: (txn: unknown) => Promise<unknown>) { return fn(this); },
@@ -42,7 +60,7 @@ function setup() {
     const env = { ROOM: {} as DurableObjectNamespace };
     let room = new Room(state, env);
     return {
-        data, sockets, setWebSocketAutoResponse,
+        data, selections, selectionReads, sockets, setWebSocketAutoResponse,
         get room() { return room; },
         async wake() { await work; room = new Room(state, env); await work; },
         async connect(clientId = 'stable', role = 'edit') {
@@ -73,32 +91,34 @@ it('persists large text, answers heartbeats, and deduplicates retries across con
     expect(ws.sent.at(-1)).toEqual({ type: 'ack', seq: 1 });
 });
 it('restores connected peers, spotlight and roles, then relays edits and departure without reconnecting', async () => {
-    const harness = setup(), { data, sockets, connect, send, wake } = harness;
+    const harness = setup(), { data, selections, selectionReads, sockets, connect, send, wake } = harness;
     const a = await connect(), viewer = await connect('other', 'view');
     const init = a.sent[0], viewerInit = viewer.sent[0];
     if (init.type !== 'init' || viewerInit.type !== 'init') throw Error('Missing init');
     const selection = Array.from({ length: 600 }, () => crypto.randomUUID());
     const presence = { type: 'presence' as const, name: 'Ada', selection, cursor: { x: 1, y: 2 }, page: 'page-2', viewport: { x: 3, y: 4, zoom: 2 }, spotlight: true };
     await send(a, presence);
-    const overflowKey = 'socket:' + init.you.id, storedSelection = data.get(overflowKey);
-    expect(storedSelection).toEqual(selection);
+    const overflowKey = init.you.id, storedSelection = selections.get(overflowKey);
+    expect(storedSelection).toBe(JSON.stringify(selection));
+    const originalWrite = vi.spyOn(selections, 'set');
     const cursor = { x: 5, y: 6 };
     await send(a, { ...presence, selection: [...selection], cursor });
-    expect(data.get(overflowKey)).toBe(storedSelection);
+    expect(originalWrite).not.toHaveBeenCalled();
     const disconnected = await connect('disconnected'), disconnectedInit = disconnected.sent[0];
     if (disconnectedInit.type !== 'init') throw Error('Missing init');
     await send(disconnected, { ...presence, spotlight: false });
-    const orphanKey = 'socket:' + disconnectedInit.you.id;
-    expect(data.has(orphanKey)).toBe(true);
+    const orphanKey = disconnectedInit.you.id;
+    expect(selections.has(orphanKey)).toBe(true);
     sockets.delete(disconnected);
     await wake();
-    expect(data.has(orphanKey)).toBe(false);
-    expect(data.get(overflowKey)).toBe(storedSelection);
+    expect(selections.has(orphanKey)).toBe(false);
+    expect(selectionReads).toEqual([overflowKey]);
+    expect(selections.get(overflowKey)).toBe(storedSelection);
     const late = await connect('late'), lateInit = late.sent[0];
     expect(lateInit).toMatchObject({ type: 'init', peers: [{ id: init.you.id, name: 'Ada', selection, cursor, page: 'page-2', spotlight: true }, { id: viewerInit.you.id }] });
     const changedSelection = selection.slice(1);
     await send(a, { ...presence, selection: changedSelection, cursor });
-    expect(data.get(overflowKey)).toEqual(changedSelection);
+    expect(selections.get(overflowKey)).toBe(JSON.stringify(changedSelection));
 
     const node = { ...makeNode('rect', 1, 2) };
     await send(viewer, { type: 'ops', seq: 1, ops: [{ t: 'create', node }] });
@@ -114,5 +134,28 @@ it('restores connected peers, spotlight and roles, then relays edits and departu
     sockets.delete(a);
     await harness.room.webSocketClose(workerSocket(a), 1000, '');
     expect(viewer.sent.at(-1)).toEqual({ type: 'leave', id: init.you.id });
-    expect(data.has(overflowKey)).toBe(false);
+    expect(selections.has(overflowKey)).toBe(false);
+});
+it('bounds presence metadata and selection before persisting it', async () => {
+    const { connect, send, selections } = setup();
+    const sender = await connect(), receiver = await connect('receiver');
+    const init = sender.sent[0];
+    if (init.type !== 'init') throw Error('Missing init');
+    const viewport = { x: 1, y: 2, zoom: 1, extra: 'x'.repeat(16384) };
+    const cursor = { x: 3, y: 4, extra: viewport.extra };
+    const selection = ['x'.repeat(129), ...Array.from({ length: 4096 }, () => crypto.randomUUID())];
+    await send(sender, { type: 'presence', name: 'n'.repeat(33), cursor, viewport, selection, page: 'p'.repeat(129) });
+    expect(receiver.sent.at(-1)).toMatchObject({ type: 'presence', peer: { name: 'n'.repeat(32), selection: selection.slice(1, 4096) } });
+    const peer = JSON.parse(new TextDecoder().decode(sender.attachment)).peer;
+    expect(peer).toEqual({ id: init.you.id, color: init.you.color, name: 'n'.repeat(32), cursor: { x: 3, y: 4 }, viewport: { x: 1, y: 2, zoom: 1 }, selection: [] });
+    expect(selections.get(init.you.id)).toBe(JSON.stringify(selection.slice(1, 4096)));
+});
+it('does not write an overflow row if attachment serialization fails', async () => {
+    const { connect, send, selections } = setup();
+    const sender = await connect();
+    const close = vi.spyOn(sender, 'close');
+    vi.spyOn(sender, 'serializeAttachment').mockImplementation(() => { throw Error('Attachment could not be written'); });
+    await send(sender, { type: 'presence', name: 'Ada', cursor: null, viewport: { x: 0, y: 0, zoom: 1 }, selection: Array.from({ length: 600 }, () => crypto.randomUUID()) });
+    expect(selections.size).toBe(0);
+    expect(close).toHaveBeenCalledWith(1003, 'Invalid message');
 });

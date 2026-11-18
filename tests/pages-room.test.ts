@@ -12,6 +12,7 @@ it('accepts page ops, ignores duplicate migration creates, relays page presence 
     vi.stubGlobal('WebSocketRequestResponsePair', class {});
     const data = new Map<string, unknown>(); let work: Promise<unknown> = Promise.resolve();
     const state = { acceptWebSocket() {}, getWebSockets: () => [], setWebSocketAutoResponse() {}, blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; }, storage: {
+        sql: { exec: () => ({ toArray: () => [] }) },
         async get(key: string) { return data.get(key); },
         async list({ prefix }: { prefix: string }) { return new Map([...data].filter(([key]) => key.startsWith(prefix))); },
         async transaction(fn: (txn: unknown) => Promise<unknown>) { return fn(this); },
