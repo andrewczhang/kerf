@@ -1,6 +1,11 @@
 import { between, descendants, makeNode, validNode, type Doc, type Node, type Op, type Key } from '../shared/doc';
 import { defaultName } from '../shared/codegen';
 import type { CodeElement } from '../shared/jsxparse';
+import { world } from '../shared/geometry';
+
+export function codeScopeIds(doc: Doc, rootId: string | null): Set<string> {
+    return new Set(rootId ? [rootId, ...descendants(doc, rootId).map(n => n.id)] : doc.keys());
+}
 
 export function codeRoot(doc: Doc, selection: Iterable<string>): string | null {
     let node = doc.get([...selection][0]);
@@ -20,10 +25,10 @@ function flatten(nodes: CodeElement[]): CodeElement[] {
     return nodes.flatMap(node => node.tag === 'fragment' ? flatten(node.children) : [node]);
 }
 
-export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement): Op[] {
+export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, baselineIds?: ReadonlySet<string>): Op[] {
     const root = rootId ? doc.get(rootId) : undefined;
     if (rootId && !root) throw new CodeDiffError('the edited frame was deleted', tree.line, tree.col);
-    const scope = new Set(root ? [root.id, ...descendants(doc, root.id).map(n => n.id)] : doc.keys());
+    const scope = codeScopeIds(doc, rootId);
     const seen = new Set<string>(), ops: Op[] = [];
     const visit = (elements: CodeElement[], parent: string | null, top = false) => {
         const siblings = flatten(elements);
@@ -78,7 +83,15 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement): Op
         }
     };
     visit([tree], root?.parent ?? null, true);
-    const missing = new Set([...scope].filter(id => !seen.has(id)));
+    const missing = new Set([...scope].filter(id => (baselineIds ?? scope).has(id) && !seen.has(id)));
+    for (const id of scope) {
+        const node = doc.get(id)!;
+        if (missing.has(id) || seen.has(id) || !missing.has(node.parent ?? '')) continue;
+        let parent = node.parent;
+        while (parent && missing.has(parent)) parent = doc.get(parent)?.parent ?? null;
+        const position = world(doc, node), origin = parent ? world(doc, doc.get(parent)!) : { x: 0, y: 0 };
+        ops.push({ t: 'set', id, key: 'parent', value: parent }, { t: 'set', id, key: 'x', value: position.x - origin.x }, { t: 'set', id, key: 'y', value: position.y - origin.y });
+    }
     for (const id of missing) if (!missing.has(doc.get(id)?.parent ?? '')) ops.push({ t: 'delete', id });
     return ops;
 }

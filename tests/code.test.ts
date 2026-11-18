@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOp, makeNode } from '../src/shared/doc';
 import { componentName, toHTML, toReact } from '../src/shared/codegen';
 import { parseJSX, type CodeElement } from '../src/shared/jsxparse';
-import { codeRoot, diffCode } from '../src/client/codesync';
+import { codeRoot, codeScopeIds, diffCode } from '../src/client/codesync';
 import { Store } from '../src/client/store';
 
 function fixture() {
@@ -18,6 +18,20 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('preserves collaborator additions absent from the original draft, including children of removed frames', () => {
+        const doc = fixture(), baseline = codeScopeIds(doc, 'frame');
+        const parsed = tree(toReact(doc, 'frame'));
+        parsed.children.shift();
+        const added = { ...makeNode('rect', 7, 8), id: 'remote', parent: 'nested' };
+        const sibling = { ...makeNode('rect', 50, 60), id: 'remote-sibling', parent: 'frame' };
+        doc.set(added.id, added); doc.set(sibling.id, sibling);
+        const ops = diffCode(doc, 'frame', parsed, baseline);
+        for (const op of ops) applyOp(doc, op);
+        expect(doc.get('remote')).toMatchObject({ parent: 'frame', x: 19, y: 32 });
+        expect(doc.get('remote-sibling')).toEqual(sibling);
+        expect(doc.has('nested')).toBe(false);
+        expect(doc.has('rect')).toBe(false);
+    });
     it('round-trips nested frames, names, negative coordinates, ellipses and appearance with zero ops', () => {
         const doc = fixture();
         expect(toReact(doc, 'frame')).toContain('export function ColorStudy()');

@@ -2,7 +2,7 @@ import { componentName, toHTML, toReact } from '../../shared/codegen';
 import { parseJSX, type CodeError } from '../../shared/jsxparse';
 import { bounds, world } from '../../shared/geometry';
 import { children } from '../../shared/doc';
-import { codeRoot, CodeDiffError, diffCode } from '../codesync';
+import { codeRoot, codeScopeIds, CodeDiffError, diffCode } from '../codesync';
 import { download } from '../export';
 import type { Store } from '../store';
 
@@ -37,6 +37,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     const iframe = el.querySelector<HTMLIFrameElement>('iframe')!;
     let active = false, dirty = false, applying = false, timer = 0;
     let rootId: string | null = null, error: CodeError | null = null, panelWidth = 440;
+    let baselineIds = new Set<string>();
 
     const paint = () => {
         highlight(pre, input.value);
@@ -66,6 +67,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         rootId = codeRoot(store.doc, store.selection);
         const start = input.selectionStart, end = input.selectionEnd, top = input.scrollTop, left = input.scrollLeft;
         input.value = toReact(store.doc, rootId);
+        baselineIds = codeScopeIds(store.doc, rootId);
         input.setSelectionRange(start, end);
         input.scrollTop = top; input.scrollLeft = left;
         dirty = false; error = null;
@@ -77,7 +79,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         const tree = parseJSX(input.value);
         if ('error' in tree) { error = tree; paint(); return; }
         try {
-            const ops = diffCode(store.doc, rootId, tree);
+            const ops = diffCode(store.doc, rootId, tree, baselineIds);
             applying = true;
             if (ops.length) store.commit(ops);
             applying = false; dirty = false; error = null;
