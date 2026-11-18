@@ -5,7 +5,7 @@ import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
-import { toAbs, trace } from '../shared/path';
+import { contoursAbs, trace } from '../shared/path';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -35,7 +35,7 @@ export class Renderer {
             drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
-            return; c.beginPath(); trace(c, toAbs(n.points ?? [], world(store.doc, n)), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
+            return; c.beginPath(); contoursAbs(n, world(store.doc, n)).forEach((abs, i) => trace(c, abs, i > 0 || !!n.closed)); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);

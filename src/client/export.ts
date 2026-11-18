@@ -3,7 +3,7 @@ import { bounds } from '../shared/geometry';
 import { world } from './geometry';
 import { drawNode } from './draw';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
-import { toAbs, trace, type PathPoint } from '../shared/path';
+import { contoursAbs, trace, type PathPoint } from '../shared/path';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -72,7 +72,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
-        const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
+        const geometry = n.type === 'path' ? `d="${contoursAbs(n, r).map((abs, i) => pathData(abs, i > 0 || !!n.closed)).join('')}"${n.contours?.length ? ' fill-rule="evenodd"' : ''} stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')

@@ -32,7 +32,7 @@ export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x 
 export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf, tol = 4): Node | undefined { for (const n of children(doc, parent).reverse()) {
     const r = world(doc, n, sizeOf);
     if (n.type === 'path') {
-        if (n.points && hitPath(toAbs(n.points, r), !!n.closed, p, Math.max(tol, n.strokeWidth / 2)))
+        if (n.points && hitPath(toAbs(n.points, r), !!n.closed, p, Math.max(tol, n.strokeWidth / 2), (n.contours ?? []).map(c => toAbs(c, r))))
             return n;
         continue;
     }

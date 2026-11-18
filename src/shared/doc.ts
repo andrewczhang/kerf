@@ -34,6 +34,8 @@ export interface Node extends Partial<TextProperties> {
     points?: PathPoint[];
     /** path only */
     closed?: boolean;
+    /** path only: extra closed contours of a compound path (boolean results), normalized like points, filled even-odd */
+    contours?: PathPoint[][];
 }
 export type TextNode = Node & TextProperties & { type: 'text' };
 export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
@@ -89,7 +91,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys].includes(op.key))
+    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', 'contours', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -112,7 +114,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.set(n.id, next);
 }
 export function validNode(n: Node): boolean {
-    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path'].includes(n.type) && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n));
+    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path'].includes(n.type) && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean' && (n.contours === undefined || Array.isArray(n.contours) && n.contours.length <= 200 && n.contours.every(validPoints))) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n));
 }
 function validText(n: Node): boolean {
     return typeof n.text === 'string' && n.text.length <= maxTextLength

@@ -1,7 +1,7 @@
 import { children, isTextNode, type Doc, type Node } from '../shared/doc';
 import { world } from './geometry';
 import { font, measureTextNode } from './text-layout';
-import { toAbs, trace } from '../shared/path';
+import { contoursAbs, trace } from '../shared/path';
 
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string }) {
     if (opts.skip === n.id)
@@ -20,10 +20,10 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
     }
     c.beginPath();
     if (n.type === 'path') {
-        trace(c, toAbs(n.points ?? [], r), !!n.closed);
+        contoursAbs(n, r).forEach((abs, i) => trace(c, abs, i > 0 || !!n.closed));
         if (n.closed) {
             c.fillStyle = n.fill;
-            c.fill();
+            c.fill('evenodd');
         }
         if (n.stroke && n.strokeWidth > 0) {
             c.lineWidth = n.strokeWidth;

@@ -87,9 +87,9 @@ export function inspector(el: HTMLElement, store: Store) {
             box.checked = !!n.closed;
             box.onchange = () => {
                 const parent = n.parent ? store.doc.get(n.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
-                const f = fit(toAbs(n.points ?? [], world(store.doc, n)), box.checked, origin);
+                const r = world(store.doc, n), f = fit(toAbs(n.points ?? [], r), box.checked, origin, (n.contours ?? []).map(c => toAbs(c, r)));
                 box.blur();
-                store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
+                store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked }); store.end();
             };
             content.append(section);
         }

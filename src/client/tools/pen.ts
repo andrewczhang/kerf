@@ -31,8 +31,8 @@ export class Pen implements Tool {
     origin(n: Node): Point { const p = n.parent ? this.ctx.store.doc.get(n.parent) : undefined; return p ? world(this.ctx.store.doc, p) : { x: 0, y: 0 }; }
     write(n: Node, abs: PathPoint[], closed = !!n.closed) {
         if (abs.length > MAX_POINTS) return false;
-        const f = fit(abs, closed, this.origin(n));
-        this.ctx.store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(closed !== !!n.closed ? { closed } : {}) });
+        const r = world(this.ctx.store.doc, n), f = fit(abs, closed, this.origin(n), (n.contours ?? []).map(c => toAbs(c, r)));
+        this.ctx.store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), ...(closed !== !!n.closed ? { closed } : {}) });
         return true;
     }
     /** Handles are shown for the selected anchor, its neighbours and the anchor being drawn. */
