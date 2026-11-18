@@ -20,6 +20,9 @@ it('persists large text, answers heartbeats, and deduplicates retries across con
         blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; },
         storage: {
             async get(key: string) { return data.get(key); },
+            async list({ prefix }: { prefix: string }) { return new Map([...data].filter(([key]) => key.startsWith(prefix))); },
+            async transaction(fn: (txn: unknown) => Promise<unknown>) { return fn(this); },
+            async delete(keys: string | string[]) { for (const key of typeof keys === 'string' ? [keys] : keys) data.delete(key); },
             async put(key: string | Record<string, unknown>, value?: unknown) {
                 if (typeof key === 'string') data.set(key, structuredClone(value));
                 else for (const [k, v] of Object.entries(key)) data.set(k, structuredClone(v));
