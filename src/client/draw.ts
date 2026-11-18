@@ -12,7 +12,7 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
         c.roundRect(r.x, r.y, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2));
     c.fillStyle = n.fill;
     c.fill();
-    if (n.stroke) {
+    if (n.stroke && n.strokeWidth > 0) {
         c.lineWidth = n.strokeWidth;
         c.strokeStyle = n.stroke;
         c.stroke();

@@ -18,7 +18,7 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
-        const r = world(doc, n), pad = n.stroke ? n.strokeWidth / 2 : 0;
+        const r = world(doc, n), pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
@@ -53,7 +53,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : 'rect';
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry} fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${n.stroke ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
+        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry} fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;
         let id: string;
