@@ -10,3 +10,12 @@ it('skips empty/hidden/transparent shadow casters and strokes stroke-only caster
     const stroke = render([], '#000000'); expect(stroke.fill).not.toHaveBeenCalled(); expect(stroke.stroke).toHaveBeenCalledTimes(2); expect(stroke.translate).toHaveBeenCalledTimes(1);
     expect(render([solid]).fill).toHaveBeenCalledTimes(2);
 });
+it.each([-1, -2])('does not cast a collapsed stroke-only shadow with spread %s', spread => {
+    vi.stubGlobal('Path2D', class { roundRect() {} });
+    const n: Node = { ...makeNode('rect', 0, 0), fills: [], stroke: '#000000', strokeWidth: 2, effects: [{ type: 'drop-shadow', x: 0, y: 4, blur: 12, spread, color: '#000000', opacity: 1, visible: true }] };
+    let width = 1;
+    const c = { canvas: { width: 500, height: 500 }, globalAlpha: 1, get lineWidth() { return width; }, set lineWidth(value: number) { if (value > 0) width = value; }, save: vi.fn(), restore: vi.fn(), translate: vi.fn(), fill: vi.fn(), stroke: vi.fn() };
+    drawNode(c as unknown as CanvasRenderingContext2D, new Map([[n.id, n]]), n, { zoom: 1, labels: false, file: 'test' });
+    expect(c.stroke).toHaveBeenCalledTimes(1);
+    expect(c.fill).not.toHaveBeenCalled();
+});
