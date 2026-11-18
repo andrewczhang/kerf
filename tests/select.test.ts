@@ -92,3 +92,12 @@ it('does not nudge or delete a locked node selected from layers, including locke
 it('handles empty grouping, ungrouping, nudge and delete selections', () => {
     const { store, tool } = setup(); key(tool, 'g', { ctrlKey: true }); key(tool, 'G', { ctrlKey: true, shiftKey: true }); key(tool, 'ArrowRight'); key(tool, 'Delete'); expect(store.doc.size).toBe(0); expect(store.undoStack).toHaveLength(0);
 });
+
+it('duplicates a sibling whose index ties with the next one', () => {
+        const doc = new Map() as any;
+        const base = { type: 'rect', x: 0, y: 0, w: 10, h: 10, parent: null, index: 'a' };
+        doc.set('a', { ...base, id: 'a', name: 'a' });
+        doc.set('b', { ...base, id: 'b', name: 'b' });
+        const copies = duplicateNodes(doc, [doc.get('a')]);
+        expect([...copies.values()][0].index > 'a').toBe(true);
+});

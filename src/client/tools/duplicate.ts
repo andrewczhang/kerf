@@ -12,8 +12,8 @@ export function duplicateNodes(doc: Doc, nodes: Node[], offset = 0): Map<string,
         if (!copies.has(original.parent ?? '')) {
             n.x += offset;
             n.y += offset;
-            const siblings = children(doc, original.parent);
-            n.index = between(original.index, siblings[siblings.findIndex(s => s.id === id) + 1]?.index ?? null);
+            const next = children(doc, original.parent).find(s => s.index > original.index);
+            n.index = between(original.index, next?.index ?? null);
         }
     }
     return copies;
