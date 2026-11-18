@@ -2,12 +2,14 @@ import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers
 import { applyOp, type Doc, type Node } from '../src/shared/doc';
 import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
+import { Features } from './features';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 export class Room {
     doc: Doc = new Map();
     peers = new Map<WebSocket, Peer>();
-    constructor(private state: DurableObjectState) { state.blockConcurrencyWhile(async () => { const nodes = await state.storage.get<Node[]>('nodes'); this.doc = new Map((nodes ?? []).map(n => [n.id, n])); }); }
+    features: Features;
+    constructor(private state: DurableObjectState) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { const nodes = await state.storage.get<Node[]>('nodes'); for (const n of nodes ?? []) this.doc.set(n.id, n); await this.features.load(); }); }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
     }
@@ -25,7 +27,7 @@ export class Room {
         ws.accept();
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
         const peer: Peer = { id: crypto.randomUUID(), name: ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'][this.peers.size % 5], color: palette[this.peers.size % 5], cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        this.send(ws, { type: 'init', nodes: [...this.doc.values()], peers: [...this.peers.values()], you: peer });
+        this.send(ws, { type: 'init', nodes: [...this.doc.values()], comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
@@ -37,6 +39,7 @@ export class Room {
                 await this.state.storage.put('nodes', [...this.doc.values()]);
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
+                if (msg.ops.length) await this.features.changed(peer.name);
             }
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
                 peer.cursor = msg.cursor;
@@ -45,6 +48,7 @@ export class Room {
                 peer.name = String(msg.name || peer.name).slice(0, 32);
                 this.broadcast({ type: 'presence', peer }, ws);
             }
+            else if (msg.type !== 'ops' && msg.type !== 'presence') await this.features.message(msg, peer, m => this.send(ws, m));
         }
         catch {
             ws.close(1003, 'Invalid message');

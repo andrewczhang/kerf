@@ -1,3 +1,4 @@
+import { corner, validPoints, type PathPoint } from './path';
 export const textFonts = ['sans', 'serif', 'mono'] as const;
 export const textWeights = [400, 700] as const;
 export const textAlignments = ['left', 'center', 'right'] as const;
@@ -15,8 +16,9 @@ interface TextProperties {
 }
 
 export interface Node extends Partial<TextProperties> {
+    link?: string | null;
     id: string;
-    type: 'frame' | 'rect' | 'ellipse' | 'text';
+    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path';
     parent: string | null;
     index: string;
     name: string;
@@ -39,6 +41,10 @@ export interface Node extends Partial<TextProperties> {
     align?: 'start' | 'center' | 'end';
     sizeW?: 'fixed' | 'hug' | 'fill';
     sizeH?: 'fixed' | 'hug' | 'fill';
+    /** path only: anchors normalized to the node box */
+    points?: PathPoint[];
+    /** path only */
+    closed?: boolean;
 }
 export const layoutDefaults = { layout: 'none', gap: 0, padTop: 0, padRight: 0, padBottom: 0, padLeft: 0, justify: 'start', align: 'start', sizeW: 'fixed', sizeH: 'fixed' } as const;
 function validLayout(n: Node): boolean {
@@ -102,7 +108,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', ...textKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -121,11 +127,13 @@ export function applyOp(doc: Doc, op: Op): void {
             return;
     }
     const next = { ...n, [op.key]: op.value };
-    if (validNode(next))
+    if (validLink(next.link) && validNode(next))
         doc.set(n.id, next);
 }
+export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function validNode(n: Node): boolean {
-    return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text'].includes(n.type) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n));
+    if (!n || !validLink(n.link)) return false;
+    return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path'].includes(n.type) && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n));
 }
 function validText(n: Node): boolean {
     return typeof n.text === 'string' && n.text.length <= maxTextLength
@@ -138,8 +146,10 @@ function validText(n: Node): boolean {
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
-    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
         return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
+    if (type === 'path')
+        return { ...node, stroke: '#272822', strokeWidth: 2, points: [corner(0, 0)], closed: false };
     return node;
 }
