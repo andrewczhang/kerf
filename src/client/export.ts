@@ -3,6 +3,7 @@ import { bounds } from '../shared/geometry';
 import { world } from './geometry';
 import { drawNode } from './draw';
 import { expand } from '../shared/components';
+import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
 
@@ -10,6 +11,7 @@ export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(d
     const selected = new Set(ids), roots: Node[] = [];
     const walk = (parent: string | null, ancestorSelected: boolean) => {
         for (const n of tree.get(parent) ?? []) {
+            if (blocked(doc, n, false)) continue;
             const included = selected.has(n.id);
             if (included && !ancestorSelected)
                 roots.push(n);
@@ -67,6 +69,8 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
     let clip = 0;
     const render = (n: Node, alpha: number): string => {
+        if (n.hidden) return '';
+        if (n.type === 'group') return (tree.get(n.id) ?? []).map(child => render(child, alpha)).join('');
         const raw = world(doc, n), r = { x: number(raw.x), y: number(raw.y), w: number(raw.w), h: number(raw.h) }, opacity = alpha * number(n.opacity);
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);

@@ -53,6 +53,15 @@ it('exports resolved instance children and virtual layer selections with overrid
     expect(virtual).not.toContain('<clipPath');
 });
 
+it('exports group children without a group primitive or hidden subtrees', () => {
+    const group = { ...makeNode('group', 10, 20), id: 'group' }, a = { ...makeNode('rect', 5, 6), id: 'visible', parent: group.id }, b = { ...makeNode('frame', 0, 0), id: 'hidden', parent: group.id, hidden: true }, c = { ...makeNode('ellipse', 0, 0), id: 'descendant', parent: b.id };
+    const doc = docOf(group, a, b, c), svg = exportSVG(doc, [group.id]);
+    expect(svg).toContain('id="visible"');
+    expect(svg).toContain('x="15" y="26"');
+    for (const id of ['group', 'hidden', 'descendant']) expect(svg).not.toContain('id="' + id + '"');
+    expect(exportRoots(doc, [c.id])).toEqual([]);
+});
+
 it('drops selected descendants and missing ids, preserving tree paint order', () => {
     const a = makeNode('frame', 0, 0, 'A'), b = makeNode('rect', 0, 0, 'B');
     const child = { ...makeNode('frame', 10, 10), parent: a.id };

@@ -3,6 +3,7 @@ import type { Point } from '../../shared/geometry';
 import { hit, world } from '../geometry';
 import { MAX_POINTS, corner, fit, nearest, reverse, smooth, snap45, split, toAbs, trace, type PathPoint } from '../../shared/path';
 import type { Context, Tool } from './tool';
+import { blocked } from '../../shared/layers';
 
 type Part = { kind: 'anchor' | 'in' | 'out'; index: number };
 type Drag = { kind: 'anchor' | 'in' | 'out' | 'handles'; index: number; start: Point; abs: PathPoint[]; moved: boolean; free?: boolean };
@@ -25,7 +26,7 @@ export class Pen implements Tool {
         const s = this.ctx.store.selection;
         if (s.size !== 1) return;
         const n = this.ctx.store.doc.get([...s][0]);
-        return n?.type === 'path' && n.points ? n : undefined;
+        return n?.type === 'path' && n.points && !blocked(this.ctx.store.doc, n) ? n : undefined;
     }
     abs(n: Node) { return toAbs(n.points!, world(this.ctx.store.doc, n)); }
     origin(n: Node): Point { const p = n.parent ? this.ctx.store.doc.get(n.parent) : undefined; return p ? world(this.ctx.store.doc, p) : { x: 0, y: 0 }; }

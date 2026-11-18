@@ -1,5 +1,6 @@
 import type { Node, Op } from './doc';
 import type { Point } from './geometry';
+export const MAX_OPS = 1000;
 import type { FeatureClientMsg, FeatureServerMsg } from './features-protocol';
 import type { Comment } from './comments';
 import type { Version } from './versions';

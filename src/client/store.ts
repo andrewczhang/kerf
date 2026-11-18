@@ -1,5 +1,6 @@
-import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
 import { detachOps, resizeFollowOps } from '../shared/components';
+import { MAX_OPS } from '../shared/protocol';
 function pendingKey(op: Op): string | undefined { return op.t === 'set' ? op.id + ':' + op.key : op.t === 'override' ? op.id + ':o:' + op.target + ':' + op.key : undefined; }
 function sameValue(a: unknown, b: unknown): boolean {
     if (a === b) return true;
@@ -87,8 +88,8 @@ export class Store extends EventTarget {
             this.undoStack.push(changes);
             this.redoStack = [];
         }
-    } for (let i = 0; i < sent.length; i += 1000) {
-        const batch = sent.slice(i, i + 1000);
+    } for (let i = 0; i < sent.length; i += MAX_OPS) {
+        const batch = sent.slice(i, i + MAX_OPS);
         const seq = ++this.seq;
         this.pending.set(seq, batch);
         this.send(batch, seq);
@@ -97,7 +98,7 @@ export class Store extends EventTarget {
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().map(pendingKey).filter(Boolean)); for (const op of ops)
         if (!pendingKey(op) || !keys.has(pendingKey(op)))
             applyOp(this.doc, op); this.changed(); }
-    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, n])); for (const ops of this.pending.values())
+    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of this.pending.values())
         for (const op of ops)
             applyOp(this.doc, op); this.changed(); }
     history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)

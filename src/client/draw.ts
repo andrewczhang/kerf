@@ -4,8 +4,13 @@ import { font, measureTextNode } from './text-layout';
 import { toAbs, trace } from '../shared/path';
 
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string; tree?: Map<string | null, Node[]> }) {
+    if (n.hidden) return;
     if (opts.skip === n.id) return;
     if (!opts.tree) opts = { ...opts, tree: childIndex(doc) };
+    if (n.type === 'group') {
+        for (const child of opts.tree!.get(n.id) ?? []) drawNode(c, doc, child, opts);
+        return;
+    }
     const r = world(doc, n);
     c.save();
     c.globalAlpha *= n.opacity;

@@ -11,7 +11,7 @@ export function expand(doc: Doc): Doc {
         if (!main || seen.has(main.id) || seen.size >= 8)
             return [n];
         const path = new Set(seen).add(main.id);
-        const root = { ...n, ...props(main), ...props(n.overrides?.['']), name: n.name };
+        const root = { ...n, ...props(main), hidden: n.hidden, locked: n.locked, ...props(n.overrides?.['']), name: n.name };
         const result = [root];
         const walkMain = (parent: string, resolvedParent: string) => {
             for (const child of tree.get(parent) ?? []) {

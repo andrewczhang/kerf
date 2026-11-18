@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyOp, makeNode, validNode, type Doc, type Node, type Op, type Key } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, resizeFollowOps, splitVirtual } from '../src/shared/components';
+import { blocked, moveOps } from '../src/shared/layers';
 
 function setup() {
     const main = { ...makeNode('frame', 10, 20), id: 'M', component: true };
@@ -11,6 +12,21 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it('expands groups and preserves instance visibility and locks independently of the main', () => {
+        const { doc, main, instance } = setup(), group = { ...makeNode('group', 0, 0), parent: main.id };
+        const child = { ...makeNode('rect', 10, 10), parent: group.id };
+        apply(doc, [{ t: 'create', node: group }, { t: 'create', node: child }]);
+        let resolved = expand(doc);
+        expect(resolved.get(instance.id + '/' + child.id)?.parent).toBe(instance.id + '/' + group.id);
+        apply(doc, [{ t: 'set', id: instance.id, key: 'hidden', value: true }, { t: 'set', id: instance.id, key: 'locked', value: true }]);
+        resolved = expand(doc);
+        expect(blocked(resolved, resolved.get(instance.id + '/' + child.id)!)).toBe(true);
+        expect(doc.get(main.id)?.hidden).toBe(false);
+        expect(moveOps(doc, child.id, instance.id)).toEqual([]);
+        apply(doc, [{ t: 'set', id: instance.id, key: 'hidden', value: false }, { t: 'set', id: instance.id, key: 'locked', value: false }, { t: 'set', id: main.id, key: 'hidden', value: true }]);
+        resolved = expand(doc);
+        expect(blocked(resolved, resolved.get(instance.id + '/' + child.id)!)).toBe(false);
+    });
     it('clamps fractional wrapping bounds to one unit without moving selected nodes', () => {
         const text = { ...makeNode('text', .8, .8), text: '' }, doc: Doc = new Map([[text.id, text]]);
         const { ops, id } = componentOps.create(doc, [text.id], () => ({ w: 1, h: 1 }));

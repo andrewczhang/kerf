@@ -51,7 +51,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             return;
         }
         const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
-        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[first.type]);
+        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path', group: 'Group' }[first.type]);
         const write = (n: Node, key: Key, value: unknown) => {
             const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
             if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'name'].includes(key))

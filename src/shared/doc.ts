@@ -18,7 +18,9 @@ interface TextProperties {
 export interface Node extends Partial<TextProperties> {
     link?: string | null;
     id: string;
-    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path';
+    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group';
+    hidden: boolean;
+    locked: boolean;
     parent: string | null;
     index: string;
     name: string;
@@ -97,7 +99,7 @@ export function applyOp(doc: Doc, op: Op): void {
         return;
     if (op.t === 'create') {
         if (validNode(op.node) && !doc.has(op.node.id) && validParent(doc, op.node) && (!op.node.instanceOf || !componentCycle(doc, op.node)))
-            doc.set(op.node.id, { ...op.node });
+            doc.set(op.node.id, normalizeNode(op.node));
         return;
     }
     const n = doc.get(op.id);
@@ -127,7 +129,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys].includes(op.key))
+    if (!['hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -150,7 +152,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.set(n.id, next);
 }
 export function overridable(key: string): key is Key { return !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
-function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && p.type === 'frame' && !p.instanceOf); }
+function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group'].includes(p.type) && !p.instanceOf); }
 function componentCycle(doc: Doc, next: Node): boolean {
     const byParent = new Map<string, Node[]>();
     for (const n of doc.values()) {
@@ -187,9 +189,10 @@ function validOverrides(value: unknown): boolean {
     return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
+    if (key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
     if (key === 'link') return validLink(value);
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
-    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path'].includes(value as string);
+    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(value as string);
     if (key === 'points') return validPoints(value);
     if (key === 'closed') return typeof value === 'boolean';
     if (key === 'text') return typeof value === 'string' && value.length <= maxTextLength;
@@ -210,11 +213,12 @@ function validProperty(key: string, value: unknown): boolean {
     return key === 'x' || key === 'y' || value >= 0;
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
-export function validNode(n: Node): boolean { return !!n && ['link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
+export function validNode(n: Node): boolean { return !!n && ['hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
-    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    const node = { id: crypto.randomUUID(), type, hidden: false, locked: false, parent: null, index, name: { group: 'Group', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
         return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
     if (type === 'path')
