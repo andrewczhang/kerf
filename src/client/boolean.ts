@@ -38,10 +38,13 @@ export function applyBoolean(store: Store, op: BooleanOp) {
         return poly.map(p => corner(p.x, p.y));
     });
     if (!result.length) return false;
-    const bottom = nodes[0], top = [...nodes].reverse().find(n => n.parent === bottom.parent)!, parent = bottom.parent ? store.doc.get(bottom.parent) : undefined;
-    const next = children(store.doc, bottom.parent).find(n => n.index > top.index && !store.selection.has(n.id));
+    const chain = (n: Node) => { const ids: (string | null)[] = []; for (let p = n.parent; p; p = store.doc.get(p)?.parent ?? null) ids.push(p); return [...ids, null]; };
+    const home = chain(nodes[0]).find(id => nodes.every(n => chain(n).includes(id))) ?? null, parent = home ? store.doc.get(home) : undefined;
+    const under = (n: Node) => { while (n.parent !== home) n = store.doc.get(n.parent!)!; return n; };
+    const bottom = nodes[0], top = nodes.map(under).reduce((m, n) => n.index > m.index ? n : m);
+    const next = children(store.doc, home).find(n => n.index > top.index && !store.selection.has(n.id));
     const f = fit(result[0], true, parent ? world(store.doc, parent) : { x: 0, y: 0 }, result.slice(1));
-    const node: Node = { ...makeNode('path', f.x, f.y, between(top.index, next?.index ?? null)), parent: bottom.parent, name: booleanOps.find(o => o[0] === op)![1], w: f.w, h: f.h,
+    const node: Node = { ...makeNode('path', f.x, f.y, between(top.index, next?.index ?? null)), parent: home, name: booleanOps.find(o => o[0] === op)![1], w: f.w, h: f.h,
         points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: true, fill: bottom.fill, stroke: bottom.stroke, strokeWidth: bottom.strokeWidth, opacity: bottom.opacity };
     store.commit([...nodes.map(n => ({ t: 'delete', id: n.id }) as Op), { t: 'create', node }]);
     store.selection.clear();
