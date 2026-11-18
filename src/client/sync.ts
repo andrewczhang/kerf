@@ -35,7 +35,8 @@ export class Sync extends EventTarget {
         } catch { this.storageError = true; }
         store.send = (ops, seq) => { if (!this.ready) this.unsent.add(seq); this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq, epoch: this.epoch }); };
         store.addEventListener('change', () => {
-            if (!this.snapshotTimer) this.snapshotTimer = setTimeout(() => { this.snapshotTimer = undefined; this.persist(true); }, 250);
+            clearTimeout(this.snapshotTimer);
+            this.snapshotTimer = setTimeout(() => { this.snapshotTimer = undefined; this.persist(true); }, 250);
         });
         window.addEventListener('offline', () => this.disconnect());
         window.addEventListener('beforeunload', e => {

@@ -1,5 +1,6 @@
 import type { WebSocket, DurableObjectState, DurableObjectNamespace, Request as WorkerRequest } from '@cloudflare/workers-types';
-import { applyOp, isTextNode, normalizeNode, type Doc, type Node, type Op } from '../src/shared/doc';
+import { applyOp, isTextNode, type Op } from '../src/shared/doc';
+import { StoredDocument } from './document';
 import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 import { MAX_OPS } from '../src/shared/protocol';
@@ -10,11 +11,11 @@ declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocke
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 declare const Request: typeof import('@cloudflare/workers-types').Request;
 export class Room {
-    doc: Doc = new Map();
+    doc = new StoredDocument();
     name = '';
     peers = new Map<WebSocket, Peer>();
     features: Features;
-    constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { this.name = await state.storage.get<string>('file-name') ?? ''; const nodes = await state.storage.get<Node[]>('nodes'); for (const n of nodes ?? []) this.doc.set(n.id, normalizeNode(n)); await this.features.load(); }); }
+    constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { this.name = await state.storage.get<string>('file-name') ?? ''; await this.doc.load(state.storage); await this.features.load(); }); }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
     }
@@ -116,8 +117,8 @@ export class Room {
                 }
                 const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);
                 for (const op of resolved) applyOp(this.doc, op);
-                applyLayout(this.doc);
-                await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
+                if (this.doc.needsLayout) applyLayout(this.doc);
+                await this.doc.persist(this.state.storage, receiptKey ? { [receiptKey]: msg.seq } : {});
                 this.broadcast({ type: 'ops', ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq, ...(text.length ? { text } : {}) });
                 if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });

@@ -144,6 +144,20 @@ it('throttles snapshot serialization while keeping queue writes and pagehide syn
     window.dispatchEvent(new Event('pagehide'));
     expect(setItem.mock.calls.filter(([key]) => key.endsWith(':nodes'))).toHaveLength(1);
 });
+it('defers full snapshots until edits pause, but durably writes pending operations during the drag', () => {
+    const { store, sync } = setup(), node = makeNode('rect', 0, 0);
+    store.init([node]); vi.advanceTimersByTime(250);
+    const setItem = vi.spyOn(localStorage, 'setItem');
+    for (let i = 1; i <= 10; i++) { store.set(node.id, { x: i }); vi.advanceTimersByTime(100); }
+    expect(setItem.mock.calls.filter(([key]) => key.endsWith(':nodes'))).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem(sync.storageKey)!).pending).toHaveLength(10);
+    vi.advanceTimersByTime(150);
+    expect(JSON.parse(localStorage.getItem(sync.storageKey + ':nodes')!).nodes[0].x).toBe(10);
+    store.set(node.id, { x: 20 }); window.dispatchEvent(new Event('pagehide'));
+    expect(JSON.parse(localStorage.getItem(sync.storageKey + ':nodes')!).nodes[0].x).toBe(20);
+    const restored = new Store(); new Sync(restored, 'test');
+    expect(restored.doc.get(node.id)?.x).toBe(20);
+});
 it('detects stalled and offline sockets', () => {
     const { sync, socket } = setup();
     Object.assign(socket, { close: vi.fn() });
