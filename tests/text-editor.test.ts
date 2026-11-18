@@ -23,7 +23,7 @@ it('retains oversized text through blur, close, keyboard exit and remote changes
     input.onblur!(); expect(editor.close()).toBe(false);
     store.begin(); store.end();
     input.onkeydown!({ key: 'Escape', preventDefault() {} } as KeyboardEvent);
-    store.set(node.id, { x: 20 });
+    store.remote([{ t: 'set', id: node.id, key: 'x', value: 20 }]);
     expect(input.value).toBe(draft); expect(input.remove).not.toHaveBeenCalled(); expect(canvas.focus).not.toHaveBeenCalled();
     expect(ctx.editingText).toBe(node.id);
     input.value = ''; input.oninput!(); expect(store.doc.get(node.id)?.text).toBe('');
