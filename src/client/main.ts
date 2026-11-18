@@ -10,6 +10,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { imageImport } from './image-import';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
@@ -22,6 +23,7 @@ const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
 renderer = new Renderer(canvas, ctx, sync);
+imageImport(canvas, ctx, file);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
 let active: Tool;
@@ -78,7 +80,7 @@ else {
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]'))
     return; if (e.code === 'Space') {
     e.preventDefault();
     space = true;

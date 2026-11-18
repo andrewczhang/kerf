@@ -1,6 +1,7 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
 import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
 import type { Context, Tool } from './tool';
+import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -12,6 +13,7 @@ export class Select implements Tool {
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
     onPointerDown(p: Point, e: PointerEvent) {
+        if (gradientDown(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         this.start = p;
         this.moved = false;
@@ -43,6 +45,7 @@ export class Select implements Tool {
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
+        if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
             this.ctx.hover = hit(store.doc, p)?.id;
@@ -92,7 +95,7 @@ export class Select implements Tool {
                 ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
         store.commit(ops);
     }
-    onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(n.id);

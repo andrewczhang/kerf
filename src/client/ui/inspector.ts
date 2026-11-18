@@ -1,5 +1,7 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
+import { fillsSection } from './fills';
+import { effectsSection } from './effects';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -49,7 +51,9 @@ export function inspector(el: HTMLElement, store: Store) {
         } content.append(section); };
         fields('Layout', ['x', 'y', 'w', 'h']);
         fields('Appearance', ['radius', 'opacity']);
-        fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+        fillsSection(content, store, nodes);
+        fields('Stroke', ['stroke', 'strokeWidth']);
+        effectsSection(content, store, nodes);
     };
     store.addEventListener('change', render);
     render();

@@ -34,6 +34,14 @@ Later features (pen/vector paths, text, layers panel, export) each land as a new
 Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
+Nodes optionally carry `fills: Paint[]` (maximum 12, bottom to top) and `effects: Effect[]` (maximum 8). Missing fills fall back to the legacy `fill`; empty fills draw nothing. Paints are solid (hex6 color), linear/radial (2–16 color/opacity stops sorted on use, normalized from/to coordinates −2…3), or image (SHA-256 asset hash, intrinsic w/h, fill=cover / fit=contain / tile). Every paint has opacity 0…1 and visibility. Radial from is the center; distance to to in normalized space is the radius, yielding an ellipse in a non-square box. Fill UI edits also update legacy fill from the topmost visible solid or gradient's first stop.
+
+Effects are drop-shadow/inner-shadow (x/y, nonnegative blur, spread, hex6 color, opacity, visibility) or layer-blur/background-blur (nonnegative radius, visibility). Effect dimensions are world units. The canvas renderer applies drop shadows, background blur, paints, stroke and inner shadows; layer blur composites the node through an offscreen canvas. Frames clip children.
+
+`PUT /f/:id/assets/:hash` accepts PNG/JPEG/WebP/GIF bytes up to 1.5 MiB, verifies SHA-256 and stores `{type,bytes}` under `asset:<hash>` in the room Durable Object. `GET` serves those bytes with immutable one-year caching. Client uploads decode and downscale to a longest side of 2048px, retain transparent PNG when it fits, otherwise encode WebP (.86 quality) with JPEG fallback. Canvas image insertion caps the initial longest side at 800 world units.
+
+Paint/effect UI lives in `ui/fills.ts` and `ui/effects.ts`; editing state and legacy-fill writes in `paint-edit.ts`, canvas controls in `gradient-handles.ts`, clipboard/drop handling in `image-import.ts`. UI transactions write whole arrays through Store; no sync protocol changes are needed.
+
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.
 - Server applies in arrival order, broadcasts `{type:'ops', ops, from}` to others, acks sender `{type:'ack', seq}`.
