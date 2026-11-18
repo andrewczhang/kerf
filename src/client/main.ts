@@ -89,7 +89,7 @@ function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.changed();
 }
 else
-    active.onPointerMove(viewport.world(p), e); presence.update(viewport.world(p)); }
+    active.onPointerMove(viewport.world(p), e); if (!pan) canvas.style.cursor = active.cursor; presence.update(viewport.world(p)); }
 canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
     return; canvas.focus(); canvas.setPointerCapture(e.pointerId); const p = local(e); if (space || e.button === 1 || active.id === 'hand') {
     presence.stopFollowing();
@@ -99,6 +99,7 @@ canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
 else {
     if (active.id === 'comment') e.preventDefault();
     active.onPointerDown(viewport.world(p), e);
+    canvas.style.cursor = active.cursor;
 } };
 canvas.onpointermove = e => { pointer = e; if (!queued) {
     queued = true;
@@ -161,6 +162,12 @@ window.addEventListener('keyup', e => { if (e.code === 'Space') {
     space = false;
     canvas.style.cursor = active.cursor;
 } });
+for (const event of ['keydown', 'keyup'] as const) window.addEventListener(event, e => {
+    if (e.key === 'Alt' && active instanceof Select) {
+        active.modifier(e.altKey);
+        canvas.style.cursor = active.cursor;
+    }
+});
 function zoomFromToolbar(factor: number) {
     presence.stopFollowing();
     viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, factor);
