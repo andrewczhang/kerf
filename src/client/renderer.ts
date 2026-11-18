@@ -12,6 +12,7 @@ import { drawNode } from './draw';
 import type { Doc } from '../shared/doc';
 import { toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
+import { pageDocument, pageRoots, pages } from '../shared/pages';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -28,7 +29,7 @@ export class Renderer {
         this.draw();
     } requestAnimationFrame(() => this.loop()); }
     draw() {
-        const c = this.ctx, { viewport: v } = this.app, store = this.preview ? { ...this.app.store, doc: this.preview, selection: new Set<string>() } : this.app.store, d = devicePixelRatio || 1;
+        const c = this.ctx, { viewport: v } = this.app, store = { doc: this.preview ? pageDocument(this.preview, this.app.store.currentPage) : this.app.store.pageDoc, selection: this.preview ? new Set<string>() : this.app.store.selection }, d = devicePixelRatio || 1;
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
         drawSnapGrid(c, this.app, this.width, this.height);
@@ -40,7 +41,7 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        for (const n of children(store.doc, null))
+        for (const n of pageRoots(store.doc, this.app.store.currentPage))
             drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate });
         if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, store.doc, v.zoom);
         for (const n of store.doc.values()) {
@@ -97,6 +98,7 @@ export class Renderer {
             outline(r, '#ff4f00');
         }
         for (const peer of this.sync.peers.values()) {
+            if (this.app.store.currentPage && (peer.page ?? pages(this.app.store.doc)[0]?.id) !== this.app.store.currentPage) continue;
             for (const id of peer.selection) {
                 const n = store.doc.get(id);
                 if (n && !blocked(store.doc, n, false))
@@ -105,6 +107,7 @@ export class Renderer {
         }
         c.restore();
         for (const peer of this.sync.peers.values()) {
+            if (this.app.store.currentPage && (peer.page ?? pages(this.app.store.doc)[0]?.id) !== this.app.store.currentPage) continue;
             if (!peer.cursor)
                 continue;
             const p = v.screen(peer.cursor);

@@ -8,13 +8,13 @@ export function present(store: Store) {
     overlay.innerHTML = '<canvas aria-label="Presentation"></canvas><div class="present-footer"><span></span><span>← → Navigate · Backspace Back</span><button>Exit · Esc</button></div>';
     document.body.append(overlay);
     const canvas = overlay.querySelector('canvas')!, c = canvas.getContext('2d')!, label = overlay.querySelector('span')!;
-    const frames = () => children(store.doc, null).filter(n => n.type === 'frame');
-    let selected = [...store.selection].map(id => store.doc.get(id)).find(n => n?.type === 'frame' && !n.parent);
+    const frames = () => children(store.pageDoc, store.currentPage ?? null).filter(n => n.type === 'frame');
+    let selected = [...store.selection].map(id => store.pageDoc.get(id)).find(n => n?.type === 'frame' && n.parent === (store.currentPage ?? null));
     let id = selected?.id ?? frames()[0]?.id, history: string[] = [], zoom = 1, ox = 0, oy = 0, flash = false, timer = 0;
     function draw() {
         const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1;
         canvas.width = r.width * d; canvas.height = r.height * d; c.setTransform(d, 0, 0, d, 0, 0);
-        let frame = id ? store.doc.get(id) : undefined;
+        let frame = id ? store.pageDoc.get(id) : undefined;
         if (!frame) { frame = frames()[0]; id = frame?.id; }
         if (!frame) { label.textContent = 'No top-level frames'; return; }
         const box = aabb(store.doc, frame);
@@ -28,7 +28,7 @@ export function present(store: Store) {
     }
     function hotspot(e: MouseEvent) {
         const r = canvas.getBoundingClientRect(), p: Point = { x: (e.clientX - r.left - ox) / zoom, y: (e.clientY - r.top - oy) / zoom };
-        const frame = id ? store.doc.get(id) : undefined;
+        const frame = id ? store.pageDoc.get(id) : undefined;
         if (!frame || !contains({ x: 0, y: 0, w: frame.w, h: frame.h }, transform(inverse(worldMatrix(store.doc, frame)), p))) return;
         let n = hit(store.doc, p, undefined, frame.id) ?? frame;
         while (n) { if (n.link && frames().some(f => f.id === n.link)) return n.link; if (!n.parent) break; n = store.doc.get(n.parent)!; }

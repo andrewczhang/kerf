@@ -1,6 +1,6 @@
 import { inverse, transform, type Point } from '../../shared/geometry';
 import { hit, worldMatrix } from '../geometry';
-import type { Comment } from '../../shared/comments';
+import { commentOnPage, type Comment } from '../../shared/comments';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
 import { registry } from '../tools/tool';
@@ -18,7 +18,8 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     }
     function render() {
         pins.replaceChildren();
-        const roots = sync.comments.filter(c => c.thread === null);
+        const roots = sync.comments.filter(c => c.thread === null && commentOnPage(ctx.store.doc, c, ctx.store.currentPage));
+        if (open && !roots.some(c => c.id === open) || draft?.node && !ctx.store.pageDoc.has(draft.node)) close();
         for (const [i, c] of roots.entries()) {
             if (c.resolved && !showResolved) continue;
             const p = position(c), b = document.createElement('button'); b.className = 'comment-pin'; b.textContent = String(i + 1); b.style.background = c.color; b.style.left = p.x + 'px'; b.style.top = p.y + 'px'; b.title = c.text;
@@ -44,7 +45,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         const post = () => {
             if (!input.value.trim()) return;
             if (!sync.you) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
-            const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
+            const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), page: root?.page ?? ctx.store.currentPage, author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
             if (!sync.send({ type: 'comment-add', comment: c })) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
             if (draft) { open = c.id; draft = null; } input.value = ''; status.textContent = '';
         };
@@ -54,7 +55,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         button('Close', close); render(); input.focus();
     }
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
-        const n = hit(ctx.store.doc, p), local = n ? transform(inverse(worldMatrix(ctx.store.doc, n)), p) : p;
+        const n = hit(ctx.store.pageDoc, p), local = n ? transform(inverse(worldMatrix(ctx.store.doc, n)), p) : p;
         draft = { ...local, ...(n ? { node: n.id } : {}) }; open = null; thread();
     }, onPointerMove() {}, onPointerUp() {} });
     const b = document.createElement('button'); b.className = 'feature-button'; b.dataset.tool = 'comment'; b.title = 'Comment (C)'; b.textContent = 'Comment'; b.onclick = () => choose('comment');
@@ -63,6 +64,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     sync.addEventListener('change', render);
     sync.addEventListener('comments-change', () => { if (!pop.hidden && !draft) { const value = pop.querySelector('textarea')?.value ?? ''; thread(); const input = pop.querySelector('textarea'); if (input) input.value = value; } });
     ctx.store.addEventListener('change', render);
+    ctx.store.addEventListener('page-change', close);
     const observer = new MutationObserver(render); observer.observe(document.querySelector('#zoom-value')!, { childList: true });
     new ResizeObserver(render).observe(canvas);
 }

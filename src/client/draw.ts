@@ -70,7 +70,7 @@ function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: Path
 type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void };
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied?: Mat) {
     if (blocked(doc, n, false) || opts.skip === n.id) return;
-    if (n.type === 'group') {
+    if (n.type === 'group' || n.type === 'page') {
         for (const child of children(doc, n.id))
             drawNode(c, doc, child, opts, applied);
         return;

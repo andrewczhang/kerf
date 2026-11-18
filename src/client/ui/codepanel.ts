@@ -54,9 +54,9 @@ export function codepanel(el: HTMLElement, store: Store) {
     const scroll = () => { pre.scrollTop = input.scrollTop; pre.scrollLeft = input.scrollLeft; gutter.style.transform = `translateY(${-input.scrollTop}px)`; };
     const showPreview = () => {
         if (preview.hidden) return;
-        iframe.srcdoc = toHTML(store.doc, rootId);
-        const root = rootId ? store.doc.get(rootId) : undefined;
-        const r = root ? { x: 0, y: 0, w: root.w, h: root.h } : bounds(children(store.doc, null).map(n => world(store.doc, n)));
+        iframe.srcdoc = toHTML(store.pageDoc, rootId);
+        const root = rootId ? store.pageDoc.get(rootId) : undefined;
+        const r = root ? { x: 0, y: 0, w: root.w, h: root.h } : bounds(children(store.pageDoc, store.currentPage ?? null).map(n => world(store.pageDoc, n)));
         const w = Math.max(1, r.x + r.w), h = Math.max(1, r.y + r.h);
         const scale = Math.min((preview.clientWidth - 32) / w, (preview.clientHeight - 32) / h, 1);
         iframe.style.width = w + 'px'; iframe.style.height = h + 'px';
@@ -64,10 +64,10 @@ export function codepanel(el: HTMLElement, store: Store) {
     };
     const regenerate = () => {
         if (!active || applying || dirty && document.activeElement === input) return;
-        rootId = codeRoot(store.doc, store.selection);
+        rootId = codeRoot(store.pageDoc, store.selection);
         const start = input.selectionStart, end = input.selectionEnd, top = input.scrollTop, left = input.scrollLeft;
-        input.value = toReact(store.doc, rootId);
-        baselineIds = codeScopeIds(store.doc, rootId);
+        input.value = toReact(store.pageDoc, rootId);
+        baselineIds = codeScopeIds(store.pageDoc, rootId);
         input.setSelectionRange(start, end);
         input.scrollTop = top; input.scrollLeft = left;
         dirty = false; error = null;
@@ -79,7 +79,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         const tree = parseJSX(input.value);
         if ('error' in tree) { error = tree; paint(); return; }
         try {
-            const ops = diffCode(store.doc, rootId, tree, baselineIds);
+            const ops = diffCode(store.pageDoc, rootId, tree, baselineIds);
             applying = true;
             commitCode(store, ops);
             applying = false; dirty = false; error = null;
@@ -107,8 +107,8 @@ export function codepanel(el: HTMLElement, store: Store) {
     button('copy').onclick = () => {
         void navigator.clipboard.writeText(input.value).catch(() => { errorLabel.textContent = 'Clipboard unavailable'; });
     };
-    button('jsx').onclick = () => download(new Blob([input.value], { type: 'text/jsx' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.jsx');
-    button('html').onclick = () => download(new Blob([toHTML(store.doc, rootId)], { type: 'text/html' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
+    button('jsx').onclick = () => download(new Blob([input.value], { type: 'text/jsx' }), componentName(rootId ? store.pageDoc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.jsx');
+    button('html').onclick = () => download(new Blob([toHTML(store.pageDoc, rootId)], { type: 'text/html' }), componentName(rootId ? store.pageDoc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
     button('preview').onclick = () => {
         preview.hidden = !preview.hidden;
         button('preview').setAttribute('aria-pressed', String(!preview.hidden));
@@ -123,6 +123,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     resize.onkeydown = event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); width(panelWidth + (event.key === 'ArrowLeft' ? 16 : -16)); } };
     new ResizeObserver(showPreview).observe(preview);
     store.addEventListener('change', regenerate);
+    store.addEventListener('page-change', () => { dirty = false; regenerate(); });
     return {
         activate(value: boolean) {
             active = value; el.hidden = !active;

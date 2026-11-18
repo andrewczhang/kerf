@@ -122,16 +122,16 @@ export class TextTool implements Tool {
     constructor(private ctx: Context, private edit: (node: TextNode, creating?: boolean) => void) { }
     onPointerUp(p: Point) {
         const { store } = this.ctx;
-        const target = hit(store.doc, p);
+        const target = hit(store.pageDoc, p);
         if (isTextNode(target)) {
             this.edit(target);
             return;
         }
         const parent = target?.type === 'frame' ? target : target?.parent ? store.doc.get(target.parent) : undefined;
         const local = transform(inverse(parent ? worldMatrix(store.doc, parent) : identity), p);
-        const index = between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null);
+        const index = between(children(store.doc, parent?.id ?? store.currentPage ?? null).at(-1)?.index ?? null);
         const node = makeNode('text', local.x, local.y, index);
-        node.parent = parent?.id ?? null;
+        node.parent = parent?.id ?? store.currentPage ?? null;
         this.edit(node, true);
     }
 }

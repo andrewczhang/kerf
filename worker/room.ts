@@ -55,6 +55,7 @@ export class Room {
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= MAX_OPS) {
                 if (receiptKey) ackSeq = await this.state.storage.get<number>(receiptKey) ?? 0;
                 if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
+                const deletingPage = msg.ops.some(op => op.t === 'delete' && this.doc.get(op.id)?.type === 'page');
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
                 const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);
@@ -63,6 +64,7 @@ export class Room {
                 await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
+                if (deletingPage) this.broadcast({ type: 'pages-state', nodes: [...this.doc.values()] });
                 if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }
@@ -75,6 +77,7 @@ export class Room {
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
+                peer.page = typeof msg.page === 'string' ? msg.page : undefined;
                 peer.cursor = msg.cursor;
                 peer.selection = msg.selection;
                 peer.viewport = msg.viewport;

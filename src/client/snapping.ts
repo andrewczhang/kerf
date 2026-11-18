@@ -16,13 +16,13 @@ function excludedSelection(ctx: Context) {
 }
 export function targets(ctx: Context) {
     const excluded = excludedSelection(ctx);
-    return [...ctx.store.doc.values()].filter(n => {
-        if (excluded.has(n.id) || n.opacity === 0) return false;
+    return [...ctx.store.pageDoc.values()].filter(n => {
+        if (n.type === 'page' || excluded.has(n.id) || n.opacity === 0) return false;
         const r = world(ctx.store.doc, n), seen = new Set([n.id]);
         let parent = n.parent;
         while (parent && !seen.has(parent)) {
             seen.add(parent); const p = ctx.store.doc.get(parent);
-            if (!p) break;
+            if (!p || p.type === 'page') break;
             if (p.opacity === 0 || !intersects(r, world(ctx.store.doc, p))) return false;
             parent = p.parent;
         }
@@ -35,7 +35,7 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
     const ts = targets(ctx), state = ctx.snap;
     const lines = [...state.lines];
     const excluded = excludedSelection(ctx);
-    if (state.layoutGrids !== false) for (const n of ctx.store.doc.values()) {
+    if (state.layoutGrids !== false) for (const n of ctx.store.pageDoc.values()) {
         if (n.type !== 'frame' || excluded.has(n.id) || blocked(ctx.store.doc, n, false)) continue;
         const frame = world(ctx.store.doc, n);
         let left = frame.x, top = frame.y, right = frame.x + frame.w, bottom = frame.y + frame.h;
@@ -44,7 +44,7 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
         while (parent && !seen.has(parent)) {
             seen.add(parent);
             const p = ctx.store.doc.get(parent);
-            if (!p) break;
+            if (!p || p.type === 'page') break;
             if (p.type === 'frame') {
                 const clip = world(ctx.store.doc, p);
                 left = Math.max(left, clip.x); top = Math.max(top, clip.y);

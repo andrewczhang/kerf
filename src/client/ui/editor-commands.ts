@@ -13,10 +13,11 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
     add('undo', 'Undo', 'Edit', () => store.history(false), 'Ctrl/⌘ Z');
     add('redo', 'Redo', 'Edit', () => store.history(true), 'Ctrl/⌘ ⇧ Z');
     for (const format of ['png', 'svg'] as const) add('export-' + format, 'Export selection ' + format.toUpperCase(), 'Export', () => downloadSelection(store.doc, store.selection, format, format === 'png' ? 2 : 1), undefined, () => exportRoots(store.doc, store.selection).length > 0);
+    for (const format of ['png', 'svg'] as const) add('export-page-' + format, 'Export current page ' + format.toUpperCase(), 'Export', () => downloadSelection(store.pageDoc, store.pageDoc.keys(), format, format === 'png' ? 2 : 1), undefined, () => exportRoots(store.pageDoc, store.pageDoc.keys()).length > 0);
     add('home', 'All files', 'Navigate', () => location.assign('/'));
     add('new', 'New file', 'Navigate', newFile);
     add('fit', 'Zoom to fit', 'View', () => {
-        const roots = exportRoots(store.doc, store.doc.keys()); if (!roots.length) return;
+        const roots = exportRoots(store.pageDoc, store.pageDoc.keys()); if (!roots.length) return;
         const r = exportBounds(store.doc, roots);
         viewport.zoom = Math.max(.05, Math.min(16, (renderer.width - 80) / Math.max(1, r.w), (renderer.height - 80) / Math.max(1, r.h)));
         viewport.x = (renderer.width - r.w * viewport.zoom) / 2 - r.x * viewport.zoom;
