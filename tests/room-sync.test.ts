@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { DurableObjectState, DurableObjectNamespace, Request as WorkerRequest, WebSocket } from '@cloudflare/workers-types';
 import { Room } from '../worker/room';
 import { makeNode } from '../src/shared/doc';
+import { expand, instanceNode } from '../src/shared/components';
 import type { ClientMsg, ServerMsg } from '../src/shared/protocol';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -143,12 +144,21 @@ it('bounds presence metadata and selection before persisting it', async () => {
     if (init.type !== 'init') throw Error('Missing init');
     const viewport = { x: 1, y: 2, zoom: 1, extra: 'x'.repeat(16384) };
     const cursor = { x: 3, y: 4, extra: viewport.extra };
-    const selection = ['x'.repeat(129), ...Array.from({ length: 4096 }, () => crypto.randomUUID())];
+    const mains = Array.from({ length: 4 }, () => ({ ...makeNode('frame', 0, 0), component: true }));
+    const instances = mains.map((main, i) => instanceNode(main, 0, 0, mains[i - 1]?.id ?? null));
+    const leaf = { ...makeNode('rect', 0, 0), parent: mains[3].id };
+    const deepPath = [...instances, leaf].map(n => n.id).join('/');
+    expect(deepPath.length).toBeGreaterThan(128);
+    expect(expand(new Map([...mains, ...instances, leaf].map(n => [n.id, n]))).has(deepPath)).toBe(true);
+    const selection = [deepPath, ...Array.from({ length: 4096 }, () => crypto.randomUUID())];
     await send(sender, { type: 'presence', name: 'n'.repeat(33), cursor, viewport, selection, page: 'p'.repeat(129) });
-    expect(receiver.sent.at(-1)).toMatchObject({ type: 'presence', peer: { name: 'n'.repeat(32), selection: selection.slice(1, 4096) } });
+    expect(receiver.sent.at(-1)).toMatchObject({ type: 'presence', peer: { name: 'n'.repeat(32), selection: selection.slice(0, 4096) } });
     const peer = JSON.parse(new TextDecoder().decode(sender.attachment)).peer;
     expect(peer).toEqual({ id: init.you.id, color: init.you.color, name: 'n'.repeat(32), cursor: { x: 3, y: 4 }, viewport: { x: 1, y: 2, zoom: 1 }, selection: [] });
-    expect(selections.get(init.you.id)).toBe(JSON.stringify(selection.slice(1, 4096)));
+    expect(selections.get(init.you.id)).toBe(JSON.stringify(selection.slice(0, 4096)));
+    const wide = '界'.repeat(200000);
+    await send(sender, { type: 'presence', name: 'Ada', cursor, viewport, selection: [wide, wide, deepPath] });
+    expect(selections.get(init.you.id)).toBe(JSON.stringify([wide, deepPath]));
 });
 it('does not write an overflow row if attachment serialization fails', async () => {
     const { connect, send, selections } = setup();

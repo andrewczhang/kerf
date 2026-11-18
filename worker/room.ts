@@ -14,8 +14,22 @@ declare const Request: typeof import('@cloudflare/workers-types').Request;
 type Connection = { peer: Peer; role: Role; receiptKey?: string; joinedEpoch: number; target: string; overflow?: boolean };
 const MAX_PRESENCE_ID = 128;
 const MAX_SELECTION = 4096;
+const MAX_SELECTION_BYTES = 1024 * 1024;
 function presencePoint(value: Peer['cursor']) {
     return value && Number.isFinite(value.x) && Number.isFinite(value.y) ? { x: value.x, y: value.y } : null;
+}
+function presenceSelection(values: unknown[]) {
+    const selection: string[] = [], encoder = new TextEncoder();
+    let remaining = MAX_SELECTION_BYTES - 2;
+    for (let i = 0; i < Math.min(values.length, MAX_SELECTION); i++) {
+        const id = values[i];
+        if (typeof id !== 'string' || id.length > remaining) continue;
+        const bytes = encoder.encode(JSON.stringify(id)).length + 1;
+        if (bytes > remaining) continue;
+        selection.push(id);
+        remaining -= bytes;
+    }
+    return selection;
 }
 export class Room {
     doc = new StoredDocument();
@@ -203,7 +217,7 @@ export class Room {
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
                 const viewport = presencePoint(msg.viewport);
                 if (!viewport || !Number.isFinite(msg.viewport.zoom)) return;
-                const selection = msg.selection.slice(0, MAX_SELECTION).filter(id => typeof id === 'string' && id.length <= MAX_PRESENCE_ID);
+                const selection = presenceSelection(msg.selection);
                 const selectionChanged = connection.overflow && (peer.selection.length !== selection.length || peer.selection.some((id, i) => id !== selection[i]));
                 peer.page = typeof msg.page === 'string' && msg.page.length <= MAX_PRESENCE_ID ? msg.page : undefined;
                 peer.cursor = presencePoint(msg.cursor);
