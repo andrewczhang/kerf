@@ -4,6 +4,7 @@ import type { SizeOf } from './geometry';
 
 export const defaultPage = 'page-1';
 export const pages = (doc: Doc) => children(doc, null).filter(n => n.type === 'page');
+export const topLevelFrames = (doc: Doc) => [...doc.values()].filter(n => n.type === 'frame' && (n.parent === null || doc.get(n.parent)?.type === 'page'));
 export const pageRoots = (doc: Doc, page?: string) => children(doc, page && doc.has(page) ? page : null).filter(n => n.type !== 'page');
 export function pageOf(doc: Doc, node: Node): string | undefined {
     const seen = new Set<string>(); let n: Node | undefined = node;

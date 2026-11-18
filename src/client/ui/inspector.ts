@@ -18,6 +18,7 @@ import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 import { alignSection } from './align';
 import { shortcutList } from './shortcuts';
+import { topLevelFrames } from '../../shared/pages';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -239,7 +240,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             const select = document.createElement('select');
             select.setAttribute('aria-label', 'Prototype target');
             select.append(new Option('None', ''));
-            for (const frame of store.doc.values()) if (frame.type === 'frame' && !frame.parent) select.append(new Option(frame.name, frame.id));
+            for (const frame of topLevelFrames(store.doc)) select.append(new Option(frame.name, frame.id));
             select.value = nodes[0].link ?? '';
             select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
             section.append(select); content.append(section);
