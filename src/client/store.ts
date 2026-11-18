@@ -9,6 +9,7 @@ type Change = {
 export class Store extends EventTarget {
     constructor(public measureText?: MeasureText) { super(); }
     relayout() { applyLayout(this.doc, this.measureText); this.changed(); }
+    readOnly = false;
     private document = indexDoc();
     get doc(): Doc { return this.document; }
     get treeRevision() { return docIndex(this.document)!.treeRevision; }
@@ -50,6 +51,7 @@ export class Store extends EventTarget {
         this.redoStack = [];
     } this.group = null; }
     commit(ops: Op[], record = true) {
+        if (this.readOnly) return;
         ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         if (record) {
             const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
@@ -131,7 +133,7 @@ export class Store extends EventTarget {
     init(nodes: import('../shared/doc').Node[], replayPending = true) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of replayPending ? this.pending.values() : [])
         for (const op of ops)
             applyOp(this.doc, op); for (const id of this.selection) if (!this.doc.has(id)) this.selection.delete(id); applyLayout(this.doc, this.measureText); this.changed(); }
-    history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
+    history(redo = false) { if (this.readOnly) return; const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = [], accepted: Change[] = []; const shadow = new Map(this.doc);
         const created = new Set(group.flatMap(c => c.after.t === 'create' ? [c.after.node.id] : []));
         for (const c of source) {

@@ -4,6 +4,7 @@ import type { Comment } from '../shared/comments';
 import type { Style } from '../shared/styles';
 import type { Version } from '../shared/versions';
 import { applyOp } from '../shared/doc';
+import type { Role } from '../shared/protocol';
 export class Sync extends EventTarget {
     socket?: WebSocket;
     peers = new Map<string, Peer>();
@@ -13,6 +14,7 @@ export class Sync extends EventTarget {
     comments: Comment[] = [];
     styles: Style[] = [];
     versions: Version[] = [];
+    role: Role = location.pathname?.startsWith('/v/') ? 'view' : 'edit';
     clientId: string = crypto.randomUUID();
     private epoch?: number;
     ready = false;
@@ -24,6 +26,7 @@ export class Sync extends EventTarget {
     private unsent = new Set<number>();
     constructor(public store: Store, public file: string) {
         super();
+        store.readOnly = this.role === 'view';
         if (navigator.onLine === false) this.status = 'Offline';
         try {
             const sessionKey = 'kerf:client:' + file;
@@ -112,7 +115,8 @@ export class Sync extends EventTarget {
         this.socket.send(JSON.stringify(msg));
         return true;
     }
-    connect() { this.lastMessage = Date.now(); const ws = this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/f/${this.file}/ws?clientId=${encodeURIComponent(this.clientId)}`); ws.onmessage = e => { if (ws !== this.socket) return; this.lastMessage = Date.now(); const m = JSON.parse(e.data) as ServerMsg; if (m.type === 'pong') return; if (m.type === 'init') {
+    connect() { this.lastMessage = Date.now(); const ws = this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/${this.role === 'view' ? 'v' : 'f'}/${this.file}/ws?clientId=${encodeURIComponent(this.clientId)}`); ws.onmessage = e => { if (ws !== this.socket) return; this.lastMessage = Date.now(); const m = JSON.parse(e.data) as ServerMsg; if (m.type === 'pong') return; if (m.type === 'init') {
+        this.role = m.role; this.store.readOnly = m.role === 'view';
         this.you = m.you;
         this.name = m.name ?? '';
         this.dispatchEvent(new Event('name-change'));
@@ -144,6 +148,8 @@ export class Sync extends EventTarget {
     }
     else if (m.type === 'styles') { this.styles = m.styles; this.dispatchEvent(new Event('styles-change')); }
     else if (m.type === 'name') { this.name = m.name; this.dispatchEvent(new Event('name-change')); }
+    else if (m.type === 'share-view') this.dispatchEvent(new CustomEvent('share-view', { detail: m.key }));
+    else if (m.type === 'error') this.dispatchEvent(new CustomEvent('server-error', { detail: m }));
     else if (m.type === 'comments') { this.comments = m.comments; this.dispatchEvent(new Event('comments-change')); }
     else if (m.type === 'versions') { this.versions = m.versions; this.dispatchEvent(new Event('versions-change')); }
     else if (m.type === 'version-preview') this.dispatchEvent(new CustomEvent('preview', { detail: m }));

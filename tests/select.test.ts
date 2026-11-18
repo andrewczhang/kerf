@@ -2,7 +2,7 @@ import { it, expect, vi } from 'vitest';
 import { children, makeNode } from '../src/shared/doc';
 import { center, matrixAngle, transform, world, worldCorners } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
-import { Select } from '../src/client/tools/select';
+import { Select, pasteLayers } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
 import { aabb, worldMatrix } from '../src/client/geometry';
 import { duplicateNodes } from '../src/client/tools/duplicate';
@@ -235,4 +235,38 @@ it('cancels a remote-deleted drag and clears both snap overlays', () => {
     tool.onPointerUp({ x: 77, y: 80 }); tool.onPointerMove({ x: 80, y: 80 }, { buttons: 0 } as PointerEvent);
     expect(snap.guides).toEqual([]); expect(snap.measure).toEqual([]);
     expect(store.selection.has(n.id)).toBe(false);
+});
+it('copies and pastes selected layers with their children as new offset layers in one undo step', async () => {
+    const { store, tool } = setup(), frame = { ...makeNode('frame', 100, 50), w: 300, h: 300 }, child = { ...makeNode('rect', 10, 20), parent: frame.id };
+    store.init([frame, child]); store.selection.add(frame.id);
+    expect(key(tool, 'c', { ctrlKey: true })).toBe(true);
+    expect(key(tool, 'v', { ctrlKey: true })).toBe(true);
+    await pasteLayers(store);
+    const pasted = store.doc.get([...store.selection][0])!, kids = [...store.doc.values()].filter(n => n.parent === pasted.id);
+    expect(pasted.id).not.toBe(frame.id); expect([pasted.x, pasted.y]).toEqual([120, 70]); expect(kids).toHaveLength(1); expect(kids[0].id).not.toBe(child.id); expect([kids[0].x, kids[0].y]).toEqual([10, 20]);
+    expect(store.doc.size).toBe(4); expect(store.undoStack).toHaveLength(1);
+    await pasteLayers(store); expect(store.doc.get([...store.selection][0])!.x).toBe(140);
+    store.selection.clear(); store.selection.add(child.id); key(tool, 'c', { ctrlKey: true }); await pasteLayers(store);
+    const inner = store.doc.get([...store.selection][0])!; expect(inner.parent).toBe(frame.id); expect([inner.x, inner.y]).toEqual([30, 40]);
+});
+
+it('pastes a layer copied out of a rotated frame with its world rotation and position', async () => {
+    const { store, tool } = setup(), frame = { ...makeNode('frame', 0, 0), w: 400, h: 400, rotation: 30 }, child = { ...makeNode('rect', 50, 60), parent: frame.id, rotation: 10 };
+    store.init([frame, child]); store.selection.add(child.id);
+    key(tool, 'c', { ctrlKey: true });
+    store.commit([{ t: 'delete', id: frame.id }]);
+    await pasteLayers(store);
+    const pasted = store.doc.get([...store.selection][0])!, before = worldMatrix(new Map([[frame.id, frame], [child.id, child]]) as any, child), after = worldMatrix(store.doc, pasted);
+    expect(pasted.parent).toBeNull(); expect(pasted.rotation).toBeCloseTo(40);
+    after.forEach((v, i) => expect(v).toBeCloseTo(before[i] + (i >= 4 ? 20 : 0), 6));
+});
+
+it('pastes a copied child beside the original after its frame moves', async () => {
+    const { store, tool } = setup(), frame = { ...makeNode('frame', 0, 0), w: 400, h: 400 }, child = { ...makeNode('rect', 50, 60), parent: frame.id };
+    store.init([frame, child]); store.selection.add(child.id);
+    key(tool, 'c', { ctrlKey: true });
+    store.commit([{ t: 'set', id: frame.id, key: 'x', value: 300 }]);
+    await pasteLayers(store);
+    const pasted = store.doc.get([...store.selection][0])!;
+    expect(pasted.parent).toBe(frame.id); expect([pasted.x, pasted.y]).toEqual([70, 80]);
 });

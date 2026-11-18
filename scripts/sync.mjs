@@ -12,7 +12,7 @@ const wsBase=base.replace(/^http/,'ws');
 const server=process.env.KERF_URL?null:spawn('npx',['wrangler','dev','--port',String(port),'--ip','127.0.0.1'],{stdio:['ignore','pipe','pipe'],detached:true});
 let log='';server?.stdout.on('data',d=>log+=d);server?.stderr.on('data',d=>log+=d);const sockets=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-async function client(session=''){const ws=new WebSocket(wsBase+`/f/${id}/ws`+(session?`?clientId=${session}`:'')),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
+async function client(path=`/f/${id}/ws`,headers={}){if(path && !path.startsWith('/')) path=`/f/${id}/ws?clientId=${path}`; const ws=new WebSocket(wsBase+path,{headers}),messages=[],received=[];let failure; sockets.push(ws);ws.on('message',s=>{received.push(String(s));messages.push(JSON.parse(s));});ws.on('error',error=>{failure=error;});return {ws,messages,received,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
 try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readinessError='';for(let i=0;i<(server?160:1);i++){try{const r=await fetch(base+'/f/'+id);if(r.ok){ready=true;break;}readinessError=`HTTP ${r.status} ${r.statusText}`;}catch(e){readinessError=e.message;}if(server)await delay(100);}assert(ready,`${base} is not ready: ${readinessError}\n${log}`);
  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
  assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
@@ -60,6 +60,26 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  for(const peer of [a,b,c,d,e]) { await peer.take('styles',m=>m.styles[0]?.color==='#abcdef');const update=await peer.take('ops',m=>m.ops.some(o=>o.key==='fill'&&o.value==='#abcdef'));assert(update.ops.some(o=>o.key==='fills')); }
  const late=await client(),li=await late.take('init');assert.equal(li.styles[0].color,'#abcdef');assert.equal(li.nodes.find(n=>n.id===node.id).fill,'#abcdef');
  a.send({type:'style-delete',id:style.id});await late.take('styles',m=>m.styles.length===0);assert((await late.take('ops')).ops.some(o=>o.key==='fillStyle'&&o.value===null));console.log('PASS authoritative shared style propagation, late join and detach');
+ assert.equal(ai.role,'edit');
+ a.send({type:'share-view'});const key=(await a.take('share-view')).key;assert(key.length>=16);assert(!key.includes(id));
+ a.send({type:'share-view'});assert.equal((await a.take('share-view')).key,key);
+ const viewPath=`/v/${key}`,v=await client(viewPath+'/ws',{'x-kerf-role':'edit'}),vi=await v.take('init');assert.equal(vi.role,'view');assert.equal(vi.nodes.find(n=>n.id===node.id).x,140);
+ for(const message of [{type:'ops',seq:99,ops:[{t:'set',id:node.id,key:'x',value:777}]},{type:'version-save',name:'Forbidden'},{type:'version-restore',id:version.id},{type:'comment-edit',id:comment.id,text:'Forbidden',resolved:true},{type:'comment-delete',id:comment.id},{type:'share-view'}]) {
+   const counts=sockets.map(s=>s.readyState);const before=b.received.length;
+   v.send(message);assert.equal((await v.take('error',m=>m.request===message.type)).message,'View only');assert.equal(b.received.length,before);assert.deepEqual(sockets.map(s=>s.readyState),counts);
+ }
+ assert.equal((await fetch(base+viewPath+`/assets/${hash}`,{method:'PUT',headers:{'content-type':'image/png','x-kerf-role':'edit'},body:bytes})).status,403);
+ const viewImage=await fetch(base+viewPath+`/assets/${hash}`);assert.equal(viewImage.status,200);assert(!viewImage.url.includes(id));assert.deepEqual(Buffer.from(await viewImage.arrayBuffer()),bytes);
+ const page=await fetch(base+viewPath);assert.equal(page.status,200);assert(!(await page.text()).includes(id));assert.equal((await fetch(base+'/_internal/register-view',{method:'POST',body:id})).status,404);
+ const missing=await client('/v/missing-'+Date.now()+'/ws');await assert.rejects(missing.take('init'),/404/);
+ const viewerComment={...comment,id:'viewer-comment',text:'Viewer thread'};v.send({type:'comment-add',comment:viewerComment});await b.take('comments',m=>m.comments.some(c=>c.id===viewerComment.id));await v.take('comments',m=>m.comments.some(c=>c.id===viewerComment.id));
+ v.send({type:'comment-add',comment:{...viewerComment,id:'viewer-reply',thread:viewerComment.id,text:'Viewer reply'}});await b.take('comments',m=>m.comments.some(c=>c.id==='viewer-reply'));await v.take('comments',m=>m.comments.some(c=>c.id==='viewer-reply'));
+ v.send({type:'presence',cursor:null,selection:[],name:'Viewer',viewport:{x:0,y:0,zoom:1}});await b.take('presence',m=>m.peer.id===vi.you.id);
+ v.send({type:'version-preview',id:version.id});await v.take('version-preview');
+ const fresh=await client(),fi=await fresh.take('init');assert.equal(fi.nodes.find(n=>n.id===node.id).x,140);assert(!fi.versions.some(v=>v.name==='Forbidden'));assert.equal(fi.comments.find(c=>c.id===comment.id).text,comment.text);assert(!fi.comments.find(c=>c.id===comment.id).resolved);
+ a.send({type:'ops',seq:7,epoch:restored.epoch,ops:[{t:'set',id:node.id,key:'y',value:123}]});await a.take('ack');await v.take('ops',m=>m.ops.some(o=>o.key==='y'));assert(v.received.every(m=>!m.includes(id)));
+ const editSpoof=await client(`/f/${id}/ws`,{'x-kerf-role':'view'});assert.equal((await editSpoof.take('init')).role,'edit');
+ console.log('PASS opaque persistent view alias, trusted roles, all denied messages, no rejection broadcasts, comment threads/replies, presence, preview, asset GET/PUT, HTML and message privacy, editor unchanged');
  a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');
  const returning=await client(),joined=await returning.take('init');
  assert.equal(joined.you.name,ai.you.name);assert.equal(joined.you.color,ai.you.color);
@@ -91,5 +111,5 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const persisted=await client(),persistedInit=await persisted.take('init');
  assert.equal(persistedInit.nodes.find(n=>n.id===text.id).text,afterPeer);
  console.log('PASS reconnect retries a committed text edit without duplicating it after a peer edit');
- console.log('Sync integration: 19 checks passed');
+ console.log('Sync integration: 20 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}

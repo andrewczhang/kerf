@@ -1,4 +1,4 @@
-import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers-types';
+import type { WebSocket, DurableObjectState, DurableObjectNamespace, Request as WorkerRequest } from '@cloudflare/workers-types';
 import { applyOp, isTextNode, type Op } from '../src/shared/doc';
 import { StoredDocument } from './document';
 import { applyLayout } from '../src/shared/layout';
@@ -9,12 +9,13 @@ import { resolveStyleOps } from '../src/shared/styles';
 import { sanitizeFileName } from '../src/shared/file-name';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
+declare const Request: typeof import('@cloudflare/workers-types').Request;
 export class Room {
     doc = new StoredDocument();
     name = '';
     peers = new Map<WebSocket, Peer>();
     features: Features;
-    constructor(private state: DurableObjectState) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { this.name = await state.storage.get<string>('file-name') ?? ''; await this.doc.load(state.storage); await this.features.load(); }); }
+    constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { this.name = await state.storage.get<string>('file-name') ?? ''; await this.doc.load(state.storage); await this.features.load(); }); }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
     }
@@ -29,9 +30,25 @@ export class Room {
         const n = this.doc.get(op.id);
         return isTextNode(n) ? [{ t: 'set', id: op.id, key: 'text', value: n.text }] : [];
     }
-    async fetch(req: Request) {
-        const url = new URL(req.url), asset = url.pathname.match(/\/assets\/([^/]+)$/);
+    async fetch(req: WorkerRequest) {
+        const url = new URL(req.url);
+        if (url.pathname === '/_internal/register-view' && req.method === 'POST') {
+            const target = await req.text(), old = await this.state.storage.get<string>('target');
+            if (old && old !== target) return new Response('Conflict', { status: 409 });
+            await this.state.storage.put('target', target); return new Response(null, { status: 204 });
+        }
+        const role = req.headers.get('x-kerf-role') === 'edit' ? 'edit' : 'view';
+        if (url.pathname.startsWith('/v/')) {
+            if (req.method !== 'GET') return new Response('View only', { status: 403 });
+            const target = await this.state.storage.get<string>('target');
+            if (!target) return new Response('Not found', { status: 404 });
+            const headers = new Headers(req.headers); headers.set('x-kerf-role', 'view');
+            url.pathname = url.pathname.replace(/^\/v\/[^/]+/, '/f/' + target);
+            return this.env.ROOM.get(this.env.ROOM.idFromName(target)).fetch(new Request(url.toString(), { method: req.method, headers }));
+        }
+        const asset = new URL(req.url).pathname.match(/\/assets\/([^/]+)$/);
         if (asset) {
+            if (role === 'view' && req.method !== 'GET') return new Response('View only', { status: 403 });
             const hash = asset[1]; if (!/^[\da-f]{64}$/.test(hash)) return new Response('Invalid hash', { status: 400 });
             if (req.method === 'GET') { const value = await this.state.storage.get<{ type: string; bytes: ArrayBuffer }>('asset:' + hash); return value ? new Response(value.bytes, { headers: { 'content-type': value.type, 'cache-control': 'public, max-age=31536000, immutable' } }) : new Response('Not found', { status: 404 }); }
             if (req.method !== 'PUT') return new Response('Method not allowed', { status: 405 });
@@ -63,11 +80,22 @@ export class Room {
         } while (usedColors.has(color) || usedNames.has(name));
         const peer: Peer = { id: crypto.randomUUID(), name, color, cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
         const joinedEpoch = this.features.epoch;
-        this.send(ws, { type: 'init', name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer, epoch: joinedEpoch });
+        this.send(ws, { type: 'init', role, name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer, epoch: joinedEpoch });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
             const msg = JSON.parse(String(event.data)) as ClientMsg;
+            if (role === 'view' && !['ping', 'presence', 'comment-add', 'version-preview'].includes(msg.type)) {
+                this.send(ws, { type: 'error', request: msg.type, message: 'View only' }); return;
+            }
+            if (msg.type === 'share-view') {
+                let key = await this.state.storage.get<string>('viewKey');
+                if (!key) { key = crypto.randomUUID(); await this.state.storage.put('viewKey', key); }
+                const target = url.pathname.split('/')[2];
+                const registered = await this.env.ROOM.get(this.env.ROOM.idFromName('v:' + key)).fetch(new Request('https://room/_internal/register-view', { method: 'POST', body: target }));
+                if (!registered.ok) throw Error('Alias registration failed');
+                this.send(ws, { type: 'share-view', key }); return;
+            }
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= MAX_OPS) {
                 if ((msg.epoch ?? joinedEpoch) !== this.features.epoch) {
                     this.send(ws, { type: 'ack', seq: msg.seq });
