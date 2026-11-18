@@ -2,9 +2,10 @@ import { between, children, descendants, type Node, type Op } from '../../shared
 import { bounds, handles, intersects, inverse, matrixAngle, parentMatrix, transform, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, worldMatrix } from '../geometry';
 import type { Context, Tool } from './tool';
-import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
+import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
+
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
@@ -229,7 +230,13 @@ export class Select implements Tool {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
         store.changed(); return;
-    } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    }
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault(); const ops = maskOps(store.doc, nodes.map(n => n.id), sizeOf); store.begin(); store.commit(ops);
+        const group = ops.find(op => op.t === 'create'); if (group?.t === 'create') { store.selection.clear(); store.selection.add(group.node.id); }
+        store.end(); store.changed(); return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id, sizeOf)); } }
         else { const ops = groupOps(store.doc, nodes.map(n => n.id), sizeOf); const create = ops.find(op => op.t === 'create'); if (create?.t === 'create') selection.push(create.node.id); store.commit(ops); }
