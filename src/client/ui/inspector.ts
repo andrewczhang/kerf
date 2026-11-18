@@ -6,7 +6,7 @@ import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
-import { formatNumber, inputElement, parseColor } from './values';
+import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -97,7 +97,7 @@ export function inspector(el: HTMLElement, store: Store) {
                     for (const n of nodes) store.set(n.id, { [key]: color });
                 };
                 swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value }); };
-                input.onblur = swatch.onblur = () => { input.setCustomValidity(''); store.end(); render(); };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
             }

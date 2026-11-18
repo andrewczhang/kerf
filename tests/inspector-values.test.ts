@@ -1,5 +1,19 @@
 import { expect, it, vi } from 'vitest';
-import { formatNumber, inputElement, parseColor } from '../src/client/ui/values';
+import { formatNumber, inputElement, parseColor, refreshColorField } from '../src/client/ui/values';
+
+it('normalizes valid, invalid, mixed and empty color edits in place', () => {
+    const input = { value: 'invalid', placeholder: '', setCustomValidity: vi.fn() } as unknown as HTMLInputElement;
+    const swatch = { value: '', classList: { toggle: vi.fn() } } as unknown as HTMLInputElement;
+    refreshColorField(input, swatch, ['#aabbcc']);
+    expect(input.value).toBe('#AABBCC'); expect(swatch.value).toBe('#aabbcc');
+    expect(input.setCustomValidity).toHaveBeenCalledWith('');
+    refreshColorField(input, swatch, [null]);
+    expect(input.value).toBe('None'); expect(swatch.value).toBe('#000000');
+    refreshColorField(input, swatch, ['#aabbcc', null]);
+    expect(input.value).toBe(''); expect(input.placeholder).toBe('Mixed');
+    refreshColorField(input, swatch, []);
+    expect(input.value).toBe('None'); expect(input.placeholder).toBe('');
+});
 
 it('creates inspector inputs with password-manager exclusions', () => {
     const attributes = new Map<string, string>();
