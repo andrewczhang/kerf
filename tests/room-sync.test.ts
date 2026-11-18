@@ -34,8 +34,11 @@ it('persists large text, answers heartbeats, and deduplicates retries across con
     const node = { ...makeNode('text', 0, 0), text: '界'.repeat(100000) };
     await send({ type: 'ops', seq: 1, ops: [{ t: 'create', node }] });
     await send({ type: 'ops', seq: 2, ops: [{ t: 'set', id: node.id, key: 'x', value: 50 }] });
+    await send({ type: 'rename', name: '  Layout\n study ' });
+    expect(ws.sent.at(-1)).toEqual({ type: 'name', name: 'Layout study' });
+    expect(data.get('file-name')).toBe('Layout study');
     room = new Room(state); await work; ws = await connect();
-    expect(ws.sent[0]).toMatchObject({ type: 'init', ackSeq: 2, nodes: [{ text: node.text, x: 50 }] });
+    expect(ws.sent[0]).toMatchObject({ type: 'init', name: 'Layout study', ackSeq: 2, nodes: [{ text: node.text, x: 50 }] });
     await send({ type: 'ops', seq: 1, ops: [{ t: 'set', id: node.id, key: 'x', value: 999 }] });
     expect(room.doc.get(node.id)?.x).toBe(50);
     expect(ws.sent.at(-1)).toEqual({ type: 'ack', seq: 1 });
