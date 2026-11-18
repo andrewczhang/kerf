@@ -2,6 +2,7 @@ import type { ServerMsg, ClientMsg, Peer } from '../shared/protocol';
 import type { Store } from './store';
 import type { Comment } from '../shared/comments';
 import type { Version } from '../shared/versions';
+import { applyOp } from '../shared/doc';
 export class Sync extends EventTarget {
     socket?: WebSocket;
     peers = new Map<string, Peer>();
@@ -29,8 +30,11 @@ export class Sync extends EventTarget {
     else if (m.type === 'versions') { this.versions = m.versions; this.dispatchEvent(new Event('versions-change')); }
     else if (m.type === 'version-preview') this.dispatchEvent(new CustomEvent('preview', { detail: m }));
     else if (m.type === 'restored') {
-        this.store.pending.clear(); this.store.undoStack = []; this.store.redoStack = []; this.store.group = null;
-        this.store.remote(m.ops); this.dispatchEvent(new Event('restored'));
+        this.store.undoStack = []; this.store.redoStack = []; this.store.group = null;
+        for (const op of m.ops) applyOp(this.store.doc, op);
+        for (const ops of this.store.pending.values())
+            for (const op of ops) applyOp(this.store.doc, op);
+        this.store.changed(); this.dispatchEvent(new Event('restored'));
     }
     else if (m.type === 'ack')
         this.store.pending.delete(m.seq);
