@@ -6,6 +6,13 @@ vi.mock('../src/client/text-layout', () => ({ fontFamilies: { sans: 'sans-serif'
 afterEach(() => vi.unstubAllGlobals());
 const hash = 'a'.repeat(64), uri = 'data:image/png;base64,AQID', images = new Map([[hash, uri]]), image: Paint = { type: 'image', asset: hash, w: 40, h: 20, fit: 'fill', opacity: .6, visible: true }, solid: Paint = { type: 'solid', color: '#123456', opacity: 1, visible: true }, inner: Effect = { type: 'inner-shadow', x: 4, y: -2, blur: 8, spread: 3, color: '#abcdef', opacity: .4, visible: true }, backdrop: Effect = { type: 'background-blur', radius: 6, visible: true };
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
+it('leaves ancestor frame shell layer blur to its outer composite', () => {
+    const frame = { ...makeNode('frame', 0, 0), name: 'Blurred frame', fills: [solid], effects: [{ type: 'layer-blur' as const, radius: 4, visible: true }] }, child = { ...makeNode('rect', 10, 10), parent: frame.id, effects: [backdrop] }, svg = exportSVG(docOf(frame, child), [frame.id]);
+    const shells = [...svg.matchAll(/<g id="([^"]+)" data-name="Blurred frame"([^>]*)>(.*?)<\/g>/g)];
+    expect(shells).toHaveLength(3); expect(shells.filter(m => m[2].includes('filter='))).toHaveLength(2);
+    const shell = shells.find(m => !m[2].includes('filter='))!; expect(shell[3]).not.toContain('stdDeviation="4"'); expect(shell[3]).toContain('fill="#123456"');
+    expect(svg).toContain(`id="${frame.id}" data-name="Blurred frame" filter=`);
+});
 it('keeps twenty blurred siblings linear in serialized size and free of replay recursion', () => {
     const scene = (count: number) => { let index: string | null = null; const nodes = Array.from({ length: count }, (_, i) => { index = between(index); return { ...makeNode('rect', i * 5, 0), index, fills: [solid], effects: [backdrop] }; }); return exportSVG(docOf(...nodes), nodes.map(n => n.id)); };
     const ten = scene(10), twenty = scene(20); expect(twenty.length).toBeLessThan(ten.length * 2.3); expect([...twenty.matchAll(/<use /g)].length).toBeLessThan(100);

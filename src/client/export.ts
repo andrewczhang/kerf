@@ -110,7 +110,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         if (n.type === 'group')
             return renderList(children(doc, n.id), alpha, backdrop, plain, clips);
         const r = world(doc, n), opacity = alpha * n.opacity;
-        const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur') } : n, nodeId = plain ? painted.id : n.id;
+        const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur' && (!shell || e.type !== 'layer-blur')) } : n, nodeId = plain ? painted.id : n.id;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
