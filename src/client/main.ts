@@ -23,6 +23,7 @@ import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
 import { downloadSelection } from './export';
+import { applyBoolean, booleanOps } from './boolean';
 import { home } from './ui/home';
 import { trackRecent } from './recent-preview';
 import { editorCommands } from './ui/editor-commands';
@@ -149,6 +150,10 @@ window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.sto
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
+    return;
+} const op = (e.ctrlKey || e.metaKey) && e.altKey && booleanOps.find(o => e.code === 'Key' + o[2]); if (op) {
+    e.preventDefault();
+    applyBoolean(store, op[0]);
     return;
 } if (e.code === 'Space') {
     if ((e.target as HTMLElement).closest('#people button, .follow-banner button')) return;

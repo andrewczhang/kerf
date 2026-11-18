@@ -40,6 +40,13 @@ it('keeps text glyph overhang outside layout bounds and respects parent world po
     expect(inViewport(docOf(frame, text), text, view, 1)).toBe(true);
 });
 
+it('includes compound path contours outside the primary path and node box', () => {
+    const node = { ...makeNode('path', 200, 200), w: 100, h: 100, closed: true };
+    expect(inViewport(docOf(node), node, view, 1)).toBe(false);
+    const compound = { ...node, contours: [[{ x: -2, y: -2, ix: -2, iy: -2, ox: -2, oy: -2 }, { x: -1.5, y: -2, ix: -1.5, iy: -2, ox: -1.5, oy: -2 }, { x: -2, y: -1.5, ix: -2, iy: -1.5, ox: -2, oy: -1.5 }]] };
+    expect(inViewport(docOf(compound), compound, view, 1)).toBe(true);
+});
+
 it('keeps spread path shadows whose distant points scale beyond the original path bounds', () => {
     const path = { ...makeNode('path', 200, 300), w: 100, h: 100, closed: true, stroke: null, points: [{ x: 0, y: 0, ix: 0, iy: 0, ox: 0, oy: 0 }, { x: 10, y: 0, ix: 10, iy: 0, ox: 10, oy: 0 }, { x: 10, y: 1, ix: 10, iy: 1, ox: 10, oy: 1 }] };
     const effect = { type: 'drop-shadow' as const, x: 0, y: 0, blur: 0, spread: 10, color: '#000000', opacity: 1, visible: true };

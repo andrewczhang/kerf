@@ -77,8 +77,8 @@ export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: S
         if (n.type === 'path') {
             const points = toAbs(n.points ?? [], r), outset = strokeOutset(n);
             const capPad = strokeStyle(n).cap === 'square' ? Math.SQRT2 : 1;
-            if (hitPath(points, !!n.closed, local, Math.max(tol, n.strokeWidth / 2, outset * capPad))
-                || arrowBounds(n, points).some(b => contains(b, local)) || hitMiter(n, points, local))
+            if (hitPath(points, !!n.closed, local, Math.max(tol, n.strokeWidth / 2, outset * capPad), (n.contours ?? []).map(c => toAbs(c, r)))
+                || arrowBounds(n, points).some(b => contains(b, local)) || [points, ...(n.contours ?? []).map(c => toAbs(c, r))].some(abs => hitMiter(n, abs, local)))
                 return n;
             continue;
         }

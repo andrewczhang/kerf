@@ -10,7 +10,7 @@ import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawChildren } from './draw';
 import type { Doc } from '../shared/doc';
-import { toAbs, trace } from '../shared/path';
+import { contoursAbs, toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
 export class Renderer {
     dirty = true;
@@ -57,7 +57,7 @@ export class Renderer {
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const nodeOutline = (n: Node, color: string, dash = false) => { const ps = worldCorners(store.doc, n); c.beginPath(); ps.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.stroke(); c.setLineDash([]); };
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
-            return; const m = worldMatrix(store.doc, n); c.beginPath(); trace(c, toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }).map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
+            return; const m = worldMatrix(store.doc, n); c.beginPath(); contoursAbs(n, { x: 0, y: 0, w: n.w, h: n.h }).forEach((abs, k) => trace(c, abs.map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }), k > 0 || !!n.closed)); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n && !blocked(store.doc, n, false));
         if (selected.length === 1 && isAutoLayout(selected[0])) {
             const n = selected[0];
