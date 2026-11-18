@@ -7,6 +7,15 @@ import { Select } from '../src/client/tools/select';
 import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
+it('rejects overlapping sibling auto-layout targets and ignores ineligible manual targets', () => {
+    const moving = makeNode('frame', 50, 0), overlap = { ...makeNode('frame', 100, 0), layout: 'horizontal' as const };
+    const s = setup([moving, overlap]), pointer = { x: 125, y: 50 }, start = { x: 75, y: 50 };
+    expect(dragInsertion(s.doc, [moving], pointer, start)).toBeUndefined();
+    const target = { ...makeNode('frame', 0, 0), w: 400, h: 400, layout: 'horizontal' as const };
+    const spacer = { ...makeNode('rect', 0, 0), parent: target.id };
+    s.init([moving, { ...overlap, layout: 'none' }, target, spacer]);
+    expect(dragInsertion(s.doc, [moving], pointer, start)?.parent).toBe(target.id);
+});
 
 it('restores exact root positions and parents after wrapping uneven rects and undoing', () => {
     const a = { ...makeNode('rect', 70, 485, 'A'), w: 55, h: 55 };

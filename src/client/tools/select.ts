@@ -1,8 +1,8 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { bounds, contains, handles, intersects, type Point, type Rect } from '../../shared/geometry';
+import { bounds, handles, intersects, type Point, type Rect } from '../../shared/geometry';
 import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
-import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
+import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
 import { snapped, clearSnap } from '../snapping';
@@ -136,12 +136,7 @@ export class Select implements Tool {
             if (n.parent && store.doc.get(n.parent)?.type === 'group') continue;
             const original = this.original.get(id)!;
             const r = isAutoLayout(store.doc.get(original.parent ?? '')) ? world(store.doc, { ...original, x: original.x + p.x - this.start!.x, y: original.y + p.y - this.start!.y }) : world(store.doc, n);
-            const blocked = new Set([...this.original.keys()].flatMap(selected => [selected, ...descendants(store.doc, selected).map(n => n.id)]));
-            const frames = [...store.doc.values()].filter(f => {
-                const target = world(store.doc, f);
-                return f.type === 'frame' && !blocked.has(f.id) && contains(target, p)
-                    && (n.type !== 'frame' || f.parent !== n.parent || r.x >= target.x && r.y >= target.y && r.x + r.w <= target.x + target.w && r.y + r.h <= target.y + target.h && (r.w < target.w || r.h < target.h));
-            });
+            const frames = eligibleDropFrames(store.doc, [...this.original.values()], p, this.start!);
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
