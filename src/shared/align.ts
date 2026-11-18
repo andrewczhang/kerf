@@ -16,13 +16,13 @@ export function eligible(doc: Doc, ids: Iterable<string>): Node[] {
 const median = (values: number[]) => { const sorted = values.sort((a, b) => a - b), m = Math.floor(sorted.length / 2); return sorted.length ? Math.max(0, Math.round(sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2)) : 0; };
 type Item = Rect & { id: string };
 function clusters(items: Item[], axis: 'x' | 'y') {
-    const size = axis === 'x' ? 'w' : 'h', groups: Item[][] = [];
-    for (const item of [...items].sort((a, b) => a[axis] + a[size] / 2 - b[axis] - b[size] / 2)) {
-        const group = groups.at(-1), first = group?.[0];
-        if (first && Math.abs(item[axis] + item[size] / 2 - first[axis] - first[size] / 2) <= Math.min(item[size], first[size]) / 2) group!.push(item);
-        else groups.push([item]);
+    const size = axis === 'x' ? 'w' : 'h', groups: { end: number; items: Item[] }[] = [];
+    for (const item of [...items].sort((a, b) => a[axis] - b[axis])) {
+        const group = groups.at(-1);
+        if (group && item[axis] < group.end) { group.items.push(item); group.end = Math.max(group.end, item[axis] + item[size]); }
+        else groups.push({ end: item[axis] + item[size], items: [item] });
     }
-    return groups;
+    return groups.map(g => g.items);
 }
 export function align(doc: Doc, ids: Iterable<string>, action: Alignment, rectOf: (doc: Doc, node: Node) => Rect = world): Move[] {
     const nodes = eligible(doc, ids), items = nodes.map(n => ({ id: n.id, ...rectOf(doc, n) }));

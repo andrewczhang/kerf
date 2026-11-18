@@ -37,6 +37,10 @@ describe('alignment', () => {
         expect(align(docOf(...col), col.map(n => n.id), 'tidy')).toEqual([{ id: 'b', dx: -2, dy: 10 }, { id: 'c', dx: -1, dy: 0 }]);
         const grid = [a, b, { ...c, x: 2, y: 60 }, { ...a, id: 'd', x: 44, y: 62 }];
         expect(align(docOf(...grid), grid.map(n => n.id), 'tidy')).toContainEqual({ id: 'd', dx: -3, dy: -2 });
+        const ragged = [{ ...a, w: 100 }, { ...a, id: 'b', w: 20, y: 40 }, { ...a, id: 'c', w: 60, y: 100 }];
+        expect(align(docOf(...ragged), ragged.map(n => n.id), 'tidy')).toEqual([{ id: 'b', dx: 0, dy: 10 }]);
+        const unevenRow = [{ ...a, h: 100 }, { ...a, id: 'b', h: 20, x: 40 }, { ...a, id: 'c', h: 60, x: 100 }];
+        expect(align(docOf(...unevenRow), unevenRow.map(n => n.id), 'tidy')).toEqual([{ id: 'b', dx: 10, dy: 0 }]);
         const overlap = { ...b, x: 10, y: 0 };
         expect(align(docOf(a, overlap), [a.id, b.id], 'tidy')).toEqual([{ id: b.id, dx: 10, dy: 0 }]);
     });
