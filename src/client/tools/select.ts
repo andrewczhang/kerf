@@ -115,7 +115,8 @@ export class Select implements Tool {
                 const r = aabb(this.snapshot, n), nw = Math.max(1, n.w * w / b.w), nh = Math.max(1, n.h * h / b.h);
                 const point = single ? transform(m!, { x: x + w / 2, y: y + h / 2 }) : { x: x + (r.x + r.w / 2 - b.x) * w / b.w, y: y + (r.y + r.h / 2 - b.y) * h / b.h };
                 const local = transform(inverse(parentMatrix(resized, n)), point);
-                const values = { x: local.x - nw / 2, y: local.y - nh / 2, w: nw, h: nh };
+                const size = sizeOf({ ...n, w: nw, h: nh });
+                const values = { x: local.x - size.w / 2, y: local.y - size.h / 2, w: nw, h: nh };
                 resized.set(n.id, { ...n, ...values });
                 for (const [key, value] of Object.entries(values))
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
