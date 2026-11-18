@@ -1,8 +1,13 @@
 export interface RecentFile { id: string; name: string; opened: number; thumbnail?: string }
 export const RECENT_KEY = 'kerf:recent-files';
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
-export function readRecent(storage: StorageLike = localStorage): RecentFile[] {
+function recentStorage(storage?: StorageLike): StorageLike | undefined {
+    try { return storage ?? localStorage; } catch { return undefined; }
+}
+export function readRecent(storage?: StorageLike): RecentFile[] {
     try {
+        storage = recentStorage(storage);
+        if (!storage) return [];
         const value: unknown = JSON.parse(storage.getItem(RECENT_KEY) ?? '[]');
         if (!Array.isArray(value)) return [];
         const seen = new Set<string>();
@@ -14,12 +19,14 @@ function write(files: RecentFile[], storage: StorageLike) {
         try { storage.setItem(RECENT_KEY, JSON.stringify(files.map(({ thumbnail: _, ...file }) => file))); } catch { /* Storage may be disabled. */ }
     }
 }
-export function recordRecent(file: Pick<RecentFile, 'id'> & Partial<RecentFile>, storage: StorageLike = localStorage) {
+export function recordRecent(file: Pick<RecentFile, 'id'> & Partial<RecentFile>, storage?: StorageLike) {
+    storage = recentStorage(storage);
+    if (!storage) return;
     const files = readRecent(storage), previous = files.find(f => f.id === file.id);
     const next = { name: 'Untitled', opened: Date.now(), ...previous, ...file };
     write([next, ...files.filter(f => f.id !== file.id)].sort((a, b) => b.opened - a.opened).slice(0, 30), storage);
 }
-export function removeRecent(id: string, storage: StorageLike = localStorage) { write(readRecent(storage).filter(f => f.id !== id), storage); }
+export function removeRecent(id: string, storage?: StorageLike) { storage = recentStorage(storage); if (storage) write(readRecent(storage).filter(f => f.id !== id), storage); }
 export function fileId(value: string): string | null {
     const trimmed = value.trim();
     if (/^[\w-]+$/.test(trimmed)) return trimmed;

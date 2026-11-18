@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { fileId, readRecent, recordRecent, removeRecent } from '../src/client/recent-files';
 function storage(initial: string | null = null) { let value = initial; return { getItem: () => value, setItem: (_: string, next: string) => { value = next; } }; }
 describe('recent files', () => {
+    it('survives a blocked localStorage getter', () => {
+        const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage blocked'); } });
+        try {
+            expect(readRecent()).toEqual([]);
+            expect(() => recordRecent({ id: 'a' })).not.toThrow();
+            expect(() => removeRecent('a')).not.toThrow();
+            const s = storage(); recordRecent({ id: 'explicit' }, s);
+            expect(readRecent(s)[0].id).toBe('explicit');
+        } finally {
+            if (original) Object.defineProperty(globalThis, 'localStorage', original);
+            else Reflect.deleteProperty(globalThis, 'localStorage');
+        }
+    });
     it('starts empty and tolerates malformed or unavailable storage', () => {
         for (const value of [null, '{', '{}', '[null, {"id":"bad/id"}]']) expect(readRecent(storage(value))).toEqual([]);
         const unavailable = { getItem() { throw Error(); }, setItem() { throw Error(); } };
