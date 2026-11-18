@@ -28,6 +28,17 @@ function setup() {
     const key = (key: string, ctrlKey = false) => select.onKey({ key, ctrlKey, preventDefault() {} } as KeyboardEvent);
     return { store, main, child, instance, select, key };
 }
+it('inserts keyboard duplicates immediately after the original auto-layout child', () => {
+    const store = new Store(), frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 400 };
+    const nodes = ['a', 'b', 'c'].map((id, index) => ({ ...makeNode('rect', 0, 0), id, parent: frame.id, index: String(index), w: 20 }));
+    store.init([frame, ...nodes]); store.selection.add('a');
+    const select = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} });
+    select.onKey({ key: 'd', ctrlKey: true, preventDefault() {} } as KeyboardEvent);
+    const copy = [...store.selection][0];
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(['a', copy, 'b', 'c']);
+    store.history(); expect(children(store.doc, frame.id).map(n => n.id)).toEqual(['a', 'b', 'c']);
+    store.history(true); expect(children(store.doc, frame.id).map(n => n.id)).toEqual(['a', copy, 'b', 'c']);
+});
 it('selects instances as leaves or deep-selects virtual children without changing them', () => {
     const { select, instance, child, store, key } = setup(), p = { x: 220, y: 20 };
     expect(select.pick(p)?.id).toBe(instance.id);

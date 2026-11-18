@@ -257,7 +257,8 @@ export class Select implements Tool {
             if (!copies.has(original.parent ?? '')) {
                 n.x += 20;
                 n.y += 20;
-                n.index = between(children(store.doc, n.parent).at(-1)?.index ?? null);
+                const next = children(store.doc, original.parent).find(s => s.index > original.index);
+                n.index = between(original.index, next?.index ?? null);
             }
         }
         store.commit([...copies.values()].map(node => ({ t: 'create', node })));
