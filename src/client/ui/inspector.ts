@@ -170,7 +170,6 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
             fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
-            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             effectsSection(content, store, nodes);
         }
         else {
