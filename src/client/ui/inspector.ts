@@ -9,12 +9,12 @@ export function inspector(el: HTMLElement, store: Store) {
             return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
         }
         content.innerHTML = '';
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse' }[nodes[0].type]}</div>`;
+        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', path: 'Path' }[nodes[0].type]}</div>`;
         const name = document.createElement('input');
         name.className = 'name-input';
         name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
@@ -48,6 +48,14 @@ export function inspector(el: HTMLElement, store: Store) {
             label.append(span, input);
             grid.append(label);
         } content.append(section); };
+        if (nodes.length === 1 && nodes[0].type === 'path') {
+            const n = nodes[0], section = document.createElement('section');
+            section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
+            const box = section.querySelector('input')!;
+            box.checked = !!n.closed;
+            box.onchange = () => { store.begin(); store.set(n.id, { closed: box.checked }); store.end(); box.blur(); };
+            content.append(section);
+        }
         fields('Layout', ['x', 'y', 'w', 'h']);
         fields('Appearance', ['radius', 'opacity']);
         fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);

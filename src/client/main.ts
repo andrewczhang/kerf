@@ -6,6 +6,8 @@ import { Presence } from './presence';
 import { Renderer } from './renderer';
 import { Select } from './tools/select';
 import { Shape } from './tools/shape';
+import { Pen } from './tools/pen';
+import { hit } from '../shared/geometry';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
@@ -35,16 +37,17 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { active = registry.get(id) ?? registry.get('select')!; canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
+function choose(id: string) { active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
+registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
 choose('select');
 inspector(document.querySelector('aside')!, store);
 people(document.querySelector('#people')!, sync, viewport);
-const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.x = pan.vx + p.x - pan.x;
     viewport.y = pan.vy + p.y - pan.y;
@@ -71,6 +74,9 @@ canvas.onpointerup = e => { if (pointer) {
     pointer = undefined;
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
+canvas.ondblclick = e => { if (active.id !== 'select')
+    return; const n = hit(store.doc, viewport.world(local(e))); if (n?.type !== 'path')
+    return; store.selection.clear(); store.selection.add(n.id); choose('pen'); store.changed(); };
 canvas.onpointerleave = () => presence.update(null);
 canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top }; if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
@@ -80,6 +86,7 @@ else {
     viewport.changed();
 } }, { passive: false });
 window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+    return; if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
@@ -97,10 +104,9 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     store.selection.clear();
     store.changed();
     choose('select');
-} const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', h: 'hand' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
-    choose(keys[e.key.toLowerCase()]);
-else
-    active.onKey?.(e); });
+} if (e.key === 'Enter' && active.id === 'select' && store.selection.size === 1 && store.doc.get([...store.selection][0])?.type === 'path')
+    choose('pen'); const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', h: 'hand', p: 'pen' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
+    choose(keys[e.key.toLowerCase()]); });
 window.addEventListener('keyup', e => { if (e.code === 'Space') {
     space = false;
     canvas.style.cursor = active.cursor;

@@ -1,11 +1,27 @@
 import { children, type Doc, type Node } from '../shared/doc';
 import { world } from '../shared/geometry';
+import { toAbs, trace } from '../shared/path';
 
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean }) {
     const r = world(doc, n);
     c.save();
     c.globalAlpha *= n.opacity;
     c.beginPath();
+    if (n.type === 'path') {
+        trace(c, toAbs(n.points ?? [], r), !!n.closed);
+        if (n.closed) {
+            c.fillStyle = n.fill;
+            c.fill();
+        }
+        if (n.stroke && n.strokeWidth > 0) {
+            c.lineWidth = n.strokeWidth;
+            c.lineJoin = c.lineCap = 'round';
+            c.strokeStyle = n.stroke;
+            c.stroke();
+        }
+        c.restore();
+        return;
+    }
     if (n.type === 'ellipse')
         c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
     else
