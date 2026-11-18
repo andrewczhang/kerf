@@ -7,7 +7,7 @@ import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
-import { layoutGridsSection } from './layout-grids';
+import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
@@ -42,6 +42,7 @@ export function inspector(el: HTMLElement, store: Store) {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (el.contains(document.activeElement)) {
             refreshNumericFields(content, nodes, document.activeElement);
+            refreshLayoutGridFields(content, store, document.activeElement);
             return;
         }
         if (!nodes.length) {
