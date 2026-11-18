@@ -122,7 +122,7 @@ export function inspector(el: HTMLElement, store: Store) {
                 const button = document.createElement('button');
                 button.textContent = label;
                 button.title = `${label} (${mod}${key})`;
-                button.onclick = () => applyBoolean(store, op);
+                button.onclick = () => { button.blur(); applyBoolean(store, op); };
                 section.querySelector('.boolean-buttons')!.append(button);
             }
             content.append(section);
