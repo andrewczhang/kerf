@@ -74,7 +74,7 @@ layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);
 const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
-editorCommands(ctx, renderer, choose);
+editorCommands(ctx, renderer, choose, isInspecting);
 trackRecent(store, file);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {

@@ -3,10 +3,10 @@ import { downloadSelection, exportBounds, exportRoots } from '../export';
 import { newFile } from '../recent-files';
 import { installPalette, registerCommand } from './palette';
 import type { Renderer } from '../renderer';
-export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: string) => void) {
+export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: string) => void, isInspecting = () => false) {
     const { store, viewport } = ctx;
     const add = (id: string, title: string, group: string, run: () => void | Promise<void>, shortcut?: string, enabled?: () => boolean) => {
-        const available = () => (!renderer.preview || !['Edit', 'Layers', 'Tools', 'Panels', 'Comments'].includes(group)) && (!enabled || enabled());
+        const available = () => (!(renderer.preview || isInspecting()) || !['Edit', 'Layers', 'Tools', 'Panels', 'Comments'].includes(group)) && (!enabled || enabled());
         return registerCommand({ id, title, group, run: () => { if (available()) return run(); }, shortcut, enabled: available });
     };
     const keys: Record<string, string> = { select: 'V', frame: 'F', rect: 'R', ellipse: 'O', text: 'T', pen: 'P', hand: 'H', comment: 'C' };

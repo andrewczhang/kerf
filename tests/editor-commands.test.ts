@@ -19,21 +19,24 @@ describe('editor palette commands', () => {
         [...commands.values()].find(c => c.title === 'Reverse')!.run();
         expect(actionClick).toHaveBeenCalledOnce(); expect(markerClick).not.toHaveBeenCalled();
     });
-    it('blocks mutations during version preview and restores them on return to current', () => {
+    it.each(['preview', 'inspect'])('blocks mutations during %s and restores them on return to editing', mode => {
         vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });
         const history = vi.fn(), onKey = vi.fn(), set = vi.fn(), choose = vi.fn();
         const store = { selection: new Set(['node']), doc: new Map([['node', { hidden: false }]]), history, set, begin() {}, end() {} };
         const renderer = { preview: null, canvas: {} } as unknown as Renderer;
+        let inspecting = false;
         registry.set('select', { id: 'select', onKey } as never);
-        editorCommands({ store, viewport: {} } as unknown as Context, renderer, choose); prepare.current();
+        editorCommands({ store, viewport: {} } as unknown as Context, renderer, choose, () => inspecting); prepare.current();
         for (const id of ['undo', 'redo', 'delete', 'duplicate', 'group', 'ungroup', 'toggle-hidden', 'toggle-locked', 'tool-select']) expect(commands.get(id)?.enabled?.()).toBe(true);
-        renderer.preview = new Map();
+        if (mode === 'preview') renderer.preview = new Map();
+        else inspecting = true;
         for (const id of ['undo', 'redo', 'delete', 'duplicate', 'group', 'ungroup', 'toggle-hidden', 'toggle-locked', 'tool-select']) {
             expect(commands.get(id)?.enabled?.()).toBe(false); commands.get(id)!.run();
         }
         expect(history).not.toHaveBeenCalled(); expect(onKey).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled(); expect(choose).not.toHaveBeenCalled();
         expect(commands.get('home')?.enabled?.()).toBe(true);
         renderer.preview = null;
+        inspecting = false;
         commands.get('undo')!.run(); expect(history).toHaveBeenCalledOnce();
     });
 });
