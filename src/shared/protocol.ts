@@ -10,6 +10,7 @@ export interface Peer {
     name: string;
     cursor: Point | null;
     selection: string[];
+    spotlight?: boolean;
     viewport: {
         x: number;
         y: number;
@@ -17,6 +18,8 @@ export interface Peer {
     };
 }
 export type ClientMsg = FeatureClientMsg | {
+    type: 'ping';
+} | {
     type: 'ops';
     ops: Op[];
     seq: number;
@@ -24,7 +27,10 @@ export type ClientMsg = FeatureClientMsg | {
     type: 'presence';
 } & Omit<Peer, 'id' | 'color'>);
 export type ServerMsg = FeatureServerMsg | {
+    type: 'pong';
+} | {
     type: 'init';
+    ackSeq?: number;
     nodes: Node[];
     comments: Comment[];
     versions: Version[];

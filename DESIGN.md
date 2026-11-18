@@ -26,7 +26,7 @@ src/client/
   ui/
     toolbar.ts    tool buttons + shortcuts V R O F, H for hand
     inspector.ts  right panel: X Y W H, rotation not needed, fill color, stroke, corner radius, opacity; multi-select shows mixed
-    people.ts     avatars/names of who is in the file, click to jump to their viewport
+    people.ts     avatars toggle live viewport follow; Spotlight presents your viewport to the room
   style.css
 worker/
   index.ts        routes: GET /f/:id/ws -> DO (by idFromName(id)); everything else -> static assets (Workers static assets, SPA fallback to index.html)
@@ -39,6 +39,11 @@ New node types must add a drawing case in both draw.ts and exportSVG in export.t
 Node = { id, type: 'frame'|'rect'|'ellipse'|'group'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity, hidden, locked }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
 Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
+
+Optional layout fields: `layout: 'none'|'horizontal'|'vertical'` (default none), `gap`, `padTop`, `padRight`, `padBottom`, `padLeft` (finite nonnegative numbers, default 0), `justify: 'start'|'center'|'end'|'between'` and `align: 'start'|'center'|'end'` (default start), `sizeW`, `sizeH: 'fixed'|'hug'|'fill'` (default fixed). Absent fields preserve existing documents.
+
+### Auto layout
+Only horizontal/vertical frames lay out children, in fractional-index order with parent-relative positions. Shared `applyLayout(doc)` derives geometry directly (never as ops) after document changes on client and server: bottom-up hug sizing, then top-down fill sizing and justify/align placement. Empty hug frames retain their size; hug applies only to auto-layout frames. Fill splits available main-axis space equally or spans the cross axis (minimum 1), but acts fixed when that parent axis hugs; fill outside an auto-layout parent is ignored. Nested frames lay out their children after receiving their fill size.
 
 Nodes optionally carry `fills: Paint[]` (maximum 12, bottom to top) and `effects: Effect[]` (maximum 8). Missing fills fall back to the legacy `fill`; empty fills draw nothing. Paints are solid (hex6 color), linear/radial (2–16 color/opacity stops sorted on use, normalized from/to coordinates −2…3), or image (SHA-256 asset hash, intrinsic w/h, fill=cover / fit=contain / tile). Every paint has opacity 0…1 and visibility. Radial from is the center; distance to to in normalized space is the radius, yielding an ellipse in a non-square box. Fill UI edits also update legacy fill from the topmost visible solid or gradient's first stop.
 

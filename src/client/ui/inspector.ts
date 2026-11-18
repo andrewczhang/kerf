@@ -1,25 +1,58 @@
 import type { Store } from '../store';
-import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
+import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, type Node, type Key } from '../../shared/doc';
+import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
+import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
+import { layoutGridsSection } from './layout-grids';
+import { codepanel } from './codepanel';
+
+export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
+    if (!nodes.length) return;
+    for (const input of content.querySelectorAll<HTMLInputElement>('input[type="number"][data-key]')) {
+        if (input === active) continue;
+        const key = input.dataset.key as Key;
+        const stroke = key === 'strokeDash' || key === 'strokeGap' || key === 'strokeMiterLimit';
+        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : n[key] ?? 0);
+        const mixed = values.some(value => value !== values[0]);
+        input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
+        input.placeholder = mixed ? 'Mixed' : '';
+    }
+}
+
 export function inspector(el: HTMLElement, store: Store) {
-    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
+    const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
+    const setTab = (codeActive: boolean) => {
+        for (const id of ['design', 'code']) {
+            const button = el.querySelector<HTMLButtonElement>(`#${id}-tab`)!;
+            const active = (id === 'code') === codeActive;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+        }
+        content.hidden = codeActive;
+        code.activate(codeActive);
+    };
+    el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
+    el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
     const render = () => {
-        if (el.contains(document.activeElement))
-            return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        if (el.contains(document.activeElement)) {
+            refreshNumericFields(content, nodes, document.activeElement);
+            return;
+        }
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
         }
         content.innerHTML = '';
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', group: 'Group', text: 'Text', path: 'Path' }[nodes[0].type]}</div>`;
-        const name = document.createElement('input');
+        head.className = 'layer-heading';
+        const name = inputElement('Object name');
         name.className = 'name-input';
         name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
         name.setAttribute('aria-label', 'Object name');
@@ -27,19 +60,27 @@ export function inspector(el: HTMLElement, store: Store) {
             store.set(n.id, { name: name.value }); store.end(); };
         head.append(name);
         content.append(head);
+        const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
             fontWeight: [[400, 'Regular'], [700, 'Bold']],
             textAlign: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']],
             textWidth: [['auto', 'Auto'], ['fixed', 'Fixed']],
+            strokeAlign: named(strokeAlignments),
+            strokeCap: named(strokeCaps),
+            strokeJoin: named(strokeJoins),
+            strokeStart: named(arrowheads),
+            strokeEnd: named(arrowheads),
         };
-        const fields = (title: string, keys: Key[]) => { const section = document.createElement('section'); section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!; for (const key of keys) {
+        const strokeValues = nodes.map(strokeOptions);
+        const fields = (title: string, keys: Key[], stroke = false) => { const section = document.createElement('section'); if (stroke) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!; for (const key of keys) {
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
-            const caption = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width' } as Record<string, string>)[key] ?? key.toUpperCase();
+            const caption = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width', strokeAlign: 'Align', strokeDash: 'Dash', strokeGap: 'Gap', strokeCap: 'Cap', strokeJoin: 'Join', strokeMiterLimit: 'Miter limit', strokeStart: 'Start', strokeEnd: 'End' } as Record<string, string>)[key] ?? key.toUpperCase();
             span.textContent = caption;
-            const mixed = nodes.some(n => n[key] !== nodes[0][key]);
+            const values = stroke ? strokeValues.map(n => n[key as keyof typeof n]) : nodes.map(n => n[key]);
+            const mixed = values.some(value => value !== values[0]);
             const options = choices[key];
             if (options) {
                 const select = document.createElement('select');
@@ -47,7 +88,7 @@ export function inspector(el: HTMLElement, store: Store) {
                 if (mixed)
                     select.append(new Option('Mixed', '', true, true));
                 for (const [value, title] of options)
-                    select.append(new Option(title, String(value), false, !mixed && nodes[0][key] === value));
+                    select.append(new Option(title, String(value), false, !mixed && values[0] === value));
                 select.onchange = () => {
                     const chosen = options.find(([value]) => String(value) === select.value);
                     if (!chosen) return;
@@ -61,31 +102,48 @@ export function inspector(el: HTMLElement, store: Store) {
                 grid.append(label);
                 continue;
             }
-            const input = document.createElement('input');
-            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
+            const input = inputElement(stroke ? caption : key === 'fontSize' ? 'Font size' : key);
             input.placeholder = mixed ? 'Mixed' : '';
             if (key === 'fill' || key === 'stroke') {
-                input.type = 'color';
-                input.value = String(nodes[0][key] ?? '#000000');
+                label.classList.add('color-field');
+                const value = document.createElement('div'); value.className = 'color-value';
+                const swatch = inputElement(`${key} color`); swatch.type = 'color'; swatch.className = 'color-swatch';
+                swatch.value = String(nodes[0][key] ?? '#000000');
+                input.value = mixed ? '' : (nodes[0][key]?.toUpperCase() ?? 'None');
+                input.spellcheck = false;
+                input.onfocus = swatch.onfocus = () => store.begin();
+                input.oninput = () => {
+                    const color = parseColor(input.value, key === 'stroke');
+                    input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
+                    if (color === undefined) return;
+                    swatch.value = color ?? '#000000';
+                    for (const n of nodes) store.set(n.id, { [key]: color });
+                };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value }); };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
+                value.append(swatch, input); label.append(span, value); grid.append(label);
+                continue;
             }
-            else {
-                input.type = 'number';
-                input.step = key === 'opacity' ? '.05' : '1';
-                if (key === 'fontSize') input.max = String(maxFontSize);
-                if (key === 'fontSize' || key === 'w') input.min = '1';
-                input.value = mixed ? '' : String(Math.round(Number(nodes[0][key]) * 100) / 100);
-            }
+            input.type = 'number';
+            input.dataset.key = key;
+            input.step = stroke ? 'any' : key === 'opacity' ? '.05' : '1';
+            if (key === 'fontSize') input.max = String(maxFontSize);
+            if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
+            if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
+            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(nodes[0][key]));
             input.onfocus = () => store.begin();
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
                 store.set(n.id, { [key]: value }); };
             input.onblur = () => { store.end(); render(); };
             label.append(span, input);
+            sizingControl(label, input, key, nodes, store);
             grid.append(label);
         } content.append(section); };
         if (nodes.length === 1 && nodes[0].type === 'path') {
             const n = nodes[0], section = document.createElement('section');
             section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
             const box = section.querySelector('input')!;
+            box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
             box.checked = !!n.closed;
             box.onchange = () => {
                 const parent = n.parent ? store.doc.get(n.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
@@ -104,11 +162,20 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
+            autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
             fillsSection(content, store, nodes);
             fields('Stroke', ['stroke', 'strokeWidth']);
+            if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
+                const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
+                if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');
+                if (strokeValues.some(n => n.strokeJoin === 'miter')) keys.push('strokeMiterLimit');
+                if (nodes.every(isOpenPath)) keys.push('strokeStart', 'strokeEnd');
+                fields('Stroke options', keys, true);
+            }
             effectsSection(content, store, nodes);
         }
+        if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
         if (nodes.length === 1) {
             const section = document.createElement('section');
             section.innerHTML = '<div class="section-label">Prototype</div><label>On click → navigate to </label>';
