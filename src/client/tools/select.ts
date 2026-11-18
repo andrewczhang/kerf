@@ -2,9 +2,10 @@ import { between, children, descendants, type Node, type Op } from '../../shared
 import { bounds, handles, intersects, inverse, matrixAngle, parentMatrix, transform, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, worldMatrix } from '../geometry';
 import type { Context, Tool } from './tool';
-import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
+import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
+
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
@@ -32,8 +33,28 @@ export class Select implements Tool {
         if (this.start && this.moved) this.onPointerMove(this.lastPoint, { ...this.modifiers, altKey: alt, buttons: 1 } as PointerEvent);
         this.updateCursor(this.lastPoint, alt);
     }
+    private resized = new Map<string, Partial<Node>>();
     lastClick?: { time: number; x: number; y: number };
-    constructor(public ctx: Context) { }
+    constructor(public ctx: Context) {
+        ctx.store.addEventListener('change', () => {
+            if (this.start && [...this.original.keys()].some(id => !ctx.store.doc.has(id))) this.cancelGesture();
+        });
+    }
+    cancelGesture() {
+        gradientUp(this.ctx);
+        if (!this.start) return;
+        this.start = undefined;
+        const copies = this.copies;
+        this.copies = undefined;
+        this.original.clear();
+        this.resized.clear();
+        layoutInsertions.delete(this.ctx.store);
+        this.ctx.marquee = undefined;
+        clearSnap(this.ctx);
+        if (copies) this.ctx.store.commit([...copies.values()].filter(n => this.ctx.store.doc.has(n.id)).map(n => ({ t: 'delete', id: n.id })), false);
+        this.ctx.store.end();
+        this.ctx.invalidate();
+    }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
     selectionHandles(nodes = this.selected()) { const doc = this.ctx.store.doc; return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
@@ -43,6 +64,7 @@ export class Select implements Tool {
         this.start = p;
         this.moved = false;
         layoutInsertions.delete(store);
+        this.resized.clear();
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => aabb(store.doc, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
@@ -85,7 +107,7 @@ export class Select implements Tool {
         this.lastPoint = p;
         this.modifiers = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
         this.updateCursor(p, e.altKey);
-        if (gradientMove(this.ctx, p)) return;
+        if (e.buttons !== 0 && gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
             this.ctx.hover = hit(store.doc, p, 4 / viewport.zoom)?.id;
@@ -109,9 +131,10 @@ export class Select implements Tool {
                 store.commit([...this.copies.values()].map(node => ({ t: 'create', node })), false);
                 this.original = new Map([...this.sources.keys()].map(id => { const n = this.copies!.get(id)!; return [n.id, n]; }));
             } else {
-                store.commit([...this.original.keys()].map(id => ({ t: 'delete', id })), false);
+                const copies = this.original;
                 this.copies = undefined;
                 this.original = new Map(this.sources);
+                store.commit([...copies.keys()].map(id => ({ t: 'delete', id })), false);
             }
             store.selection.clear();
             for (const id of this.original.keys()) store.selection.add(id);
@@ -165,11 +188,22 @@ export class Select implements Tool {
                 if (n.type !== 'text' && Math.abs(n.rotation ?? 0) < 1e-8 && Math.abs(matrixAngle(parentMatrix(this.snapshot, n))) < 1e-8) {
                     const left = roundUnlessSnapped(this.ctx, values.x), top = roundUnlessSnapped(this.ctx, values.y), right = roundUnlessSnapped(this.ctx, values.x + nw), bottom = roundUnlessSnapped(this.ctx, values.y + nh);
                     const keepX = x === b.x && w === b.w, keepY = y === b.y && h === b.h;
-                    values.x = keepX ? n.x : left; values.y = keepY ? n.y : top; values.w = keepX ? n.w : Math.max(1, right - left); values.h = keepY ? n.h : Math.max(1, bottom - top);
+                    values.x = keepX || Math.abs(values.x - n.x) <= 1e-9 ? n.x : left; values.y = keepY || Math.abs(values.y - n.y) <= 1e-9 ? n.y : top; values.w = keepX ? n.w : Math.max(1, right - left); values.h = keepY ? n.h : Math.max(1, bottom - top);
                 }
                 resized.set(n.id, { ...n, ...values });
-                for (const [key, value] of Object.entries(values))
-                    ops.push({ t: 'set', id: n.id, key: key as 'x', value });
+                const current = store.doc.get(n.id)!;
+                const previous = this.resized.get(n.id) ?? {};
+                for (const key of ['x', 'y', 'w', 'h'] as const) {
+                    const value = values[key];
+                    if (Math.abs(value - n[key]) > 1e-9) {
+                        if (current[key] !== value) ops.push({ t: 'set', id: n.id, key, value });
+                        previous[key] = value;
+                    } else {
+                        if (previous[key] !== undefined && current[key] === previous[key]) ops.push({ t: 'set', id: n.id, key, value: n[key] });
+                        delete previous[key];
+                    }
+                }
+                this.resized.set(n.id, previous);
                 if (n.type === 'frame')
                     ops.push(...constraintOps(this.snapshot, n.id, values, id => this.original.has(id), store.doc));
             }
@@ -187,7 +221,7 @@ export class Select implements Tool {
         }
         store.commit(ops, !this.copies);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx) || !this.start) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
@@ -229,7 +263,13 @@ export class Select implements Tool {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
         store.changed(); return;
-    } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    }
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault(); const ops = maskOps(store.doc, nodes.map(n => n.id), sizeOf); store.begin(); store.commit(ops);
+        const group = ops.find(op => op.t === 'create'); if (group?.t === 'create') { store.selection.clear(); store.selection.add(group.node.id); }
+        store.end(); store.changed(); return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id, sizeOf)); } }
         else { const ops = groupOps(store.doc, nodes.map(n => n.id), sizeOf); const create = ops.find(op => op.t === 'create'); if (create?.t === 'create') selection.push(create.node.id); store.commit(ops); }

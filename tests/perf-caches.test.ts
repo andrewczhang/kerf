@@ -35,9 +35,9 @@ it('indexes sorted children without exposing cached order and follows replacemen
     doc.clear(); expect(children(doc, null)).toEqual([]); expect(doc.delete('missing')).toBe(false);
 });
 
-it.each(['name', 'type', 'hidden', 'locked'] as const)('invalidates the layer tree for %s but not geometry or rejected edits', key => {
+it.each(['name', 'type', 'hidden', 'locked', 'mask'] as const)('invalidates the layer tree for %s but not geometry or rejected edits', key => {
     const node = makeNode('rect', 0, 0), doc = indexDoc(new Map([[node.id, node]])), index = docIndex(doc)!, revision = index.treeRevision;
-    const value = { name: 'New', type: 'ellipse', hidden: true, locked: true }[key];
+    const value = { name: 'New', type: 'ellipse', hidden: true, locked: true, mask: true }[key];
     applyOp(doc, { t: 'set', id: node.id, key, value });
     expect(index.treeRevision).toBeGreaterThan(revision);
     const next = index.treeRevision;

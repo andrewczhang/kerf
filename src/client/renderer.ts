@@ -8,7 +8,7 @@ import { isAutoLayout, layoutInsertions } from './autolayout';
 import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
-import { drawNode } from './draw';
+import { drawChildren } from './draw';
 import type { Doc } from '../shared/doc';
 import { toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
@@ -41,8 +41,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         const viewport = { x: -v.x / v.zoom, y: -v.y / v.zoom, w: this.width / v.zoom, h: this.height / v.zoom };
-        for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, viewport });
+        drawChildren(c, store.doc, null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, viewport });
         if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, store.doc, v.zoom);
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;

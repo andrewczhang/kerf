@@ -14,6 +14,7 @@ export class Sync extends EventTarget {
     styles: Style[] = [];
     versions: Version[] = [];
     clientId: string = crypto.randomUUID();
+    private epoch?: number;
     ready = false;
     name = '';
     lastMessage = Date.now();
@@ -29,7 +30,7 @@ export class Sync extends EventTarget {
             this.clientId = sessionStorage.getItem(sessionKey) ?? this.clientId;
             sessionStorage.setItem(sessionKey, this.clientId);
         } catch { this.storageError = true; }
-        store.send = (ops, seq) => { if (!this.ready) this.unsent.add(seq); this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq }); };
+        store.send = (ops, seq) => { if (!this.ready) this.unsent.add(seq); this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq, epoch: this.epoch }); };
         store.addEventListener('change', () => {
             clearTimeout(this.snapshotTimer);
             this.snapshotTimer = setTimeout(() => { this.snapshotTimer = undefined; this.persist(true); }, 250);
@@ -54,6 +55,7 @@ export class Sync extends EventTarget {
                 sessionStorage.setItem('kerf:client:' + this.file, this.clientId);
                 const saved = JSON.parse(localStorage.getItem(this.storageKey) ?? 'null');
                 if (saved) {
+                    this.epoch = saved.epoch;
                     this.store.seq = saved.seq;
                     this.store.pending = new Map(saved.pending);
                     const snapshot = JSON.parse(localStorage.getItem(this.storageKey + ':nodes') ?? 'null');
@@ -93,7 +95,7 @@ export class Sync extends EventTarget {
     persist(snapshot = false) {
         if (!this.claimed) return;
         try {
-            localStorage.setItem(this.storageKey, JSON.stringify({ clientId: this.clientId, seq: this.store.seq, pending: [...this.store.pending] }));
+            localStorage.setItem(this.storageKey, JSON.stringify({ clientId: this.clientId, epoch: this.epoch, seq: this.store.seq, pending: [...this.store.pending] }));
             if (snapshot) localStorage.setItem(this.storageKey + ':nodes', JSON.stringify({ nodes: [...this.store.doc.values()], seq: this.store.seq }));
             this.storageError = false;
         } catch { this.storageError = true; this.notify(); }
@@ -121,17 +123,24 @@ export class Sync extends EventTarget {
         this.peers = new Map(m.peers.map(p => [p.id, p]));
         const ackSeq = m.ackSeq ?? 0;
         this.store.seq = Math.max(this.store.seq, ackSeq);
+        const restored = this.epoch !== undefined && m.epoch !== undefined && this.epoch !== m.epoch;
+        this.epoch = m.epoch;
+        if (restored) {
+            this.store.clearHistory();
+            this.store.pending.clear();
+        }
         const pending = [...this.store.pending].filter(([seq]) => seq > ackSeq || this.unsent.has(seq));
         const renumber = pending.some(([seq]) => seq <= ackSeq);
         this.store.pending = new Map(pending.map(([seq, ops]) => [renumber ? ++this.store.seq : seq, ops]));
         this.unsent.clear();
         this.store.init(m.nodes);
+        if (restored) this.notifyRestore();
         this.ready = true;
         this.status = 'Live';
         this.retry = 500;
         this.persist(true);
         for (const [seq, ops] of this.store.pending)
-            this.send({ type: 'ops', seq, ops });
+            this.send({ type: 'ops', seq, ops, epoch: this.epoch });
     }
     else if (m.type === 'styles') { this.styles = m.styles; this.dispatchEvent(new Event('styles-change')); }
     else if (m.type === 'name') { this.name = m.name; this.dispatchEvent(new Event('name-change')); }
@@ -139,14 +148,22 @@ export class Sync extends EventTarget {
     else if (m.type === 'versions') { this.versions = m.versions; this.dispatchEvent(new Event('versions-change')); }
     else if (m.type === 'version-preview') this.dispatchEvent(new CustomEvent('preview', { detail: m }));
     else if (m.type === 'restored') {
-        this.store.undoStack = []; this.store.redoStack = []; this.store.group = null;
-        for (const op of m.ops) applyOp(this.store.doc, op);
-        for (const ops of this.store.pending.values())
-            for (const op of ops) applyOp(this.store.doc, op);
-        this.store.changed(); this.dispatchEvent(new Event('restored'));
+        if (m.epoch !== undefined && m.nodes) {
+            this.epoch = m.epoch;
+            this.restore(m.nodes);
+        } else {
+            this.store.clearHistory();
+            for (const op of m.ops) applyOp(this.store.doc, op);
+            for (const ops of this.store.pending.values())
+                for (const op of ops) applyOp(this.store.doc, op);
+            this.store.relayout();
+            this.notifyRestore();
+        }
     }
     else if (m.type === 'ack') {
-        this.store.pending.delete(m.seq); this.persist();
+        this.store.pending.delete(m.seq);
+        if (m.text) this.store.remote(m.text);
+        this.persist();
     }
     else if (m.type === 'ops')
         this.store.remote(m.ops);
@@ -158,4 +175,16 @@ export class Sync extends EventTarget {
     }
     else
         this.peers.delete(m.id); this.notify(); }; ws.onclose = () => { if (ws !== this.socket) return; this.ready = false; this.status = navigator.onLine === false ? 'Offline' : 'Reconnecting'; this.peers.clear(); this.notify(); setTimeout(() => this.connect(), this.retry); this.retry = Math.min(10000, this.retry * 1.7); }; ws.onerror = () => ws.close(); }
+    private restore(nodes: import('../shared/doc').Node[]) {
+        this.store.clearHistory();
+        this.store.pending.clear();
+        this.unsent.clear();
+        this.store.init(nodes);
+        this.persist(true);
+        this.notifyRestore();
+    }
+    private notifyRestore() {
+        this.store.dispatchEvent(new Event('restore'));
+        this.dispatchEvent(new Event('restored'));
+    }
 }

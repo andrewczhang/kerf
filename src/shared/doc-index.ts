@@ -19,7 +19,7 @@ class DocIndex {
             this.parents.get(node.parent)!.add(id);
             this.ordered.delete(node.parent);
         }
-        if (!before || (['parent', 'index', 'name', 'type', 'hidden', 'locked'] as const).some(key => before[key] !== node[key])) this.treeRevision++;
+        if (!before || (['parent', 'index', 'name', 'type', 'hidden', 'locked', 'mask'] as const).some(key => before[key] !== node[key])) this.treeRevision++;
         this.revision++;
     }
     delete(id: string) {

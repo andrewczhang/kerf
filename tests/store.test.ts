@@ -68,3 +68,14 @@ it('syncs stroke properties independently and undoes them back to legacy default
     remote.remote([{ t: 'set', id: n.id, key: 'strokeGap', value: -1 }, { t: 'set', id: n.id, key: 'strokeMiterLimit', value: 0 }]);
     expect(strokeOptions(remote.doc.get(n.id)!)).toEqual(strokeOptions(local.doc.get(n.id)!));
 });
+it('redoes the live shape including a peer resize after local creation', () => {
+    const author = new Store(), peer = new Store(), n = makeNode('rect', 0, 0);
+    const connect = (from: Store, to: Store) => { from.send = (ops, seq) => { to.remote(ops); from.pending.delete(seq); }; };
+    connect(author, peer); connect(peer, author);
+    author.begin(); author.commit([{ t: 'create', node: n }]); author.set(n.id, { w: 193, h: 144 }); author.end();
+    peer.set(n.id, { w: 250 });
+    author.history(); expect(author.doc.has(n.id)).toBe(false); expect(peer.doc.has(n.id)).toBe(false);
+    author.history(true);
+    expect(author.doc.get(n.id)).toMatchObject({ w: 250, h: 144 });
+    expect(peer.doc.get(n.id)).toEqual(author.doc.get(n.id));
+});
