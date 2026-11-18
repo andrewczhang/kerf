@@ -1,6 +1,8 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
 import { downloadSelection } from '../export';
+import { world } from '../../shared/geometry';
+import { fit, toAbs } from '../../shared/path';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -53,7 +55,11 @@ export function inspector(el: HTMLElement, store: Store) {
             section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
             const box = section.querySelector('input')!;
             box.checked = !!n.closed;
-            box.onchange = () => { store.begin(); store.set(n.id, { closed: box.checked }); store.end(); box.blur(); };
+            box.onchange = () => {
+                const parent = n.parent ? store.doc.get(n.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
+                const f = fit(toAbs(n.points ?? [], world(store.doc, n)), box.checked, origin);
+                store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end(); box.blur();
+            };
             content.append(section);
         }
         fields('Layout', ['x', 'y', 'w', 'h']);
