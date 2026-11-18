@@ -9,6 +9,7 @@ import { fit, toAbs } from '../../shared/path';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
+import { alignSection } from './align';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -61,6 +62,7 @@ export function inspector(el: HTMLElement, store: Store) {
             store.set(n.id, { name: name.value }); store.end(); };
         head.append(name);
         content.append(head);
+        alignSection(content, store);
         const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
