@@ -23,7 +23,7 @@ const viewport = new Viewport(() => { renderer?.invalidate(); document.querySele
 const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
-installGuides(canvas, ctx, file);
+installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 renderer = new Renderer(canvas, ctx, sync);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);

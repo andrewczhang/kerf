@@ -2,7 +2,7 @@ import { hit, world, type Point } from '../shared/geometry';
 import { distancesTo } from '../shared/snap';
 import { selectionBox } from './snapping';
 import type { Context } from './tools/tool';
-export function installGuides(canvas: HTMLCanvasElement, ctx: Context, file: string) {
+export function installGuides(canvas: HTMLCanvasElement, ctx: Context, file: string, isPanning = () => false) {
     const read = (key: string, fallback: unknown) => { try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
     const state = ctx.snap = { guides: [], measure: [], rulers: read('kerf:rulers', true) as boolean, grid: read('kerf:grid', false) as boolean, lines: [] } as NonNullable<Context['snap']>;
     const stored = read('kerf:guides:' + file, []);
@@ -19,7 +19,7 @@ export function installGuides(canvas: HTMLCanvasElement, ctx: Context, file: str
     const local = (e: PointerEvent): Point => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     let dragging = -1;
     canvas.addEventListener('pointerdown', e => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || isPanning()) return;
         const p = local(e), w = ctx.viewport.world(p);
         if (state.rulers && (p.y < 20 || p.x < 20)) {
             state.lines.push({ axis: p.y < 20 ? 'y' : 'x', position: p.y < 20 ? w.y : w.x }); dragging = state.lines.length - 1;

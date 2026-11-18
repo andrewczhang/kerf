@@ -1,0 +1,21 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { installGuides } from '../src/client/guides';
+import type { Context } from '../src/client/tools/tool';
+afterEach(() => vi.unstubAllGlobals());
+it('lets pan gestures pass through rulers and existing guides', () => {
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    vi.stubGlobal('document', { createElement: () => ({ setAttribute() {}, style: {} }), querySelector: () => ({ insertBefore() {} }) });
+    const canvas = Object.assign(new EventTarget(), { getBoundingClientRect: () => ({ left: 0, top: 0 }), setPointerCapture: vi.fn() });
+    const ctx = { invalidate() {}, viewport: { zoom: 1, x: 0, y: 0, world: (p: unknown) => p } } as unknown as Context;
+    let panning = true;
+    installGuides(canvas as unknown as HTMLCanvasElement, ctx, 'test', () => panning);
+    ctx.snap!.lines.push({ axis: 'x', position: 50 });
+    const tool = vi.fn(); canvas.addEventListener('pointerdown', tool);
+    const down = (x: number, y: number, button = 0) => canvas.dispatchEvent(Object.assign(new Event('pointerdown'), { clientX: x, clientY: y, button, pointerId: 1 }));
+    down(40, 10); down(50, 40);
+    panning = false; down(50, 40, 1);
+    expect(tool).toHaveBeenCalledTimes(3); expect(canvas.setPointerCapture).not.toHaveBeenCalled(); expect(ctx.snap!.lines).toHaveLength(1);
+    down(50, 40);
+    expect(tool).toHaveBeenCalledTimes(3); expect(canvas.setPointerCapture).toHaveBeenCalledWith(1);
+});
