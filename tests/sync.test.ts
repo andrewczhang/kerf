@@ -238,7 +238,7 @@ it('sends spotlight toggles and handles the spotlight acknowledgement as local p
 });
 it('merges peer text with pending typing and reconciles the text echoed by the room', () => {
     const { store, socket } = setup(), n = { ...makeNode('text', 0, 0), text: 'WEEKEND STUDIO' };
-    store.init([n]);
+    socket.receive({ type: 'init', nodes: [n], comments: [], versions: [], peers: [] });
     store.editText(n.id, n.text, n.text + ' HQ');
     expect(JSON.parse(socket.sent[0]).ops[0]).toMatchObject({ baseText: n.text, value: n.text + ' HQ' });
     socket.receive({ type: 'ops', ops: [{ t: 'set', id: n.id, key: 'text', value: 'THE ' + n.text }] });
@@ -246,6 +246,18 @@ it('merges peer text with pending typing and reconciles the text echoed by the r
     socket.receive({ type: 'ack', seq: 1, text: [{ t: 'set', id: n.id, key: 'text', value: 'THE WEEKEND STUDIO HQ' }] });
     expect(store.doc.get(n.id)?.text).toBe('THE WEEKEND STUDIO HQ');
     expect(store.pending.size).toBe(0);
+});
+it('does not optimistically reapply text already acknowledged in the reconnect snapshot', () => {
+    const { store, sync, socket } = setup(), n = { ...makeNode('text', 0, 0), text: 'STUDIO' };
+    const init = { type: 'init', nodes: [n], comments: [], versions: [], peers: [], epoch: 0 };
+    socket.receive(init);
+    store.editText(n.id, n.text, 'THE STUDIO');
+    sync.connect();
+    const resumed = sync.socket as unknown as Socket;
+    resumed.receive({ ...init, nodes: [{ ...n, text: 'THE STUDIO HQ' }], ackSeq: 1 });
+    expect(store.doc.get(n.id)?.text).toBe('THE STUDIO HQ');
+    expect(store.pending.size).toBe(0);
+    expect(resumed.sent).toEqual([]);
 });
 it('discards a queued old-epoch drag and ignores its continuation and mouse-up after restore', () => {
     const { store, socket, sync } = setup(), n = makeNode('rect', 100, 141);

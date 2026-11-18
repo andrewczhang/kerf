@@ -23,8 +23,13 @@ export class Room {
     broadcast(msg: ServerMsg, except?: WebSocket) { for (const ws of this.peers.keys())
         if (ws !== except)
             this.send(ws, msg); }
+    canonicalText(op: Op): Op[] {
+        if (op?.t !== 'set' || op.key !== 'text' || op.baseText === undefined) return [];
+        const n = this.doc.get(op.id);
+        return isTextNode(n) ? [{ t: 'set', id: op.id, key: 'text', value: n.text }] : [];
+    }
     async fetch(req: Request) {
-        const asset = new URL(req.url).pathname.match(/\/assets\/([^/]+)$/);
+        const url = new URL(req.url), asset = url.pathname.match(/\/assets\/([^/]+)$/);
         if (asset) {
             const hash = asset[1]; if (!/^[\da-f]{64}$/.test(hash)) return new Response('Invalid hash', { status: 400 });
             if (req.method === 'GET') { const value = await this.state.storage.get<{ type: string; bytes: ArrayBuffer }>('asset:' + hash); return value ? new Response(value.bytes, { headers: { 'content-type': value.type, 'cache-control': 'public, max-age=31536000, immutable' } }) : new Response('Not found', { status: 404 }); }
@@ -68,16 +73,17 @@ export class Room {
                     return;
                 }
                 if (receiptKey) ackSeq = await this.state.storage.get<number>(receiptKey) ?? 0;
-                if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
+                if (receiptKey && msg.seq <= ackSeq) {
+                    const text = msg.ops.flatMap(op => this.canonicalText(op));
+                    this.send(ws, { type: 'ack', seq: msg.seq, ...(text.length ? { text } : {}) });
+                    return;
+                }
                 const ops: Op[] = [], text: Op[] = [];
                 for (const op of msg.ops) {
                     applyOp(this.doc, op);
                     if (op?.t === 'set' && op.key === 'text' && op.baseText !== undefined) {
-                        const n = this.doc.get(op.id);
-                        if (isTextNode(n)) {
-                            const merged = { t: 'set', id: op.id, key: 'text', value: n.text } as const;
-                            ops.push(merged); text.push(merged);
-                        }
+                        const merged = this.canonicalText(op);
+                        ops.push(...merged); text.push(...merged);
                     } else ops.push(op);
                 }
                 const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);

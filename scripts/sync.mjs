@@ -12,7 +12,7 @@ const wsBase=base.replace(/^http/,'ws');
 const server=process.env.KERF_URL?null:spawn('npx',['wrangler','dev','--port',String(port),'--ip','127.0.0.1'],{stdio:['ignore','pipe','pipe'],detached:true});
 let log='';server?.stdout.on('data',d=>log+=d);server?.stderr.on('data',d=>log+=d);const sockets=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-async function client(){const ws=new WebSocket(wsBase+`/f/${id}/ws`),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
+async function client(session=''){const ws=new WebSocket(wsBase+`/f/${id}/ws`+(session?`?clientId=${session}`:'')),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
 try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readinessError='';for(let i=0;i<(server?160:1);i++){try{const r=await fetch(base+'/f/'+id);if(r.ok){ready=true;break;}readinessError=`HTTP ${r.status} ${r.statusText}`;}catch(e){readinessError=e.message;}if(server)await delay(100);}assert(ready,`${base} is not ready: ${readinessError}\n${log}`);
  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
  assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
@@ -79,5 +79,17 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const acks=await Promise.all([b.take('ack',m=>m.seq===12),returning.take('ack',m=>m.seq===13)]);
  assert(acks.some(m=>m.text[0].value===merged));
  console.log('PASS concurrent text patches merge at the room and acknowledge the canonical result');
- console.log('Sync integration: 18 checks passed');
+ const session='59c93b34-6d98-4eb6-8f06-1e71aefc28cc', author=await client(session), authorInit=await author.take('init');
+ const edited='OPEN: '+merged, afterPeer=edited+'!';
+ const pendingEdit={type:'ops',seq:1,epoch:authorInit.epoch,ops:[{t:'set',id:text.id,key:'text',baseText:merged,value:edited}]};
+ author.send(pendingEdit);
+ await b.take('ops',m=>m.ops.some(op=>op.value===edited));author.ws.close();
+ await b.take('leave',m=>m.id===authorInit.you.id);
+ b.send({type:'ops',seq:14,epoch:restored.epoch,ops:[{t:'set',id:text.id,key:'text',baseText:edited,value:afterPeer}]});
+ await b.take('ack',m=>m.seq===14);
+ const resumed=await client(session);assert.equal((await resumed.take('init')).ackSeq,1);resumed.send(pendingEdit);await resumed.take('ack',m=>m.seq===1);
+ const persisted=await client(),persistedInit=await persisted.take('init');
+ assert.equal(persistedInit.nodes.find(n=>n.id===text.id).text,afterPeer);
+ console.log('PASS reconnect retries a committed text edit without duplicating it after a peer edit');
+ console.log('Sync integration: 19 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}
