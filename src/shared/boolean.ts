@@ -152,7 +152,7 @@ function merge(region: Region, tol: number): Region {
     });
     const boxes = oriented.map(poly => { const xs = poly.map(p => p.x), ys = poly.map(p => p.y); return { x0: Math.min(...xs) - q, y0: Math.min(...ys) - q, x1: Math.max(...xs) + q, y1: Math.max(...ys) + q }; });
     const all = oriented.flat(), X0 = Math.min(...boxes.map(b => b.x0)), Y0 = Math.min(...boxes.map(b => b.y0));
-    const cell = Math.max(q, Math.hypot(Math.max(...boxes.map(b => b.x1)) - X0, Math.max(...boxes.map(b => b.y1)) - Y0) / Math.sqrt(all.length));
+    const cell = Math.max(q, oriented.reduce((sum, poly) => sum + perimeter(poly), 0) / all.length);
     const grid = new Map<string, Point[]>();
     for (const v of all) { const g = `${Math.floor((v.x - X0) / cell)},${Math.floor((v.y - Y0) / cell)}`; (grid.get(g) ?? grid.set(g, []).get(g)!).push(v); }
     const edges: [Point, Point][] = [];
