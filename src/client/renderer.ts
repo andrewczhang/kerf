@@ -4,6 +4,7 @@ import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { isAutoLayout, layoutInsertions } from './autolayout';
+import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
 import type { Doc } from '../shared/doc';
@@ -51,7 +52,7 @@ export class Renderer {
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
             return; c.beginPath(); trace(c, toAbs(n.points ?? [], world(store.doc, n)), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
-        const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n && !blocked(store.doc, n, false));
         if (selected.length === 1 && isAutoLayout(selected[0])) {
             const n = selected[0], r = world(store.doc, n);
             c.save(); c.globalAlpha = .35;
@@ -60,7 +61,7 @@ export class Renderer {
         }
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
-            if (n && n.id !== this.app.editingText)
+            if (n && !blocked(store.doc, n, false) && n.id !== this.app.editingText)
                 n.type === 'path' ? curve(n, '#ff4f00') : outline(world(store.doc, n), '#ff4f00');
         }
         if (selected.length && !this.app.editingText && !this.app.active?.ownsSelection) {
@@ -91,7 +92,7 @@ export class Renderer {
         for (const peer of this.sync.peers.values()) {
             for (const id of peer.selection) {
                 const n = store.doc.get(id);
-                if (n)
+                if (n && !blocked(store.doc, n, false))
                     outline(world(store.doc, n), peer.color, true);
             }
         }

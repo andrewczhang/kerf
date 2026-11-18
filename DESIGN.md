@@ -32,11 +32,12 @@ worker/
   index.ts        routes: GET /f/:id/ws -> DO (by idFromName(id)); everything else -> static assets (Workers static assets, SPA fallback to index.html)
   room.ts         Durable Object (SQLite-backed or KV storage API): holds Doc in memory, persists nodes, broadcasts
 ```
-Later features (pen/vector paths, text, layers panel, export) each land as a new tool file / ui file plus new Node type in doc.ts without touching sync.
+The left layers panel renders the live tree, with rename, visibility, lock and drag reordering. Pure group/reparent/bounds operations live in shared/layers.ts. Later features (pen/vector paths, text, export) land without touching sync.
 New node types must add a drawing case in both draw.ts and exportSVG in export.ts.
 
 ## Document model
-Node = { id, type: 'frame'|'rect'|'ellipse'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
+Node = { id, type: 'frame'|'rect'|'ellipse'|'group'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity, hidden, locked }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
+Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
 Optional layout fields: `layout: 'none'|'horizontal'|'vertical'` (default none), `gap`, `padTop`, `padRight`, `padBottom`, `padLeft` (finite nonnegative numbers, default 0), `justify: 'start'|'center'|'end'|'between'` and `align: 'start'|'center'|'end'` (default start), `sizeW`, `sizeH: 'fixed'|'hug'|'fill'` (default fixed). Absent fields preserve existing documents.
