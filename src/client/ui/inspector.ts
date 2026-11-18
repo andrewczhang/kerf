@@ -1,10 +1,11 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
+import { downloadSelection } from '../export';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
-        if (el.contains(document.activeElement))
+        if (el.contains(document.activeElement) && document.activeElement?.matches('input'))
             return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
@@ -61,6 +62,20 @@ export function inspector(el: HTMLElement, store: Store) {
             select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
             section.append(select); content.append(section);
         }
+        const exports = document.createElement('section');
+        exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
+        for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {
+            const button = document.createElement('button');
+            button.textContent = label;
+            button.onclick = () => {
+                exports.querySelector('.export-error')!.textContent = '';
+                void downloadSelection(store.doc, store.selection, format, scale).catch(() => {
+                    exports.querySelector('.export-error')!.textContent = 'Export failed. Please try again.';
+                });
+            };
+            exports.querySelector('.export-buttons')!.append(button);
+        }
+        content.append(exports);
     };
     store.addEventListener('change', render);
     render();

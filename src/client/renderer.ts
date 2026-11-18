@@ -31,7 +31,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, v.zoom);
+            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true });
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = store.doc.get(n.link);

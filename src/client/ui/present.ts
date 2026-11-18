@@ -18,7 +18,7 @@ export function present(store: Store) {
         if (!frame) { label.textContent = 'No top-level frames'; return; }
         zoom = Math.max(.01, Math.min((r.width - 100) / frame.w, (r.height - 80) / frame.h));
         ox = (r.width - frame.w * zoom) / 2 - frame.x * zoom; oy = (r.height - frame.h * zoom) / 2 - frame.y * zoom;
-        c.translate(ox, oy); c.scale(zoom, zoom); drawNode(c, store.doc, frame, zoom, false);
+        c.translate(ox, oy); c.scale(zoom, zoom); drawNode(c, store.doc, frame, { zoom, labels: false });
         if (flash) for (const n of [frame, ...descendants(store.doc, frame.id)]) if (n.link) {
             const b = world(store.doc, n); c.fillStyle = '#ff4f0033'; c.fillRect(b.x, b.y, b.w, b.h); c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / zoom; c.strokeRect(b.x, b.y, b.w, b.h);
         }
