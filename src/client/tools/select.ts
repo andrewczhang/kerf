@@ -6,6 +6,7 @@ import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ung
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
+import { duplicateNodes } from './duplicate';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -17,6 +18,19 @@ export class Select implements Tool {
     rotating = false;
     snapshot = new Map<string, Node>();
     rotateCursor = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M5 10a8 8 0 1 1 1 9M5 4v6h6\' fill=\'none\' stroke=\'black\' stroke-width=\'1.5\'/%3E%3C/svg%3E") 12 12, crosshair';
+    sources = new Map<string, Node>();
+    copies?: Map<string, Node>;
+    lastPoint?: Point;
+    modifiers = { ctrlKey: false, metaKey: false, shiftKey: false };
+    updateCursor(p: Point, alt: boolean) {
+        const n = hit(this.ctx.store.doc, p, 4 / this.ctx.viewport.zoom);
+        this.cursor = (this.start ? this.rotating : this.rotationHit(p)) ? this.rotateCursor : alt && (this.start ? this.handle < 0 && !this.ctx.marquee && this.original.size > 0 : !!n && !blocked(this.ctx.store.doc, n)) ? 'copy' : 'default';
+    }
+    modifier(alt: boolean) {
+        if (!this.lastPoint) return;
+        if (this.start && this.moved) this.onPointerMove(this.lastPoint, { ...this.modifiers, altKey: alt, buttons: 1 } as PointerEvent);
+        this.updateCursor(this.lastPoint, alt);
+    }
     lastClick?: { time: number; x: number; y: number };
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
@@ -59,14 +73,20 @@ export class Select implements Tool {
         if (this.handle >= 0) for (const n of [...this.original.values()]) if (n.type === 'group') for (const c of descendants(store.doc, n.id)) if (!blocked(store.doc, c)) this.original.set(c.id, { ...c });
         this.snapshot = new Map(store.doc);
         store.begin();
+        this.sources = new Map(this.original);
+        this.copies = undefined;
+        this.lastPoint = p;
+        this.updateCursor(p, e.altKey);
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
-        if (e.buttons === 0 && this.start) return;
+        if (this.start && e.buttons === 0) return;
+        this.lastPoint = p;
+        this.modifiers = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
+        this.updateCursor(p, e.altKey);
         if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
-            this.cursor = this.rotationHit(p) ? this.rotateCursor : 'default';
             this.ctx.hover = hit(store.doc, p, 4 / viewport.zoom)?.id;
             this.ctx.invalidate();
             return;
@@ -81,6 +101,20 @@ export class Select implements Tool {
         }
         if (!this.moved)
             return;
+        if (this.handle < 0 && !this.rotating && this.original.size && !!e.altKey !== !!this.copies) {
+            if (e.altKey) {
+                store.commit([...this.sources.values()].flatMap(n => [{ t: 'set', id: n.id, key: 'x', value: n.x }, { t: 'set', id: n.id, key: 'y', value: n.y }] as Op[]));
+                this.copies = duplicateNodes(store.doc, [...this.sources.values()]);
+                store.commit([...this.copies.values()].map(node => ({ t: 'create', node })), false);
+                this.original = new Map([...this.sources.keys()].map(id => { const n = this.copies!.get(id)!; return [n.id, n]; }));
+            } else {
+                store.commit([...this.original.keys()].map(id => ({ t: 'delete', id })), false);
+                this.copies = undefined;
+                this.original = new Map(this.sources);
+            }
+            store.selection.clear();
+            for (const id of this.original.keys()) store.selection.add(id);
+        }
         const ops: Op[] = [];
         if (this.rotating && this.box) {
             const c = { x: this.box.x + this.box.w / 2, y: this.box.y + this.box.h / 2 };
@@ -148,15 +182,15 @@ export class Select implements Tool {
                 const round = (value: number) => Math.abs(matrixAngle(m)) < 1e-8 ? roundUnlessSnapped(this.ctx, value) : value;
                 ops.push({ t: 'set', id: n.id, key: 'x', value: round(n.x + b.x - a.x) }, { t: 'set', id: n.id, key: 'y', value: round(n.y + b.y - a.y) }); }
         }
-        store.commit(ops);
+        store.commit(ops, !this.copies);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
     }
-    else if (this.moved && this.handle < 0 && !this.rotating) {
+    else if (this.moved && this.handle < 0 && !this.rotating && !this.copies) {
         const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
         if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
         else
@@ -174,7 +208,20 @@ export class Select implements Tool {
                 store.commit(moveOps(shadow, id, parent?.id ?? null, {}, sizeOf));
             }
         }
-    } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); this.start = undefined; store.changed(); }
+    } if (this.copies) {
+        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        if (insertion && [...this.original.values()].every(n => n.parent === insertion.parent))
+            reorderInAutoLayout(store, [...this.original.values()], insertion, false);
+    }
+    if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc, sizeOf));
+    } finally {
+        try {
+            if (this.copies) store.commit([...this.copies.values()].flatMap(n => { const node = store.doc.get(n.id); return node ? [{ t: 'create' as const, node }] : []; }));
+        } finally {
+            store.end(); this.start = undefined; this.copies = undefined;
+            layoutInsertions.delete(store); clearSnap(this.ctx); store.changed();
+        }
+    } }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
@@ -202,20 +249,7 @@ export class Select implements Tool {
         store.end();
     } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
-        const copies = new Map<string, Node>();
-        for (const n of nodes)
-            for (const c of [n, ...descendants(store.doc, n.id)])
-                if (!copies.has(c.id))
-                    copies.set(c.id, { ...c, id: crypto.randomUUID() });
-        for (const [old, n] of copies) {
-            const original = store.doc.get(old)!;
-            n.parent = copies.get(original.parent ?? '')?.id ?? original.parent;
-            if (!copies.has(original.parent ?? '')) {
-                n.x += 20;
-                n.y += 20;
-                n.index = between(children(store.doc, n.parent).at(-1)?.index ?? null);
-            }
-        }
+        const copies = duplicateNodes(store.doc, nodes, 20);
         store.commit([...copies.values()].map(node => ({ t: 'create', node })));
         store.selection.clear();
         for (const n of nodes)

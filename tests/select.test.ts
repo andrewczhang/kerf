@@ -1,10 +1,12 @@
 import { it, expect, vi } from 'vitest';
-import { makeNode } from '../src/shared/doc';
-import { transform, world } from '../src/shared/geometry';
+import { children, makeNode } from '../src/shared/doc';
+import { center, matrixAngle, transform, world, worldCorners } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
 import { aabb, worldMatrix } from '../src/client/geometry';
+import { duplicateNodes } from '../src/client/tools/duplicate';
+import * as autolayout from '../src/client/autolayout';
 const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setup = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
 it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty canvas', () => {
@@ -35,6 +37,94 @@ it('keeps a shape in its current parent when a co-dragged overlapping frame cann
     tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(null);
     expect(store.doc.get(shape.id)?.parent).toBe(b.id);
+});
+const pointer = (altKey = false, buttons = 1) => ({ altKey, buttons, ctrlKey: true, timeStamp: 1000 } as PointerEvent);
+it('deep duplicates a hierarchy just above its original with independent nested data', () => {
+    const a = makeNode('frame', 0, 0), child = { ...makeNode('path', 10, 20), parent: a.id }, next = { ...makeNode('rect', 200, 0), index: 'z' };
+    const doc = new Map([a, child, next].map(n => [n.id, n]));
+    const copies = duplicateNodes(doc, [a, child]);
+    expect(copies.size).toBe(2); expect(copies.get(child.id)?.parent).toBe(copies.get(a.id)?.id);
+    expect(copies.get(a.id)!.index > a.index).toBe(true); expect(copies.get(a.id)!.index < next.index).toBe(true);
+    expect(copies.get(child.id)?.points).not.toBe(child.points);
+    expect(duplicateNodes(doc, []) .size).toBe(0);
+});
+it('alt-drags copies through normal ops with one undo and redo, leaving originals unmoved', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    const sent: unknown[] = []; store.send = ops => sent.push(...ops);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+    tool.onPointerMove({ x: 90, y: 110 }, pointer(true)); tool.onPointerUp({ x: 90, y: 110 });
+    const copy = store.doc.get([...store.selection][0])!;
+    expect(copy.x).toBe(60); expect(copy.y).toBe(80); expect(store.doc.get(a.id)?.x).toBe(20);
+    expect(sent).toContainEqual({ t: 'create', node: expect.objectContaining({ id: copy.id }) });
+    expect(store.undoStack).toHaveLength(1); store.history(); expect(store.doc.size).toBe(1);
+    store.history(true); expect(store.doc.get(copy.id)?.x).toBe(60);
+});
+it('toggles copies mid-drag, ignores stray moves, and undoes the final original move', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer());
+    tool.onPointerMove({ x: 90, y: 110 }, pointer());
+    tool.modifier(true); expect(store.doc.size).toBe(2); expect(store.doc.get(a.id)?.x).toBe(20);
+    tool.onPointerMove({ x: 500, y: 500 }, pointer(true, 0));
+    expect(store.doc.get([...store.selection][0])?.x).toBe(60);
+    tool.modifier(false); expect(store.doc.size).toBe(1); expect([...store.selection]).toEqual([a.id]);
+    tool.onPointerUp({ x: 90, y: 110 }); expect(store.doc.get(a.id)?.x).toBe(60);
+    store.history(); expect(store.doc.get(a.id)?.x).toBe(20);
+});
+it('drops an auto-layout duplicate in the last slot and removes it in one undo step', () => {
+    const { store, tool } = setup();
+    const frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 500, h: 100, gap: 10 };
+    const nodes = ['A', 'B', 'C'].map(index => ({ ...makeNode('rect', 0, 0, index), parent: frame.id, w: 80, h: 80 }));
+    store.init([frame, ...nodes]); store.selection.add(nodes[0].id);
+    const peer = new Store(); peer.init([...store.doc.values()].map(n => structuredClone(n)));
+    store.send = ops => peer.remote(ops);
+    tool.onPointerDown({ x: 40, y: 40 }, pointer(true));
+    tool.onPointerMove({ x: 490, y: 40 }, pointer(true));
+    tool.onPointerUp({ x: 490, y: 40 });
+    const copy = [...store.selection][0];
+    const order = [...nodes.map(n => n.id), copy];
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(children(peer.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(store.doc.get(nodes[0].id)?.x).toBe(0);
+    expect(store.undoStack).toHaveLength(1);
+    store.history();
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(nodes.map(n => n.id));
+    expect(store.doc.has(copy)).toBe(false); expect(peer.doc.has(copy)).toBe(false);
+    store.history(true);
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(children(peer.doc, frame.id).map(n => n.id)).toEqual(order);
+});
+it('does not duplicate alt-clicks, subthreshold moves, empty canvas or locked nodes', () => {
+    for (const locked of [false, true]) {
+        const { store, tool } = setup(), a = { ...makeNode('rect', 20, 30), locked }; store.init([a]);
+        tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+        tool.onPointerMove({ x: 51, y: 60 }, pointer(true)); tool.onPointerUp({ x: 51, y: 60 });
+        expect(store.doc.size).toBe(1); expect(store.undoStack).toHaveLength(0);
+        tool.onPointerDown({ x: 400, y: 400 }, pointer(true)); tool.onPointerMove({ x: 500, y: 500 }, pointer(true)); tool.onPointerUp({ x: 500, y: 500 });
+        expect(store.doc.size).toBe(1);
+    }
+});
+it.each([false, true])('closes a tied-index drop transaction (duplicate: %s)', duplicate => {
+    const { store, tool } = setup();
+    const frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 500, h: 100, gap: 10 };
+    const nodes = ['A', 'A', 'C'].map((index, i) => ({ ...makeNode('rect', 0, 0, index), id: String(i), parent: frame.id, w: 80, h: 80 }));
+    store.init([frame, ...nodes]); store.selection.add(nodes[2].id);
+    tool.onPointerDown({ x: 220, y: 40 }, pointer(duplicate));
+    tool.onPointerMove({ x: 100, y: 40 }, pointer(duplicate));
+    expect(() => tool.onPointerUp({ x: 100, y: 40 })).not.toThrow();
+    expect(store.group).toBeNull(); expect(tool.start).toBeUndefined();
+    const moving = [...store.selection][0];
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(duplicate ? ['0', '1', moving, '2'] : ['0', '1', '2']);
+    expect(store.undoStack).toHaveLength(1); store.history();
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(['0', '1', '2']);
+});
+it('finalizes copies and closes the transaction even if drop processing throws', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true)); tool.onPointerMove({ x: 90, y: 110 }, pointer(true));
+    const mock = vi.spyOn(autolayout, 'dragInsertion').mockImplementation(() => { throw new Error('drop failed'); });
+    try { expect(() => tool.onPointerUp({ x: 90, y: 110 })).toThrow('drop failed'); }
+    finally { mock.mockRestore(); }
+    expect(store.group).toBeNull(); expect(tool.start).toBeUndefined(); expect(tool.copies).toBeUndefined();
+    expect(store.undoStack).toHaveLength(1); store.history(); expect([...store.doc.keys()]).toEqual([a.id]);
 });
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
     const { store, tool } = setup(), a = makeNode('rect', 20, 30), b = { ...makeNode('ellipse', 200, 50), index: 'z' }; store.init([a, b]); store.selection.add(a.id); store.selection.add(b.id);
@@ -78,4 +168,35 @@ it.each([90, 30])('resizes a group inside a %s degree frame along its displayed 
     expect(tool.selectionHandles()[7].x).toBeCloseTo(hs[7].x); expect(tool.selectionHandles()[7].y).toBeCloseTo(hs[7].y);
     expect(tool.selectionHandles()[3].x).toBeCloseTo(end.x); expect(tool.selectionHandles()[3].y).toBeCloseTo(end.y);
     expect(store.undoStack).toHaveLength(1); store.history(); expect(store.doc.get(g.id)?.w).toBe(200); store.history(true); expect(store.doc.get(g.id)?.w).toBeCloseTo(300);
+});
+
+it('duplicates a sibling whose index ties with the next one', () => {
+        const doc = new Map() as any;
+        const base = { type: 'rect', x: 0, y: 0, w: 10, h: 10, parent: null, index: 'a' };
+        doc.set('a', { ...base, id: 'a', name: 'a' });
+        doc.set('b', { ...base, id: 'b', name: 'b' });
+        const copies = duplicateNodes(doc, [doc.get('a')]);
+        expect([...copies.values()][0].index > 'a').toBe(true);
+});
+
+it('alt-drags a group in a rotated frame by the world delta and preserves its descendants', () => {
+    const { store, tool } = setup(), parent = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation: 30 }, group = { ...makeNode('group', 100, 100), parent: parent.id }, child = { ...makeNode('rect', 0, 0), parent: group.id };
+    store.init([parent, group, child]); store.selection.add(group.id);
+    const before = worldCorners(store.doc, child), start = center(store.doc, group), end = { x: start.x + 20, y: start.y + 40 };
+    tool.onPointerMove(start, pointer(true)); expect(tool.cursor).toBe('copy');
+    tool.onPointerDown(start, pointer(true)); tool.onPointerMove(end, pointer(true)); tool.onPointerUp(end);
+    const copy = store.doc.get([...store.selection][0])!, nested = children(store.doc, copy.id)[0];
+    expect(copy.id).not.toBe(group.id); expect(nested.id).not.toBe(child.id); expect(matrixAngle(worldMatrix(store.doc, nested))).toBeCloseTo(30);
+    for (const [i, point] of worldCorners(store.doc, nested).entries()) { expect(point.x).toBeCloseTo(before[i].x + 20); expect(point.y).toBeCloseTo(before[i].y + 40); }
+    expect(worldCorners(store.doc, child)).toEqual(before); expect(store.undoStack).toHaveLength(1);
+    store.history(); expect(store.doc.size).toBe(3); store.history(true); expect(store.doc.has(nested.id)).toBe(true);
+});
+
+it('keeps the rotate affordance and rotation drag when Alt is held instead of duplicating', () => {
+    const { store, tool } = setup(), node = makeNode('rect', 0, 0), start = { x: -8, y: -8 }, end = { x: 108, y: -8 };
+    store.init([node]); store.selection.add(node.id);
+    tool.onPointerMove(start, pointer(true)); expect(tool.cursor).toBe(tool.rotateCursor);
+    tool.onPointerDown(start, pointer(true)); tool.onPointerMove(end, pointer(true)); tool.onPointerUp(end);
+    expect(store.doc.size).toBe(1); expect(store.doc.get(node.id)?.rotation).toBeCloseTo(90); expect(store.undoStack).toHaveLength(1);
+    store.history(); expect(store.doc.get(node.id)?.rotation).toBe(0);
 });

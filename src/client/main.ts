@@ -22,8 +22,12 @@ import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
 import { downloadSelection } from './export';
-if (location.pathname === '/')
-    location.replace('/f/' + crypto.randomUUID().slice(0, 12));
+import { home } from './ui/home';
+import { trackRecent } from './recent-preview';
+import { editorCommands } from './ui/editor-commands';
+if (location.pathname === '/') home();
+else bootEditor();
+function bootEditor() {
 const file = location.pathname.split('/')[2] || 'untitled';
 document.querySelector('#app')!.innerHTML = '<header></header><main><aside class="layers"></aside><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside class="inspector"></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
@@ -70,6 +74,8 @@ layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);
 const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
+editorCommands(ctx, renderer, choose, isInspecting);
+trackRecent(store, file);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (isInspecting() || active.id !== 'select') return;
@@ -99,6 +105,7 @@ canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
 else {
     if (active.id === 'comment') e.preventDefault();
     active.onPointerDown(viewport.world(p), e);
+    canvas.style.cursor = active.cursor;
 } };
 canvas.onpointermove = e => { pointer = e; if (!queued) {
     queued = true;
@@ -161,6 +168,12 @@ window.addEventListener('keyup', e => { if (e.code === 'Space') {
     space = false;
     canvas.style.cursor = active.cursor;
 } });
+for (const event of ['keydown', 'keyup'] as const) window.addEventListener(event, e => {
+    if (e.key === 'Alt' && active instanceof Select) {
+        active.modifier(e.altKey);
+        canvas.style.cursor = active.cursor;
+    }
+});
 function zoomFromToolbar(factor: number) {
     presence.stopFollowing();
     viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, factor);
@@ -168,3 +181,4 @@ function zoomFromToolbar(factor: number) {
 document.querySelector('#zoom-in')!.addEventListener('click', () => zoomFromToolbar(1.25));
 document.querySelector('#zoom-out')!.addEventListener('click', () => zoomFromToolbar(.8));
 document.querySelector('#zoom-value')!.addEventListener('click', () => zoomFromToolbar(1 / viewport.zoom));
+}
