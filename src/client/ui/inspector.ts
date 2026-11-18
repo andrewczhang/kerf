@@ -22,6 +22,14 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
     }
 }
 
+export function refreshFocusedInspector(content: HTMLElement, nodes: Node[], active: Element | null): boolean {
+    const selection = JSON.stringify(nodes.map(n => n.id)), same = content.dataset.selection === selection;
+    content.dataset.selection = selection;
+    if (!active || !same) return false;
+    refreshNumericFields(content, nodes, active);
+    return true;
+}
+
 export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -29,7 +37,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
     const render = () => {
         const doc = expand(store.doc);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
-        if (el.contains(document.activeElement)) { refreshNumericFields(content, nodes, document.activeElement); return; }
+        if (refreshFocusedInspector(content, nodes, el.contains(document.activeElement) ? document.activeElement : null)) return;
         content.innerHTML = '';
         const section = (title: string) => {
             const s = document.createElement('section'), label = document.createElement('div');
