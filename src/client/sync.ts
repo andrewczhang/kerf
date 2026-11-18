@@ -17,6 +17,7 @@ export class Sync extends EventTarget {
     storageError = false;
     private snapshotTimer?: ReturnType<typeof setTimeout>;
     private claimed = false;
+    private unsent = new Set<number>();
     constructor(public store: Store, public file: string) {
         super();
         if (navigator.onLine === false) this.status = 'Offline';
@@ -25,7 +26,7 @@ export class Sync extends EventTarget {
             this.clientId = sessionStorage.getItem(sessionKey) ?? this.clientId;
             sessionStorage.setItem(sessionKey, this.clientId);
         } catch { this.storageError = true; }
-        store.send = (ops, seq) => { this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq }); };
+        store.send = (ops, seq) => { if (!this.ready) this.unsent.add(seq); this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq }); };
         store.addEventListener('change', () => {
             if (!this.snapshotTimer) this.snapshotTimer = setTimeout(() => { this.snapshotTimer = undefined; this.persist(true); }, 250);
         });
@@ -104,7 +105,13 @@ export class Sync extends EventTarget {
         this.comments = m.comments;
         this.versions = m.versions;
         this.peers = new Map(m.peers.map(p => [p.id, p]));
-        for (const seq of this.store.pending.keys()) if (seq <= (m.ackSeq ?? 0)) this.store.pending.delete(seq);
+        const ackSeq = m.ackSeq ?? 0;
+        this.store.seq = Math.max(this.store.seq, ackSeq);
+        for (const [seq, ops] of [...this.store.pending]) if (seq <= ackSeq) {
+            this.store.pending.delete(seq);
+            if (this.unsent.has(seq)) this.store.pending.set(++this.store.seq, ops);
+        }
+        this.unsent.clear();
         this.store.init(m.nodes);
         this.ready = true;
         this.status = 'Live';

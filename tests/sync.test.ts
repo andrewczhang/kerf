@@ -54,6 +54,14 @@ it('replays unacknowledged operations in order after reconnect', () => {
     expect(socket.sent.map(s => JSON.parse(s).seq)).toEqual([1, 2]);
     expect(store.doc.get(n.id)).toMatchObject({ x: 40, y: 50 });
 });
+it('advances past server receipts when local sequence storage is lost, including edits before init', () => {
+    const { store, socket } = setup(), node = makeNode('rect', 0, 0);
+    store.commit([{ t: 'create', node }]);
+    socket.receive({ type: 'init', nodes: [], peers: [], comments: [], versions: [], ackSeq: 15 });
+    expect(store.seq).toBe(16); expect(store.doc.has(node.id)).toBe(true);
+    expect(JSON.parse(socket.sent[0]).seq).toBe(16);
+    store.set(node.id, { x: 20 }); expect(JSON.parse(socket.sent[1]).seq).toBe(17);
+});
 it('gives a duplicated live tab a fresh identity and sequence without claiming the original queue', () => {
     const { store, sync } = setup();
     store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);
