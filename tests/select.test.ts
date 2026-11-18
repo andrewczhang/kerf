@@ -3,9 +3,24 @@ import { Select } from '../src/client/tools/select';
 import { Store } from '../src/client/store';
 import { Viewport } from '../src/client/viewport';
 import { makeNode } from '../src/shared/doc';
-import { instanceNode } from '../src/shared/components';
+import { expand, instanceNode } from '../src/shared/components';
 import { Shape } from '../src/client/tools/shape';
 import { world } from '../src/shared/geometry';
+it('resizes inherited Hug instance bounds and changes only its sizing to Fixed', () => {
+    const store = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id, w: 80, h: 30 }, instance = instanceNode(main, 200, 0);
+    store.init([main, child, instance]); store.selection.add(instance.id);
+    const select = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} });
+    select.onPointerDown({ x: 280, y: 30 }, { buttons: 1 } as PointerEvent);
+    expect(select.handle).toBe(4);
+    select.onPointerMove({ x: 320, y: 50 }, { buttons: 1 } as PointerEvent);
+    select.onPointerUp({ x: 320, y: 50 });
+    expect(expand(store.doc).get(instance.id)).toMatchObject({ w: 120, h: 50, sizeW: 'fixed', sizeH: 'fixed' });
+    expect(store.doc.get(instance.id)?.overrides?.['']).toMatchObject({ sizeW: 'fixed', sizeH: 'fixed' });
+    expect(store.doc.get(main.id)).toMatchObject({ w: 80, h: 30, sizeW: 'hug', sizeH: 'hug' });
+    store.history(); expect(expand(store.doc).get(instance.id)).toMatchObject({ w: 80, h: 30, sizeW: 'hug', sizeH: 'hug' });
+    store.history(true); expect(expand(store.doc).get(instance.id)).toMatchObject({ w: 120, h: 50 });
+});
 function setup() {
     const store = new Store(), main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 10, 10), w: 30, h: 30, parent: main.id }, instance = instanceNode(main, 200, 0);
     store.init([main, child, instance]);

@@ -27,8 +27,8 @@ export class Select implements Tool {
         this.start = p;
         this.moved = false;
         layoutInsertions.delete(store);
-        const nodes = this.selected();
-        this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
+        const resolved = expand(store.doc), nodes = this.selected().map(n => resolved.get(n.id)!);
+        this.box = nodes.length ? bounds(nodes.map(n => world(resolved, n))) : undefined;
         this.handle = this.box && nodes.every(n => n.type !== 'text') ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
         const inner = this.pick(p);
         const double = this.lastClick && e.timeStamp - this.lastClick.time < 400 && Math.hypot(p.x - this.lastClick.x, p.y - this.lastClick.y) < 5 / viewport.zoom;
@@ -53,8 +53,8 @@ export class Select implements Tool {
                 this.ctx.marquee = { ...p, w: 0, h: 0 };
             }
         }
-        this.original = new Map(this.selected().filter(n => !blocked(store.doc, n) && !this.selected().some(a => a.id !== n.id && descendants(store.doc, a.id).some(d => d.id === n.id))).map(n => [n.id, { ...n }]));
-        if (this.handle >= 0) for (const n of [...this.original.values()]) if (n.type === 'group') for (const c of descendants(store.doc, n.id)) if (!blocked(store.doc, c)) this.original.set(c.id, { ...c });
+        this.original = new Map(this.selected().filter(n => !blocked(resolved, resolved.get(n.id)!) && !this.selected().some(a => a.id !== n.id && descendants(store.doc, a.id).some(d => d.id === n.id))).map(n => [n.id, { ...resolved.get(n.id)! }]));
+        if (this.handle >= 0) for (const n of [...this.original.values()]) if (n.type === 'group') for (const c of descendants(store.doc, n.id)) if (!blocked(resolved, resolved.get(c.id)!)) this.original.set(c.id, { ...resolved.get(c.id)! });
         store.begin();
         store.changed();
     }
