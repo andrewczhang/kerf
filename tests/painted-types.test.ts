@@ -31,6 +31,11 @@ it('keeps open paths stroke-only even with fills and skips empty closed-path sha
     const n = { ...path(), closed: false }, c = context(); drawNode(c as unknown as CanvasRenderingContext2D, docOf(n), n, { zoom: 1, labels: false }); expect(c.fill).not.toHaveBeenCalled(); expect(c.stroke).toHaveBeenCalledTimes(2);
     const empty = { ...n, closed: true, fills: [], stroke: null }, blank = context(); drawNode(blank as unknown as CanvasRenderingContext2D, docOf(empty), empty, { zoom: 1, labels: false }); expect(blank.fill).not.toHaveBeenCalled(); expect(blank.translate).not.toHaveBeenCalled();
 });
+it('skips interior-clipped effects on open paths without closing their strokes', () => {
+    const n = { ...path(), closed: false, effects: [{ type: 'background-blur' as const, radius: 10, visible: true }, { ...shadow, type: 'inner-shadow' as const }] }, c = context();
+    drawNode(c as unknown as CanvasRenderingContext2D, docOf(n), n, { zoom: 1, labels: false });
+    expect(c.stroke).toHaveBeenCalledTimes(1); expect(c.fill).not.toHaveBeenCalled(); expect(c.stroke.mock.calls[0][0].closePath).not.toHaveBeenCalled();
+});
 it('uses stacked text paints on glyphs and respects explicit empty fills', () => {
     const n = { ...makeNode('text', 0, 0), fills: [solid, gradient] }, c = context(); drawNode(c as unknown as CanvasRenderingContext2D, docOf(n), n, { zoom: 1, labels: false, file: 'test' }); expect(c.fillText).toHaveBeenCalledTimes(2); expect(c.fill).not.toHaveBeenCalled();
     const empty = { ...n, fills: [] }, blank = context(); drawNode(blank as unknown as CanvasRenderingContext2D, docOf(empty), empty, { zoom: 1, labels: false }); expect(blank.fillText).not.toHaveBeenCalled();
