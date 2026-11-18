@@ -75,7 +75,7 @@ canvas.onpointerup = e => { if (pointer) {
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
 canvas.ondblclick = e => { if (active.id !== 'select')
-    return; const n = hit(store.doc, viewport.world(local(e))); if (n?.type !== 'path')
+    return; const n = hit(store.doc, viewport.world(local(e)), null, 4 / viewport.zoom); if (n?.type !== 'path')
     return; store.selection.clear(); store.selection.add(n.id); choose('pen'); store.changed(); };
 canvas.onpointerleave = () => presence.update(null);
 canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top }; if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)

@@ -18,7 +18,7 @@ export class Select implements Tool {
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
         this.handle = this.box ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
-        const n = hit(store.doc, p);
+        const n = hit(store.doc, p, null, 4 / viewport.zoom);
         if (this.handle < 0) {
             if (n) {
                 if (e.shiftKey) {
@@ -45,7 +45,7 @@ export class Select implements Tool {
     onPointerMove(p: Point, e: PointerEvent) {
         const { store, viewport } = this.ctx;
         if (!this.start) {
-            this.ctx.hover = hit(store.doc, p)?.id;
+            this.ctx.hover = hit(store.doc, p, null, 4 / viewport.zoom)?.id;
             this.ctx.invalidate();
             return;
         }
