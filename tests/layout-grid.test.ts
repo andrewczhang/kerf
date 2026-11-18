@@ -13,13 +13,15 @@ class GridElement {
     children: GridElement[] = [];
     attributes: Record<string, string> = {};
     textContent = '';
+    className = '';
     value = '';
     min = '';
     max = '';
     onclick?: () => void;
     onchange?: () => void;
     constructor(text = '', value = '') { this.textContent = text; this.value = value; }
-    set innerHTML(_value: string) { this.children = []; }
+    set innerHTML(value: string) { this.children = []; if (value.includes('layout-grid-heading')) { const heading = new GridElement(); heading.className = 'layout-grid-heading'; this.children.push(heading); } }
+    querySelector(selector: string) { return this.all().find(n => '.' + n.className === selector); }
     append(...nodes: GridElement[]) { this.children.push(...nodes); }
     setAttribute(key: string, value: string) { this.attributes[key] = value; }
     checkValidity() { return Number.isFinite(Number(this.value)) && (!this.min || +this.value >= +this.min) && (!this.max || +this.value <= +this.max); }

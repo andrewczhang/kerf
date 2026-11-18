@@ -8,6 +8,7 @@ import { fit, toAbs } from '../../shared/path';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection } from './layout-grids';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
@@ -17,7 +18,7 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
         const key = input.dataset.key as Key;
         const value = nodes[0][key] ?? 0;
         const mixed = nodes.some(n => (n[key] ?? 0) !== value);
-        input.value = mixed ? '' : String(Math.round(Number(value) * 100) / 100);
+        input.value = mixed ? '' : formatNumber(Number(value));
         input.placeholder = mixed ? 'Mixed' : '';
     }
 }
@@ -31,7 +32,7 @@ export function refreshFocusedInspector(content: HTMLElement, nodes: Node[], act
 }
 
 export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
-    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
     const render = () => {
@@ -82,7 +83,8 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                 store.commit([{ t: 'override', id: v ? instance : n.id, target: v ? target : '', key, value }]);
             else store.set(n.id, { [key]: value });
         };
-        const name = document.createElement('input'); name.className = 'name-input'; name.value = nodes.length === 1 ? first.name : 'Multiple selection'; name.setAttribute('aria-label', 'Object name');
+        head.classList.add('layer-heading');
+        const name = inputElement('Object name'); name.className = 'name-input'; name.value = nodes.length === 1 ? first.name : 'Multiple selection'; name.setAttribute('aria-label', 'Object name');
         name.onchange = () => { store.begin(); for (const n of nodes) write(n, 'name', name.value); store.end(); };
         name.onblur = render; head.append(name);
         if (nodes.length === 1 && virtual) {
@@ -130,21 +132,50 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                     };
                     label.append(span, select); grid.append(label); continue;
                 }
-                const input = document.createElement('input'); input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
-                input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
-                input.placeholder = mixed ? 'Mixed' : '';
-                if (key === 'fill' || key === 'stroke') { input.type = 'color'; input.value = String(first[key] ?? '#000000'); }
-                else { input.type = 'number'; input.dataset.key = key; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'fontSize') input.max = String(maxFontSize); if (key === 'fontSize' || key === 'w') input.min = '1'; input.value = mixed ? '' : String(Math.round(Number(first[key]) * 100) / 100); }
-                input.onfocus = () => { if (!input.readOnly) store.begin(); };
-                input.oninput = () => { if (!input.readOnly && input.value && !input.validity.rangeUnderflow && !input.validity.rangeOverflow) for (const n of nodes) write(n, key, input.type === 'color' ? input.value : Number(input.value)); };
-                input.onblur = () => { store.end(); render(); };
-                label.append(span, input); if (!input.readOnly) sizingControl(label, input, key, nodes, store); grid.append(label);
+            const input = inputElement(key === 'fontSize' ? 'Font size' : key);
+            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
+            input.placeholder = mixed ? 'Mixed' : '';
+            if (key === 'fill' || key === 'stroke') {
+                label.classList.add('color-field');
+                const value = document.createElement('div'); value.className = 'color-value';
+                const swatch = inputElement(`${key} color`); swatch.type = 'color'; swatch.className = 'color-swatch';
+                swatch.value = String(nodes[0][key] ?? '#000000');
+                input.value = mixed ? '' : (nodes[0][key]?.toUpperCase() ?? 'None');
+                input.spellcheck = false;
+                input.onfocus = swatch.onfocus = () => store.begin();
+                input.oninput = () => {
+                    const color = parseColor(input.value, key === 'stroke');
+                    input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
+                    if (color === undefined) return;
+                    swatch.value = color ?? '#000000';
+                    for (const n of nodes) write(n, key, color);
+                };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) write(n, key, swatch.value); };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => expand(store.doc).get(n.id)?.[key])); };
+                value.append(swatch, input); label.append(span, value); grid.append(label);
+                continue;
             }
+            input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
+            input.type = 'number';
+            input.dataset.key = key;
+            input.step = key === 'opacity' ? '.05' : '1';
+            if (key === 'fontSize') input.max = String(maxFontSize);
+            if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
+            input.value = mixed ? '' : formatNumber(Number(nodes[0][key]));
+            input.onfocus = () => { if (!input.readOnly) store.begin(); };
+            input.oninput = () => { if (input.readOnly || !input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
+                write(n, key, value); };
+            input.onblur = () => { store.end(); render(); };
+            label.append(span, input);
+            if (!input.readOnly) sizingControl(label, input, key, nodes, store);
+            grid.append(label);
+        }
         };
         if (nodes.length === 1 && first.type === 'path') {
             const s = section('Vector');
             s.innerHTML += `<label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${first.points?.length ?? 0} points</span>${virtual ? '' : '<p class="path-hint">Double-click or Enter to edit points</p>'}`;
             const box = s.querySelector('input')!;
+            box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
             box.checked = !!first.closed;
             box.onchange = () => {
                 box.blur();

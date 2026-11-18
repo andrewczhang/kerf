@@ -1,6 +1,7 @@
 import { layoutDefaults, type Key, type Node, type Op } from '../../shared/doc';
 import { addAutoLayout, isAutoLayout } from '../autolayout';
 import type { Store } from '../store';
+import { formatNumber, inputElement } from './values';
 
 export function sizingControl(label: HTMLElement, input: HTMLInputElement, key: Key, nodes: Node[], store: Store): void {
     const parentAuto = (n: Node) => isAutoLayout(store.doc.get(n.parent ?? ''));
@@ -51,10 +52,10 @@ export function autoLayoutSection(content: HTMLElement, nodes: Node[], store: St
     for (const key of ['gap', 'padTop', 'padRight', 'padBottom', 'padLeft'] as const) {
         const label = document.createElement('label'); label.className = 'field';
         const span = document.createElement('span'); span.textContent = { gap: 'Gap', padTop: 'T', padRight: 'R', padBottom: 'B', padLeft: 'L' }[key];
-        const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.step = '1'; input.setAttribute('aria-label', key === 'gap' ? 'Gap' : `Padding ${span.textContent}`);
+        const input = inputElement(key === 'gap' ? 'Gap' : `Padding ${span.textContent}`); input.type = 'number'; input.min = '0'; input.step = '1';
         input.dataset.key = key;
         const value = nodes[0][key] ?? 0, mixed = nodes.some(n => (n[key] ?? 0) !== value);
-        input.value = mixed ? '' : String(value); input.placeholder = mixed ? 'Mixed' : '';
+        input.value = mixed ? '' : formatNumber(value); input.placeholder = mixed ? 'Mixed' : '';
         input.onfocus = () => store.begin();
         input.oninput = () => { if (input.value === '' || !Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0) return; store.commit(nodes.map(n => ({ t: 'set', id: n.id, key, value: input.valueAsNumber }))); };
         input.onblur = () => { store.end(); store.changed(); };

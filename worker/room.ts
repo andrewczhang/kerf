@@ -60,7 +60,18 @@ export class Room {
                 peer.selection = msg.selection;
                 peer.viewport = msg.viewport;
                 peer.name = String(msg.name || peer.name).slice(0, 32);
-                this.broadcast({ type: 'presence', peer }, ws);
+                const spotlight = typeof msg.spotlight === 'boolean' && !!peer.spotlight !== msg.spotlight;
+                if (spotlight) {
+                    if (msg.spotlight) {
+                        for (const other of this.peers.values()) {
+                            if (!other.spotlight) continue;
+                            other.spotlight = false;
+                            this.broadcast({ type: 'presence', peer: other });
+                        }
+                    }
+                    peer.spotlight = msg.spotlight;
+                }
+                this.broadcast({ type: 'presence', peer }, spotlight ? undefined : ws);
             }
             else if (msg.type !== 'ops' && msg.type !== 'presence') await this.features.message(msg, peer, m => this.send(ws, m));
         }
