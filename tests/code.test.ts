@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOp, makeNode } from '../src/shared/doc';
 import { componentName, toHTML, toReact } from '../src/shared/codegen';
 import { parseJSX, type CodeElement } from '../src/shared/jsxparse';
-import { codeRoot, codeScopeIds, diffCode } from '../src/client/codesync';
+import { codeRoot, codeScopeIds, commitCode, diffCode } from '../src/client/codesync';
 import { Store } from '../src/client/store';
 
 function fixture() {
@@ -18,6 +18,21 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('rejects oversized batches before sending or mutating, while accepting the limit and empty edits', () => {
+        const store = new Store(), node = makeNode('rect', 0, 0);
+        store.init([node]);
+        const op = { t: 'set' as const, id: node.id, key: 'w' as const, value: 200 };
+        expect(() => commitCode(store, Array(1001).fill(op))).toThrow('Too many changes at once (1001); split the edit');
+        expect(store.doc.get(node.id)?.w).toBe(100);
+        expect(store.pending.size).toBe(0);
+        expect(store.undoStack).toHaveLength(0);
+        commitCode(store, []);
+        expect(store.pending.size).toBe(0);
+        commitCode(store, Array(1000).fill(op));
+        expect(store.doc.get(node.id)?.w).toBe(200);
+        expect(store.pending.size).toBe(1);
+        expect(store.undoStack).toHaveLength(1);
+    });
     it('preserves collaborator additions absent from the original draft, including children of removed frames', () => {
         const doc = fixture(), baseline = codeScopeIds(doc, 'frame');
         const parsed = tree(toReact(doc, 'frame'));

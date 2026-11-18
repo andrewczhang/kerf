@@ -2,6 +2,12 @@ import { between, descendants, makeNode, validNode, type Doc, type Node, type Op
 import { defaultName } from '../shared/codegen';
 import type { CodeElement } from '../shared/jsxparse';
 import { world } from '../shared/geometry';
+import type { Store } from './store';
+
+export function commitCode(store: Store, ops: Op[]): void {
+    if (ops.length > 1000) throw new CodeDiffError(`Too many changes at once (${ops.length}); split the edit`, 1, 1);
+    if (ops.length) store.commit(ops);
+}
 
 export function codeScopeIds(doc: Doc, rootId: string | null): Set<string> {
     return new Set(rootId ? [rootId, ...descendants(doc, rootId).map(n => n.id)] : doc.keys());

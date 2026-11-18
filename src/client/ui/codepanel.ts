@@ -2,7 +2,7 @@ import { componentName, toHTML, toReact } from '../../shared/codegen';
 import { parseJSX, type CodeError } from '../../shared/jsxparse';
 import { bounds, world } from '../../shared/geometry';
 import { children } from '../../shared/doc';
-import { codeRoot, codeScopeIds, CodeDiffError, diffCode } from '../codesync';
+import { codeRoot, codeScopeIds, commitCode, CodeDiffError, diffCode } from '../codesync';
 import { download } from '../export';
 import type { Store } from '../store';
 
@@ -81,7 +81,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         try {
             const ops = diffCode(store.doc, rootId, tree, baselineIds);
             applying = true;
-            if (ops.length) store.commit(ops);
+            commitCode(store, ops);
             applying = false; dirty = false; error = null;
             regenerate();
         } catch (failure) {
