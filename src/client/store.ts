@@ -1,5 +1,6 @@
-import { applyOp, descendants, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
-import { detachOps, resizeFollowOps } from '../shared/components';
+import { applyOp, descendants, isTextNode, normalizeNode, layoutDefaults, type Doc, type Op, type Key } from '../shared/doc';
+import { applyLayout, type MeasureText } from '../shared/layout';
+import { detachOps, resizeFollowOps, isVirtual, splitVirtual } from '../shared/components';
 import { MAX_OPS } from '../shared/protocol';
 function pendingKey(op: Op): string | undefined { return op.t === 'set' ? op.id + ':' + op.key : op.t === 'override' ? op.id + ':o:' + op.target + ':' + op.key : undefined; }
 function sameValue(a: unknown, b: unknown): boolean {
@@ -13,6 +14,8 @@ type Change = {
     after: Op;
 };
 export class Store extends EventTarget {
+    constructor(public measureText?: MeasureText) { super(); }
+    relayout() { applyLayout(this.doc, this.measureText); this.changed(); }
     doc: Doc = new Map();
     selection = new Set<string>();
     pending = new Map<number, Op[]>();
@@ -41,7 +44,32 @@ export class Store extends EventTarget {
         this.undoStack.push(merged);
         this.redoStack = [];
     } this.group = null; }
-    commit(ops: Op[], record = true) { const changes: Change[] = [], queue = [...ops], sent: Op[] = [];
+    commit(ops: Op[], record = true) {
+        ops = ops.map(op => {
+            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
+            const { instance, target } = splitVirtual(op.id);
+            return { t: 'override', id: instance, target, key: op.key, value: op.value };
+        });
+        if (record) {
+            const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
+            ops = ops.flatMap(op => {
+                if (op.t !== 'set') return [op];
+                const n = this.doc.get(op.id);
+                if (!n) return [op];
+                const geometry: Op[] = [];
+                const freeze = (key: 'w' | 'h', value: number) => {
+                    if (!explicit.has(n.id + ':' + key)) geometry.push({ t: 'set', id: n.id, key, value });
+                };
+                if (isTextNode(n) && op.key === 'textWidth' && op.value === 'fixed' && n.textWidth !== 'fixed')
+                    freeze('w', this.measureText?.(n).w ?? n.w);
+                if (op.value === 'fixed') {
+                    if (op.key === 'sizeW' && (n.sizeW === 'hug' || n.sizeW === 'fill')) freeze('w', n.w);
+                    if (op.key === 'sizeH' && (n.sizeH === 'hug' || n.sizeH === 'fill') && !isTextNode(n)) freeze('h', n.h);
+                }
+                return [...geometry, op];
+            });
+        }
+        const changes: Change[] = [], queue = [...ops], sent: Op[] = [];
     const final = ops.some(op => op.t === 'delete') ? new Map(this.doc) : undefined;
     if (final) for (const op of ops) applyOp(final, op);
     const deleting = new Set(final ? [...this.doc.keys()].filter(id => !final.has(id)) : []);
@@ -67,9 +95,9 @@ export class Store extends EventTarget {
         const removed = n && op.t === 'delete' ? [n, ...descendants(this.doc, n.id)] : [];
         const follow = record && n?.component && op.t === 'set' && (op.key === 'w' || op.key === 'h') ? resizeFollowOps(this.doc, n.id, op.key, n[op.key], op.value as number) : [];
         applyOp(this.doc, op);
+        if (op.t !== 'override' || this.doc.get(id) !== n) sent.push(op);
         if (this.doc.get(id) === n)
             continue;
-        sent.push(op);
         queue.splice(i + 1, 0, ...follow);
         if (op.t === 'create')
             changes.push({ before: { t: 'delete', id: op.node.id }, after: op });
@@ -83,6 +111,13 @@ export class Store extends EventTarget {
             for (const child of removed.reverse())
                 changes.push({ before: { t: 'create', node: { ...child } }, after: { t: 'delete', id: child.id } });
         }
+    } const geometry = record ? [...this.doc.values()].map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
+    applyLayout(this.doc, this.measureText);
+    for (const before of geometry) {
+        const after = this.doc.get(before.id)!;
+        for (const key of ['x', 'y', 'w', 'h'] as const)
+            if (before[key] !== after[key])
+                changes.push({ before: { t: 'set', id: before.id, key, value: before[key] }, after: { t: 'set', id: before.id, key, value: after[key] } });
     } if (record && changes.length) {
         if (this.group)
             this.group.push(...changes);
@@ -99,10 +134,10 @@ export class Store extends EventTarget {
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().map(pendingKey).filter(Boolean)); for (const op of ops)
         if (!pendingKey(op) || !keys.has(pendingKey(op)))
-            applyOp(this.doc, op); this.changed(); }
+            applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
     init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of this.pending.values())
         for (const op of ops)
-            applyOp(this.doc, op); this.changed(); }
+            applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
     history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = []; const shadow = new Map(this.doc); for (const c of source) {
         const expected = redo ? c.before : c.after, next = redo ? c.after : c.before;

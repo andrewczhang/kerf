@@ -1,0 +1,12 @@
+import { expand } from '../shared/components';
+import { nodeFills, type Paint, type Node } from '../shared/doc';
+import type { Store } from './store';
+import { blocked } from '../shared/layers';
+export const editingPaint = new WeakMap<Store, { id: string; index: number }>();
+export function writeFills(store: Store, id: string, fills: Paint[]) { const top = [...fills].reverse().find(p => p.visible && p.type !== 'image'), legacy = top?.type === 'solid' ? top.color : top && top.type !== 'image' ? [...top.stops].sort((a, b) => a.pos - b.pos)[0].color : undefined; store.set(id, { fills, ...(legacy ? { fill: legacy } : {}) }); }
+export function paintColor(p: Paint) { return p.type === 'solid' ? p.color : p.type === 'image' ? '#c9c7bf' : [...p.stops].sort((a, b) => a.pos - b.pos)[0].color; }
+export function convertPaint(p: Paint, type: Paint['type']): Paint { const color = paintColor(p), base = { opacity: p.opacity, visible: p.visible }; if (type === 'solid') return { ...base, type, color }; if (type === 'image') return p.type === 'image' ? p : { ...base, type, asset: '0'.repeat(64), fit: 'fill', w: 1, h: 1 }; return { ...base, type, stops: p.type === 'linear' || p.type === 'radial' ? p.stops : [{ pos: 0, color, opacity: 1 }, { pos: 1, color, opacity: 0 }], from: { x: type === 'radial' ? .5 : 0, y: .5 }, to: { x: 1, y: .5 } }; }
+export function currentGradient(store: Store) { const doc = expand(store.doc), edit = editingPaint.get(store), n = edit && doc.get(edit.id), p = n && nodeFills(n)[edit!.index]; return n && n.type !== 'group' && !blocked(doc, n) && store.selection.size === 1 && store.selection.has(n.id) && p && (p.type === 'linear' || p.type === 'radial') ? { n, p, index: edit!.index, doc } : undefined; }
+export function copyFills(n: Node) { return structuredClone(nodeFills(n)); }
+export function gradientAngle(p: Extract<Paint, { stops: unknown }>, n: Pick<Node, 'w' | 'h'>) { return Math.atan2((p.to.y - p.from.y) * n.h, (p.to.x - p.from.x) * n.w) * 180 / Math.PI; }
+export function gradientEndpoints(angle: number, n: Pick<Node, 'w' | 'h'>) { const a = angle * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), half = .5 / Math.max(Math.abs(dx) / n.w, Math.abs(dy) / n.h), x = dx * half / n.w, y = dy * half / n.h; return { from: { x: .5 - x, y: .5 - y }, to: { x: .5 + x, y: .5 + y } }; }

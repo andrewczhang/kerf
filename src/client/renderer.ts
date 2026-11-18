@@ -4,11 +4,14 @@ import { bounds, handles, type Rect } from '../shared/geometry';
 import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { isAutoLayout, layoutInsertions } from './autolayout';
+import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
 import type { Doc } from '../shared/doc';
 import { toAbs, trace } from '../shared/path';
+import { drawLayoutGrids } from './layout-grids';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -39,7 +42,8 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of tree.get(null) ?? [])
-            drawNode(c, doc, n, { zoom: v.zoom, labels: true, tree, skip: this.app.editingText });
+            drawNode(c, doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, invalidate: this.invalidate, tree, skip: this.app.editingText });
+        if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, doc, v.zoom);
         for (const n of doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = doc.get(n.link);
@@ -55,6 +59,12 @@ export class Renderer {
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
             return; c.beginPath(); trace(c, toAbs(n.points ?? [], world(doc, n)), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n && !blocked(doc, n, false));
+        if (selected.length === 1 && isAutoLayout(selected[0])) {
+            const n = selected[0], r = world(doc, n);
+            c.save(); c.globalAlpha = .35;
+            outline({ x: r.x + (n.padLeft ?? 0), y: r.y + (n.padTop ?? 0), w: Math.max(0, r.w - (n.padLeft ?? 0) - (n.padRight ?? 0)), h: Math.max(0, r.h - (n.padTop ?? 0) - (n.padBottom ?? 0)) }, '#ff4f00', true);
+            c.restore();
+        }
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = doc.get(this.app.hover);
             if (n && !blocked(doc, n, false) && n.id !== this.app.editingText)
@@ -73,6 +83,12 @@ export class Renderer {
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
         }
+        const insertion = this.preview ? undefined : layoutInsertions.get(this.app.store);
+        if (insertion) {
+            c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / v.zoom;
+            c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
+        }
+        if (!this.preview) drawGradientHandles(c, this.app);
         this.app.active?.draw?.(c, v.zoom);
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';

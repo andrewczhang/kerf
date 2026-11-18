@@ -1,0 +1,46 @@
+import { expand } from '../../shared/components';
+import './paints.css';
+import { nodeFills, type Node, type Paint } from '../../shared/doc';
+import type { Store } from '../store';
+import { convertPaint, copyFills, editingPaint, gradientAngle, gradientEndpoints, paintColor, writeFills } from '../paint-edit';
+import { uploadAsset } from '../assets';
+import { button, eye, field, select, transaction } from './paint-controls';
+import { uploadStatus } from '../image-import';
+import { world } from '../geometry';
+const expanded = new WeakMap<Store, number>(), selectedStop = new WeakMap<Store, number>();
+export function interpolatedStop(stops: Extract<Paint, { stops: unknown }>['stops'], pos: number) { const sorted = [...stops].sort((a, b) => a.pos - b.pos), a = [...sorted].reverse().find(s => s.pos <= pos) ?? sorted[0], b = sorted.find(s => s.pos >= pos) ?? sorted.at(-1)!, t = a.pos === b.pos ? 0 : (pos - a.pos) / (b.pos - a.pos); const channel = (color: string, i: number) => parseInt(color.slice(i, i + 2), 16); return { pos, color: '#' + [1, 3, 5].map(i => Math.round(channel(a.color, i) * (1 - t) + channel(b.color, i) * t).toString(16).padStart(2, '0')).join(''), opacity: a.opacity * (1 - t) + b.opacity * t }; }
+export function fillsSection(parent: HTMLElement, store: Store, nodes: Node[]) {
+    const section = document.createElement('section'); section.className = 'paint-section'; parent.append(section);
+    const render = () => {
+        section.replaceChildren(); const first = expand(store.doc).get(nodes[0].id); if (!first) return; const paints = copyFills(first), active = expanded.get(store);
+        const apply = (next: Paint[]) => { for (const n of nodes) if (expand(store.doc).has(n.id)) writeFills(store, n.id, structuredClone(next)); }, act = (edit: () => void) => { transaction(store, edit); render(); }, update = (i: number, p: Paint) => { Object.assign(paints[i], p); apply(paints); };
+        const heading = document.createElement('div'); heading.className = 'paint-heading'; heading.append('Fill', button('+', () => act(() => { if (paints.length < 12) { expanded.set(store, paints.length); apply([...paints, { type: 'solid', color: '#ff4f00', opacity: 1, visible: true }]); } }))); section.append(heading);
+        if (nodes.some(n => JSON.stringify(nodeFills(expand(store.doc).get(n.id)!)) !== JSON.stringify(paints))) { editingPaint.delete(store); const mixed = document.createElement('div'); mixed.className = 'paint-mixed'; mixed.append('Mixed', button('Replace all', () => act(() => apply(paints)))); section.append(mixed); return; }
+        editingPaint.delete(store);
+        for (let i = paints.length - 1; i >= 0; i--) {
+            const p = paints[i], row = document.createElement('div'); row.className = 'paint-row' + (active === i ? ' active' : '');
+            const open = () => { expanded.set(store, active === i ? -1 : i); render(); store.changed(); }, swatch = button('Edit paint ' + (i + 1), open); swatch.className = 'paint-preview'; swatch.style.background = p.type === 'linear' || p.type === 'radial' ? `linear-gradient(90deg,${[...p.stops].sort((a,b) => a.pos-b.pos).map(s => `${s.color}${Math.round(s.opacity*255).toString(16).padStart(2,'0')} ${s.pos*100}%`).join(',')})` : paintColor(p);
+            row.append(swatch, select(p.type, [['solid', 'Solid'], ['linear', 'Linear'], ['radial', 'Radial'], ['image', 'Image']], type => act(() => { expanded.set(store, i); update(i, convertPaint(p, type)); })));
+            const summary = button(p.type === 'solid' ? p.color.slice(1).toUpperCase() : p.type === 'image' ? p.fit : p.stops.length + ' stops', open); summary.className = 'paint-summary'; row.append(summary);
+            field(row, 'Paint opacity %', Math.round(p.opacity * 100), 'number', store, value => update(i, { ...p, opacity: Number(value) / 100 }), render, 0, 100);
+            row.append(button(p.visible ? 'Hide paint' : 'Show paint', () => act(() => update(i, { ...p, visible: !p.visible })), eye(p.visible)), button('−', () => act(() => { paints.splice(i, 1); expanded.set(store, -1); apply(paints); }))); section.append(row);
+            if (active !== i) continue;
+            const editor = document.createElement('div'); editor.className = 'paint-editor'; section.append(editor);
+            if (p.type === 'solid') { field(editor, 'Color', p.color, 'color', store, value => update(i, { ...p, color: value }), render); const hex = field(editor, 'Hex', p.color, 'text', store, value => { if (/^#[\da-f]{6}$/i.test(value)) update(i, { ...p, color: value }); }, render); hex.maxLength = 7; }
+            else if (p.type === 'image') {
+                const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.hidden = true; input.onchange = async () => { const file = input.files?.[0]; if (!file) return; uploadStatus('Uploading image'); try { const asset = await uploadAsset(location.pathname.split('/')[2], file); act(() => { const current = expand(store.doc).get(first.id); if (current) { const next = copyFills(current); if (next[i]?.type === 'image') { next[i] = { ...p, ...asset, asset: asset.hash }; apply(next); } } }); uploadStatus('Image uploaded'); } catch (e) { uploadStatus(String(e)); } }; editor.append(input, button('Upload image', () => input.click()), select(p.fit, [['fill', 'Fill'], ['fit', 'Fit'], ['tile', 'Tile']], fit => act(() => update(i, { ...p, fit })))); if (p.asset !== '0'.repeat(64)) { const image = document.createElement('img'); image.className = 'paint-thumbnail'; image.src = `/f/${location.pathname.split('/')[2]}/assets/${p.asset}`; image.alt = 'Image paint'; editor.append(image); }
+            }
+            else {
+                if (nodes.length === 1) editingPaint.set(store, { id: first.id, index: i });
+                const strip = document.createElement('div'); strip.className = 'stop-strip'; strip.setAttribute('aria-label', 'Gradient stop strip'); const preview = () => { strip.style.background = `linear-gradient(90deg,${[...p.stops].sort((a,b) => a.pos-b.pos).map(s => `${s.color}${Math.round(s.opacity*255).toString(16).padStart(2,'0')} ${s.pos*100}%`).join(',')})`; }; preview(); editor.append(strip);
+                const at = Math.min(selectedStop.get(store) ?? 0, p.stops.length - 1), setStops = () => update(i, { ...p, stops: [...p.stops] });
+                const remove = () => { if (p.stops.length > 2) act(() => { p.stops.splice(at, 1); selectedStop.set(store, Math.max(0, at - 1)); setStops(); }); };
+                strip.onpointerdown = e => { if (e.target !== strip || p.stops.length >= 16) return; act(() => { const pos = Math.max(0, Math.min(1, (e.clientX - strip.getBoundingClientRect().left) / strip.clientWidth)); p.stops.push(interpolatedStop(p.stops, pos)); selectedStop.set(store, p.stops.length - 1); setStops(); }); };
+                p.stops.forEach((stop, j) => { const marker = button('Gradient stop ' + (j + 1), () => {}); marker.className = j === at ? 'active' : ''; marker.style.left = stop.pos * 100 + '%'; marker.style.background = stop.color; marker.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); selectedStop.set(store, j); marker.focus(); store.begin(); marker.setPointerCapture(e.pointerId); marker.onpointermove = move => { stop.pos = Math.max(0, Math.min(1, (move.clientX - strip.getBoundingClientRect().left) / strip.clientWidth)); marker.style.left = stop.pos * 100 + '%'; setStops(); preview(); }; marker.onpointerup = marker.onpointercancel = () => { marker.onpointermove = null; store.end(); render(); section.querySelector<HTMLButtonElement>(`[aria-label="Gradient stop ${j + 1}"]`)?.focus(); }; }; marker.onkeydown = e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); selectedStop.set(store, j); if (p.stops.length > 2) act(() => { p.stops.splice(j, 1); setStops(); }); } }; strip.append(marker); });
+                const stop = p.stops[at]; field(editor, 'Stop color', stop.color, 'color', store, value => { stop.color = value; setStops(); preview(); }, render); field(editor, 'Stop opacity %', Math.round(stop.opacity * 100), 'number', store, value => { stop.opacity = Number(value) / 100; setStops(); preview(); }, render, 0, 100); field(editor, 'Position %', Math.round(stop.pos * 100), 'number', store, value => { stop.pos = Number(value) / 100; setStops(); }, render, 0, 100); editor.append(button('− Stop', remove));
+                if (p.type === 'linear') field(editor, 'Angle °', Math.round(gradientAngle(p, world(store.doc, first))), 'number', store, value => { Object.assign(p, gradientEndpoints(Number(value), world(store.doc, first))); for (const n of nodes) { const current = expand(store.doc).get(n.id); if (current) { const next = copyFills(current); next[i] = { ...p, ...gradientEndpoints(Number(value), world(store.doc, current)) }; writeFills(store, n.id, next); } } }, render);
+                editor.append(button('Reverse', () => act(() => update(i, { ...p, stops: p.stops.map(s => ({ ...s, pos: 1 - s.pos })) }))));
+            }
+        }
+    }; render();
+}

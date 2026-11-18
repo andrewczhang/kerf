@@ -26,6 +26,8 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Ctrl/Cmd+G groups selection; Ctrl/Cmd+Shift+G ungroups. Click a grouped shape to select its group, double-click to select inside. Hidden/locked layers are excluded from canvas interaction.
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.
 - Drag shapes into or out of a frame to reparent them without changing world position.
+- **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
+- The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates.
 - Ctrl/Cmd+Alt+K makes a component; Ctrl/Cmd+D on a main component creates an instance. The inspector also lists components and creates instances.
 - Double-click or Ctrl/Cmd+click an instance to select a layer inside it. Edit appearance in the inspector to override it; virtual layers cannot be moved, resized or deleted. Escape selects the owning instance.
@@ -33,6 +35,10 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.
+- Fill lists run topmost first. Use + to stack paints; click a swatch to edit solid, linear, radial or image paints. Eye toggles visibility; − removes a paint.
+- Gradient strips add stops on click. Drag square stops, edit their color/opacity/position, or Delete a selected stop (minimum two). Drag the on-canvas gradient endpoints for a single selected object; Angle and Reverse adjust the gradient.
+- Effects + adds a drop shadow. Expand an effect to edit its settings or switch to inner shadow, layer blur or background blur.
+- Paste an image to add a top paint to the selected object, or create a centered image when nothing is selected. Drop image files on the canvas to create image rectangles; image paints also have an Upload button and Fill/Fit/Tile modes. Upload progress and errors appear in the footer.
 - **C** selects the comment tool; click to pin a thread, Enter posts (Shift+Enter for a newline). Pins follow their attached object. Open a pin to reply, resolve/reopen or delete; Show resolved reveals closed threads. Comments are separate from canvas undo.
 - Set a selected object's **Prototype** target in the inspector. **Show links** reveals all orange connections.
 - **P** or **Present** opens the selected top-level frame (or first frame). Click linked objects to navigate, click empty areas to reveal hotspots. Left/Right moves between frames, Backspace goes back, Esc exits. Presentation updates live.

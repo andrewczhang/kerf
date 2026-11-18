@@ -6,6 +6,23 @@ import { componentOps, detachOps, expand, instanceNode } from '../src/shared/com
 import { applyOp } from '../src/shared/doc';
 import { groupOps, ungroupOps } from '../src/shared/layers';
 import { MAX_OPS } from '../src/shared/protocol';
+it('inherits paints and resolves layout and virtual effect edits as overrides', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, gap: 5 };
+    const a = { ...makeNode('rect', 0, 0, 'A'), parent: main.id, w: 10 }, b = { ...makeNode('rect', 0, 0, 'B'), parent: main.id, w: 20 };
+    const instance = instanceNode(main, 200, 0), paint = { type: 'solid' as const, color: '#123456', opacity: 1, visible: true };
+    s.init([main, a, b, instance]); s.set(main.id, { fills: [paint] });
+    expect(expand(s.doc).get(instance.id)?.fills).toEqual([paint]);
+    s.commit([{ t: 'set', id: instance.id, key: 'gap', value: 10 }]);
+    expect(expand(s.doc).get(instance.id + '/' + b.id)?.x).toBe(20);
+    expect(s.doc.get(b.id)?.x).toBe(15);
+    const effect = { type: 'layer-blur' as const, radius: 2, visible: true };
+    s.set(instance.id + '/' + a.id, { effects: [effect] });
+    expect(expand(s.doc).get(instance.id + '/' + a.id)?.effects).toEqual([effect]);
+    expect(s.doc.get(a.id)?.effects).toBeUndefined();
+    s.set(instance.id, { fills: [{ ...paint, color: '#abcdef' }] });
+    expect(expand(s.doc).get(instance.id)?.fills?.[0]).toMatchObject({ color: '#abcdef' });
+    s.history(); expect(expand(s.doc).get(instance.id)?.fills).toEqual([paint]);
+});
 it('keeps a surviving main linked through ungroup, undo and redo', () => {
     const s = new Store(), group = makeNode('group', 0, 0), main = { ...makeNode('frame', 10, 10), parent: group.id, component: true };
     const child = { ...makeNode('rect', 5, 5), parent: main.id }, instance = instanceNode(main, 200, 0, null, 'z');
@@ -106,6 +123,21 @@ it('chunks large commits into independently acked batches without splitting hist
     s.history(); expect(s.doc.size).toBe(0);
     expect(batches.every(b => b.ops.length <= 1000)).toBe(true);
     expect(s.pending.size).toBe(5);
+});
+it('sends large commits in ordered batches of at most 1000 with separate pending sequences', () => {
+    const s = new Store(), n = makeNode('rect', 0, 0), sent: { ops: Op[]; seq: number }[] = [];
+    s.init([n]); s.send = (ops, seq) => sent.push({ ops, seq });
+    s.commit([]); expect(sent).toHaveLength(0); expect(s.pending.size).toBe(0);
+    const ops: Op[] = Array.from({ length: 2500 }, (_, i) => ({ t: 'set', id: n.id, key: 'x', value: i + 1 }));
+    s.commit(ops);
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([1, 2, 3]);
+    expect(sent.flatMap(batch => batch.ops)).toEqual(ops);
+    expect([...s.pending]).toEqual(sent.map(batch => [batch.seq, batch.ops]));
+    expect(s.doc.get(n.id)?.x).toBe(2500); expect(s.undoStack).toHaveLength(1);
+    sent.length = 0; s.history();
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([4, 5, 6]); expect(s.doc.get(n.id)?.x).toBe(0);
 });
 
 it('chunks large grouping transactions with independent pending sequences and one undo step', () => {

@@ -1,4 +1,5 @@
 import { applyOp, between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
+import { applyLayout } from './layout';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
@@ -35,6 +36,7 @@ export function expand(doc: Doc): Doc {
         if (n.instanceOf && !isVirtual(n.id))
             for (const value of resolve(n, new Set()))
                 out.set(value.id, value);
+    applyLayout(out);
     return out;
 }
 export const componentOps = {

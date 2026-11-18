@@ -1,19 +1,35 @@
 import type { Store } from '../store';
+import { autoLayoutSection, sizingControl } from './autolayout';
+import { fillsSection } from './fills';
+import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { sizeOf, world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { layoutGridsSection } from './layout-grids';
+
+export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
+    if (!nodes.length) return;
+    for (const input of content.querySelectorAll<HTMLInputElement>('input[type="number"][data-key]')) {
+        if (input === active) continue;
+        const key = input.dataset.key as Key;
+        const value = nodes[0][key] ?? 0;
+        const mixed = nodes.some(n => (n[key] ?? 0) !== value);
+        input.value = mixed ? '' : String(Math.round(Number(value) * 100) / 100);
+        input.placeholder = mixed ? 'Mixed' : '';
+    }
+}
+
 export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
     const render = () => {
-        if (el.contains(document.activeElement) && document.activeElement?.matches('input,select'))
-            return;
         const doc = expand(store.doc);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
+        if (el.contains(document.activeElement)) { refreshNumericFields(content, nodes, document.activeElement); return; }
         content.innerHTML = '';
         const section = (title: string) => {
             const s = document.createElement('section'), label = document.createElement('div');
@@ -110,11 +126,11 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                 input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
                 input.placeholder = mixed ? 'Mixed' : '';
                 if (key === 'fill' || key === 'stroke') { input.type = 'color'; input.value = String(first[key] ?? '#000000'); }
-                else { input.type = 'number'; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'fontSize') input.max = String(maxFontSize); if (key === 'fontSize' || key === 'w') input.min = '1'; input.value = mixed ? '' : String(Math.round(Number(first[key]) * 100) / 100); }
+                else { input.type = 'number'; input.dataset.key = key; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'fontSize') input.max = String(maxFontSize); if (key === 'fontSize' || key === 'w') input.min = '1'; input.value = mixed ? '' : String(Math.round(Number(first[key]) * 100) / 100); }
                 input.onfocus = () => { if (!input.readOnly) store.begin(); };
                 input.oninput = () => { if (!input.readOnly && input.value && !input.validity.rangeUnderflow && !input.validity.rangeOverflow) for (const n of nodes) write(n, key, input.type === 'color' ? input.value : Number(input.value)); };
                 input.onblur = () => { store.end(); render(); };
-                label.append(span, input); grid.append(label);
+                label.append(span, input); if (!input.readOnly) sizingControl(label, input, key, nodes, store); grid.append(label);
             }
         };
         if (nodes.length === 1 && first.type === 'path') {
@@ -137,11 +153,19 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(n => n.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
-            fields('Appearance', ['fill', 'opacity']);
+            fields('Appearance', ['opacity']);
+            fillsSection(content, store, nodes);
+            effectsSection(content, store, nodes);
         }
         else {
-            fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']); fields('Appearance', ['radius', 'opacity']); fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+            fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
+            if (!virtual) autoLayoutSection(content, nodes, store);
+            fields('Appearance', ['radius', 'opacity']);
+            fillsSection(content, store, nodes);
+            fields('Stroke', ['stroke', 'strokeWidth']);
+            effectsSection(content, store, nodes);
         }
+        if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
         if (nodes.length === 1) {
             const section = document.createElement('section');
             section.innerHTML = '<div class="section-label">Prototype</div><label>On click → navigate to </label>';

@@ -1,8 +1,10 @@
-import { childIndex, isTextNode, type Doc, type Node } from '../shared/doc';
+import { childIndex, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
 import { bounds } from '../shared/geometry';
 import { world } from './geometry';
 import { drawNode } from './draw';
 import { expand } from '../shared/components';
+import { loadAsset } from './assets';
+import { svgPaints } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
@@ -22,15 +24,19 @@ export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(d
     return roots;
 }
 
-export function exportBounds(doc: Doc, roots: Node[]) {
-    const r = bounds(roots.map(n => {
-        const r = world(doc, n);
+export function exportBounds(doc: Doc, roots: Node[], tree = childIndex(doc)) {
+    const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = (tree.get(n.id) ?? []).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
+    roots.forEach(collect);
+    const r = bounds(visible.map(n => {
+        let r = world(doc, n);
         if (isTextNode(n)) {
             const ink = textPaintBounds(n);
-            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+            r = { ...ink, x: r.x + ink.x, y: r.y + ink.y };
         }
-        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
-        return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+        const pad = n.type !== 'group' && n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
+        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
@@ -41,6 +47,9 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
+    const file = typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled', images = new Set<string>();
+    const collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group') for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') for (const child of tree.get(n.id) ?? []) collect(child); };
+    roots.forEach(collect); await Promise.all([...images].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
     canvas.width = r.w * scale;
     canvas.height = r.h * scale;
@@ -50,7 +59,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     c.scale(scale, scale);
     c.translate(-r.x, -r.y);
     for (const n of roots)
-        drawNode(c, doc, n, { zoom: scale, labels: false, tree });
+        drawNode(c, doc, n, { zoom: scale, scale, labels: false, file, tree });
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
@@ -67,7 +76,8 @@ const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     doc = expand(doc);
     const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
-    let clip = 0;
+    let clip = 0, paint = 0;
+    const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
     const render = (n: Node, alpha: number): string => {
         if (n.hidden) return '';
         if (n.type === 'group') return (tree.get(n.id) ?? []).map(child => render(child, alpha)).join('');
@@ -76,12 +86,18 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${number(r.x + offset)}" y="${number(r.y + baseline + i * leading)}">${escape(line)}</tspan>`).join('');
+            if (n.fills !== undefined || n.effects !== undefined) return svgPaints(n, r, 'text', `xml:space="preserve" font-family="${escape(fontFamilies[n.fontFamily])}" font-size="${number(n.fontSize)}" font-weight="${number(n.fontWeight)}" text-anchor="${anchor}"`, opacity, '', paintId, runs);
             return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${escape(fontFamilies[n.fontFamily])}" font-size="${number(n.fontSize)}" font-weight="${number(n.fontWeight)}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'path' ? `d="${escape(pathData(toAbs(n.points ?? [], r), !!n.closed))}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
+        if (n.fills !== undefined || n.effects !== undefined) {
+            let nested = '';
+            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${(tree.get(n.id) ?? []).map(child => render(child, 1)).join('')}</g>`; }
+            return svgPaints(n, r, tag, geometry, opacity, nested, paintId);
+        }
         const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && number(n.strokeWidth) > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${number(n.strokeWidth)}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;
