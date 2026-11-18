@@ -1,5 +1,6 @@
 import type { Node, Op } from './doc';
 import type { Point } from './geometry';
+export const MAX_OPS = 1000;
 export interface Peer {
     id: string;
     color: string;

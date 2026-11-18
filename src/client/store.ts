@@ -1,4 +1,5 @@
 import { applyOp, descendants, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
+import { MAX_OPS } from '../shared/protocol';
 type Change = {
     before: Op;
     after: Op;
@@ -50,10 +51,11 @@ export class Store extends EventTarget {
             this.undoStack.push(changes);
             this.redoStack = [];
         }
-    } if (ops.length) {
+    } for (let i = 0; i < ops.length; i += MAX_OPS) {
+        const chunk = ops.slice(i, i + MAX_OPS);
         const seq = ++this.seq;
-        this.pending.set(seq, ops);
-        this.send(ops, seq);
+        this.pending.set(seq, chunk);
+        this.send(chunk, seq);
     } this.changed(); }
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)

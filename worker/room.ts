@@ -1,6 +1,7 @@
 import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers-types';
 import { applyOp, normalizeNode, type Doc, type Node } from '../src/shared/doc';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
+import { MAX_OPS } from '../src/shared/protocol';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 export class Room {
@@ -29,7 +30,7 @@ export class Room {
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
             const msg = JSON.parse(String(event.data)) as ClientMsg;
-            if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= 1000) {
+            if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= MAX_OPS) {
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
                 await this.state.storage.put('nodes', [...this.doc.values()]);
