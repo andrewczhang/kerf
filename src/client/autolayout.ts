@@ -51,7 +51,7 @@ export function dragInsertion(doc: Doc, nodes: Node[], pointer: Point, start: Po
     return isAutoLayout(parent) ? insertionSlot(doc, parent, pointer, moving) : undefined;
 }
 
-export function reorderInAutoLayout(store: Store, nodes: Node[], insertion: LayoutInsertion): void {
+export function reorderInAutoLayout(store: Store, nodes: Node[], insertion: LayoutInsertion, record = true): void {
     const parent = store.doc.get(insertion.parent);
     if (!isAutoLayout(parent) || !nodes.length || nodes.some(n => n.id === parent!.id || descendants(store.doc, n.id).some(c => c.id === parent!.id))) return;
     const moving = new Set(nodes.map(n => n.id));
@@ -65,7 +65,8 @@ export function reorderInAutoLayout(store: Store, nodes: Node[], insertion: Layo
         index = between(index, next);
         ops.push({ t: 'set', id: n.id, key: 'parent', value: parent!.id }, { t: 'set', id: n.id, key: 'index', value: index });
     }
-    grouped(store, ops);
+    if (record) grouped(store, ops);
+    else store.commit(ops, false);
 }
 
 function layoutOps(frame: Node, items: Node[]): Op[] {

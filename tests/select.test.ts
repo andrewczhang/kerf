@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { makeNode } from '../src/shared/doc';
+import { children, makeNode } from '../src/shared/doc';
 import { world } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
@@ -67,6 +67,29 @@ it('toggles copies mid-drag, ignores stray moves, and undoes the final original 
     tool.modifier(false); expect(store.doc.size).toBe(1); expect([...store.selection]).toEqual([a.id]);
     tool.onPointerUp({ x: 90, y: 110 }); expect(store.doc.get(a.id)?.x).toBe(60);
     store.history(); expect(store.doc.get(a.id)?.x).toBe(20);
+});
+it('drops an auto-layout duplicate in the last slot and removes it in one undo step', () => {
+    const { store, tool } = setup();
+    const frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 500, h: 100, gap: 10 };
+    const nodes = ['A', 'B', 'C'].map(index => ({ ...makeNode('rect', 0, 0, index), parent: frame.id, w: 80, h: 80 }));
+    store.init([frame, ...nodes]); store.selection.add(nodes[0].id);
+    const peer = new Store(); peer.init([...store.doc.values()].map(n => structuredClone(n)));
+    store.send = ops => peer.remote(ops);
+    tool.onPointerDown({ x: 40, y: 40 }, pointer(true));
+    tool.onPointerMove({ x: 490, y: 40 }, pointer(true));
+    tool.onPointerUp({ x: 490, y: 40 });
+    const copy = [...store.selection][0];
+    const order = [...nodes.map(n => n.id), copy];
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(children(peer.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(store.doc.get(nodes[0].id)?.x).toBe(0);
+    expect(store.undoStack).toHaveLength(1);
+    store.history();
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(nodes.map(n => n.id));
+    expect(store.doc.has(copy)).toBe(false); expect(peer.doc.has(copy)).toBe(false);
+    store.history(true);
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(order);
+    expect(children(peer.doc, frame.id).map(n => n.id)).toEqual(order);
 });
 it('does not duplicate alt-clicks, subthreshold moves, empty canvas or locked nodes', () => {
     for (const locked of [false, true]) {

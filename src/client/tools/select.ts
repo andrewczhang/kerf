@@ -181,7 +181,12 @@ export class Select implements Tool {
                 store.set(id, { parent: parent?.id ?? null, x: roundUnlessSnapped(this.ctx, r.x - origin.x), y: roundUnlessSnapped(this.ctx, r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
-    } if (this.copies) store.commit([...this.copies.values()].map(n => ({ t: 'create', node: store.doc.get(n.id)! })));
+    } if (this.copies) {
+        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        if (insertion && [...this.original.values()].every(n => n.parent === insertion.parent))
+            reorderInAutoLayout(store, [...this.original.values()], insertion, false);
+        store.commit([...this.copies.values()].map(n => ({ t: 'create', node: store.doc.get(n.id)! })));
+    }
     layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; this.copies = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
