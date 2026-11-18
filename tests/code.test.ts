@@ -18,6 +18,15 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('round-trips small opacity values emitted in exponent notation', () => {
+        const doc = fixture(); doc.get('rect')!.opacity = 0.0000001;
+        const code = toReact(doc, 'frame');
+        expect(code).toContain('opacity: 1e-7');
+        expect(diffCode(doc, 'frame', tree(code))).toEqual([]);
+        expect(tree('<div style={{ left: -1.2E+3, opacity: 1e-7 }} />').style).toEqual({ left: -1200, opacity: 0.0000001 });
+        expect(parseJSX('<div style={{ width: 1e999 }} />')).toHaveProperty('error');
+        expect(parseJSX('<div style={{ width: 1e+ }} />')).toHaveProperty('error');
+    });
     it('round-trips literal backslashes, quotes and entities in names', () => {
         const doc = fixture();
         doc.get('frame')!.name = String.raw`icons\navigation "quoted" & icons\primary`;

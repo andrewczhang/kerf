@@ -54,7 +54,7 @@ function tokenize(source: string): Token[] {
             if (!closed) fail('unterminated string');
             tokens.push({ kind: 'string', value, ...start }); continue;
         }
-        const number = source.slice(i).match(/^-?(?:\d+\.?\d*|\.\d+)/)?.[0];
+        const number = source.slice(i).match(/^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)?.[0];
         if (number) {
             for (const _ of number) take();
             if (!Number.isFinite(Number(number))) fail('number must be finite');

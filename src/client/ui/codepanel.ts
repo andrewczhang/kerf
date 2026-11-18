@@ -8,7 +8,7 @@ import type { Store } from '../store';
 
 function highlight(target: HTMLElement, code: string) {
     target.replaceChildren();
-    const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|=\s*(?:"[^"]*"|'[^']*')|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|-?(?:\d+\.?\d*|\.\d+)|[a-zA-Z_$][\w$-]*|[^\w\s]/g;
+    const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|=\s*(?:"[^"]*"|'[^']*')|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|[a-zA-Z_$][\w$-]*|[^\w\s]/g;
     let end = 0, match: RegExpExecArray | null;
     while ((match = tokens.exec(code))) {
         target.append(document.createTextNode(code.slice(end, match.index)));
