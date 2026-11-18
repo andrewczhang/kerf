@@ -43,6 +43,7 @@ export class Features {
             await this.storage.put({ styles: this.styles, nodes: [...this.doc.values()] });
             this.broadcast({ type: 'styles', styles: this.styles });
             this.broadcast({ type: 'ops', ops, from: peer.id });
+            if (ops.length) await this.changed(peer.name);
             return;
         }
         if (m.type === 'comment-add') {
