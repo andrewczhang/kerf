@@ -30,6 +30,7 @@ import { home } from './ui/home';
 import { trackRecent } from './recent-preview';
 import { editorCommands } from './ui/editor-commands';
 import { fileName } from './ui/file-name';
+import { installTemplates } from './ui/templates';
 if (location.pathname === '/') home();
 else bootEditor();
 function bootEditor() {
@@ -83,6 +84,7 @@ registry.set('text', new TextTool(ctx, (node, creating) => { if (isInspecting())
 registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose, sync, store);
+installTemplates(store, viewport, renderer, sync, file);
 if (store.readOnly) {
     document.body.classList.add('view-only');
     document.querySelectorAll<HTMLElement>('aside').forEach(el => { el.inert = true; el.hidden = true; });
