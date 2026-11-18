@@ -1,7 +1,9 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
+import { bounds, contains, handles, intersects, type Point, type Rect } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
+import { snapped, clearSnap } from '../snapping';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -19,8 +21,8 @@ export class Select implements Tool {
         this.moved = false;
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
-        this.handle = this.box ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
-        const inner = hit(store.doc, p);
+        this.handle = this.box && nodes.every(n => n.type !== 'text') ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
+        const inner = hit(store.doc, p, 4 / viewport.zoom);
         const double = this.lastClick && e.timeStamp - this.lastClick.time < 400 && Math.hypot(p.x - this.lastClick.x, p.y - this.lastClick.y) < 5 / viewport.zoom;
         this.lastClick = { time: e.timeStamp, ...p };
         const n = inner && (double ? inner : outerGroup(store.doc, inner));
@@ -51,11 +53,11 @@ export class Select implements Tool {
     onPointerMove(p: Point, e: PointerEvent) {
         const { store, viewport } = this.ctx;
         if (!this.start) {
-            this.ctx.hover = hit(store.doc, p)?.id;
+            this.ctx.hover = hit(store.doc, p, 4 / viewport.zoom)?.id;
             this.ctx.invalidate();
             return;
         }
-        const dx = p.x - this.start.x, dy = p.y - this.start.y;
+        let dx = p.x - this.start.x, dy = p.y - this.start.y;
         if (Math.hypot(dx, dy) > 2 / viewport.zoom)
             this.moved = true;
         if (this.ctx.marquee) {
@@ -85,6 +87,8 @@ export class Select implements Tool {
                 x = e.altKey ? b.x + (b.w - w) / 2 : hx === 0 ? b.x + b.w - w : b.x;
                 y = e.altKey ? b.y + (b.h - h) / 2 : hy === 0 ? b.y + b.h - h : b.y;
             }
+            const adjusted = snapped(this.ctx, { x, y, w, h }, e, { x: hx === .5 ? undefined : hx as 0 | 1, y: hy === .5 ? undefined : hy as 0 | 1 }, e.altKey);
+            ({ x, y, w, h } = adjusted);
             for (const n of this.original.values()) {
                 const snapshot = new Map(store.doc); for (const a of this.original.values()) snapshot.set(a.id, a);
                 const r = world(snapshot, n);
@@ -96,9 +100,13 @@ export class Select implements Tool {
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
             }
         }
-        else
+        else {
+            const b = bounds([...this.original.values()].map(n => world(store.doc, n)));
+            const adjusted = snapped(this.ctx, { ...b, x: b.x + dx, y: b.y + dy }, e);
+            dx = adjusted.x - b.x; dy = adjusted.y - b.y;
             for (const n of this.original.values())
                 ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
+        }
         store.commit(ops);
     }
     onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
@@ -120,7 +128,7 @@ export class Select implements Tool {
                 store.set(id, { parent: parent?.id ?? null, x: r.x - origin.x, y: r.y - origin.y, index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
-    } if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
+    } clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id)); } }

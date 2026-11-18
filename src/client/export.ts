@@ -1,7 +1,10 @@
-import { children, type Doc, type Node } from '../shared/doc';
-import { bounds, world } from '../shared/geometry';
+import { children, isTextNode, type Doc, type Node } from '../shared/doc';
+import { bounds } from '../shared/geometry';
+import { world } from './geometry';
 import { drawNode } from './draw';
 import { blocked } from '../shared/layers';
+import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
+import { toAbs, trace, type PathPoint } from '../shared/path';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -21,7 +24,12 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
-        const r = world(doc, n), pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        const r = world(doc, n);
+        if (isTextNode(n)) {
+            const ink = textPaintBounds(n);
+            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+        }
+        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
@@ -45,6 +53,13 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
+/** SVG path data for a world-space path. */
+export function pathData(abs: PathPoint[], closed: boolean): string {
+    const out: string[] = [];
+    trace({ moveTo: (x, y) => out.push(`M${x} ${y}`), bezierCurveTo: (a, b, c, d, e, f) => out.push(`C${a} ${b} ${c} ${d} ${e} ${f}`), closePath: () => out.push('Z') }, abs, closed);
+    return out.join('');
+}
+
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
@@ -56,11 +71,17 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         if (n.type === 'group')
             return children(doc, n.id).map(child => render(child, alpha)).join('');
         const r = world(doc, n), opacity = alpha * n.opacity;
+        if (isTextNode(n)) {
+            const { lines, leading, baseline, offset } = measureTextNode(n);
+            const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
+            const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
+            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+        }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
-        const geometry = n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
-        const tag = n.type === 'ellipse' ? 'ellipse' : 'rect';
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry} fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
+        const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
+        const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
+        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;
         let id: string;

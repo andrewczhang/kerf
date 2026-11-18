@@ -2,6 +2,8 @@ import { children, type Node } from '../../shared/doc';
 import { moveOps } from '../../shared/layers';
 import type { Context } from '../tools/tool';
 const paths: Record<string, string> = { frame: '<path d="M5 1v14M11 1v14M1 5h14M1 11h14"/>', rect: '<rect x="2" y="3" width="12" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="6" ry="5"/>', group: '<path stroke-dasharray="2 2" d="M2 2h12v12H2z"/>', eye: '<path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5Z"/><circle cx="8" cy="8" r="2"/>', lock: '<rect x="3" y="7" width="10" height="7"/><path d="M5 7V4a3 3 0 0 1 6 0v3"/>', disclosure: '<path d="m6 3 5 5-5 5"/>' };
+paths.text = '<path d="M2 3h12M8 3v11M5 14h6"/>';
+paths.path = '<path d="M2 13C2 2 14 14 14 3"/><rect x="1" y="12" width="2" height="2"/><rect x="13" y="2" width="2" height="2"/>';
 const icon = (name: string) => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' + paths[name] + '</svg>';
 export function layers(el: HTMLElement, ctx: Context) {
     const { store } = ctx, collapsed = new Set<string>(); let dragging = '', editing: string | undefined, lastName = '', lastTime = 0;
