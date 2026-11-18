@@ -4,8 +4,19 @@ import './layout-grids.css';
 import { defaultLayoutGrid } from '../../shared/layout-grid';
 import { formatNumber, inputElement, parseColor } from './values';
 
-export function editLayoutGrid(store: Store, id: string, index: number, key: keyof LayoutGrid, value: LayoutGrid[keyof LayoutGrid]) {
+function gridIndex(grids: LayoutGrid[], target: number | string) {
+    return typeof target === 'string' ? grids.findIndex(g => g.id === target) : grids[target]?.id === undefined ? target : -1;
+}
+
+export function removeLayoutGrid(store: Store, id: string, target: number | string) {
+    const grids = store.doc.get(id)?.grids ?? [], index = gridIndex(grids, target);
+    if (!grids[index]) return;
+    store.begin(); store.set(id, { grids: grids.filter((_, i) => i !== index) }); store.end();
+}
+
+export function editLayoutGrid(store: Store, id: string, target: number | string, key: keyof LayoutGrid, value: LayoutGrid[keyof LayoutGrid]) {
     const grids = store.doc.get(id)?.grids;
+    const index = gridIndex(grids ?? [], target);
     if (!grids?.[index]) return;
     store.begin();
     store.set(id, { grids: grids.map((grid, i) => i === index ? { ...grid, [key]: value } : grid) });
@@ -13,11 +24,11 @@ export function editLayoutGrid(store: Store, id: string, index: number, key: key
 }
 
 export function refreshLayoutGridFields(content: HTMLElement, store: Store, active: Element | null) {
-    for (const input of content.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-grid-node]')) {
-        if (input === active) continue;
-        const grid = store.doc.get(input.dataset.gridNode!)?.grids?.[Number(input.dataset.gridIndex)];
+    for (const input of content.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('[data-grid-node]')) {
+        const grids = store.doc.get(input.dataset.gridNode!)?.grids ?? [];
+        const grid = grids[gridIndex(grids, input.dataset.gridId ?? Number(input.dataset.gridIndex))];
         input.disabled = !grid;
-        if (!grid) continue;
+        if (!grid || input === active || !input.dataset.gridKey) continue;
         const value = grid[input.dataset.gridKey as keyof LayoutGrid];
         if (input.type === 'checkbox') (input as HTMLInputElement).checked = Boolean(value);
         else input.value = String(value);
@@ -39,9 +50,11 @@ export function layoutGridsSection(content: HTMLElement, store: Store, node: Nod
         };
         section.querySelector('.layout-grid-heading')!.append(add);
         grids.forEach((g, i) => {
+            const target = g.id ?? i;
+            const identify = (input: HTMLElement) => { input.dataset.gridNode = node.id; input.dataset.gridIndex = String(i); if (g.id !== undefined) input.dataset.gridId = g.id; };
             const fields = document.createElement('div'); fields.className = 'field-grid layout-grid-fields';
-            const update = (key: keyof LayoutGrid, value: LayoutGrid[keyof LayoutGrid]) => { editLayoutGrid(store, node.id, i, key, value); render(); };
-            const label = (caption: string, input: HTMLElement) => { const l = document.createElement('label'); l.className = 'field'; const s = document.createElement('span'); s.textContent = caption; input.setAttribute('aria-label', 'Grid ' + caption.toLowerCase()); input.dataset.gridNode = node.id; input.dataset.gridIndex = String(i); input.dataset.gridKey = caption.toLowerCase(); l.append(s, input); fields.append(l); };
+            const update = (key: keyof LayoutGrid, value: LayoutGrid[keyof LayoutGrid]) => { editLayoutGrid(store, node.id, target, key, value); render(); };
+            const label = (caption: string, input: HTMLElement) => { const l = document.createElement('label'); l.className = 'field'; const s = document.createElement('span'); s.textContent = caption; input.setAttribute('aria-label', 'Grid ' + caption.toLowerCase()); identify(input); input.dataset.gridKey = caption.toLowerCase(); l.append(s, input); fields.append(l); };
             const type = document.createElement('select');
             for (const [value, title] of [['columns', 'Columns'], ['rows', 'Rows'], ['grid', 'Grid']]) type.append(new Option(title, value));
             type.value = g.type; type.onchange = () => update('type', type.value); label('Type', type);
@@ -53,8 +66,10 @@ export function layoutGridsSection(content: HTMLElement, store: Store, node: Nod
             const hex = inputElement('Grid color hex'); hex.value = g.color.toUpperCase(); hex.spellcheck = false;
             hex.onchange = () => { const value = parseColor(hex.value); if (value) update('color', value); };
             const colorValue = document.createElement('div'); colorValue.className = 'color-value'; colorValue.append(color, hex); label('Color', colorValue);
+            delete colorValue.dataset.gridNode;
+            for (const input of [color, hex]) { identify(input); input.dataset.gridKey = 'color'; }
             const visible = inputElement('Grid visible'); visible.type = 'checkbox'; visible.checked = g.visible; visible.onchange = () => update('visible', visible.checked); label('Visible', visible);
-            const remove = document.createElement('button'); remove.textContent = 'Remove'; remove.onclick = () => { const current = store.doc.get(node.id)?.grids; if (current?.[i]) commit(current.filter((_, j) => j !== i)); }; fields.append(remove);
+            const remove = document.createElement('button'); remove.textContent = 'Remove'; identify(remove); remove.onclick = () => { removeLayoutGrid(store, node.id, target); render(); }; fields.append(remove);
             section.append(fields);
         });
     };
