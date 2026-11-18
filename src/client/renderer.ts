@@ -33,7 +33,7 @@ export class Renderer {
     draw() {
         const preview = this.preview ? previewDocument(this.preview, this.app.store.currentPage) : undefined;
         const c = this.ctx, { viewport: v } = this.app, store = { doc: preview ? pageDocument(preview.doc, preview.page) : this.app.store.pageDoc, selection: this.preview ? new Set<string>() : this.app.store.selection }, d = devicePixelRatio || 1;
-        const doc = expand(preview?.doc ?? this.app.store.doc), visible = pageDocument(doc, preview?.page ?? this.app.store.currentPage);
+        const doc = expand(preview?.doc ?? this.app.store.doc, this.app.store.measureText), visible = pageDocument(doc, preview?.page ?? this.app.store.currentPage);
         const tree = childIndex(doc);
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyOp, makeNode, validNode, type Doc, type Node, type Op, type Key } from '../src/shared/doc';
+import { applyOp, makeNode, validNode, type Doc, type Node, type Op, type Key, type TextNode } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, resizeFollowOps, splitVirtual } from '../src/shared/components';
 import { blocked, moveOps } from '../src/shared/layers';
 import { worldCorners } from '../src/shared/geometry';
@@ -13,6 +13,63 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it.each(['right', 'center', 'scale', 'both', 'left'] as const)('applies enclosing %s pins before resizing a nested instance', constraintH => {
+        const main = { ...makeNode('frame', 0, 0), component: true };
+        const child = { ...makeNode('rect', 20, 10), parent: main.id, w: 20, h: 10, constraintH: 'left' as const };
+        const enclosing = { ...makeNode('frame', 0, 0), component: true };
+        const nested = { ...instanceNode(main, 0, 0, enclosing.id), w: 200, h: 200, overrides: { [child.id]: { constraintH: 'right', constraintV: 'bottom' } } };
+        const instance = { ...instanceNode(enclosing, 300, 0), overrides: { [nested.id + '/' + child.id]: { constraintH, constraintV: 'center' }, [nested.id]: { rotation: 30 } } };
+        const doc: Doc = new Map([main, child, enclosing, nested, instance].map(n => [n.id, n]));
+        const expected = { right: { x: 120, w: 20 }, center: { x: 70, w: 20 }, scale: { x: 40, w: 40 }, both: { x: 20, w: 120 }, left: { x: 20, w: 20 } }[constraintH];
+        const resolved = expand(doc);
+        expect(resolved.get(instance.id + '/' + nested.id + '/' + child.id)).toMatchObject({ ...expected, y: 60, h: 10, constraintH, constraintV: 'center' });
+        expect(resolved.get(instance.id + '/' + nested.id)?.rotation).toBe(30);
+        expect(resolved.get(nested.id + '/' + child.id)).toMatchObject({ x: 120, y: 110 });
+        expect(doc.get(child.id)).toMatchObject({ x: 20, y: 10, w: 20 });
+    });
+    it('composes pin overrides through multiple enclosing instances without changing cycle fallbacks', () => {
+        const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 20, 0), parent: main.id, w: 20 };
+        const middle = { ...makeNode('frame', 0, 0), component: true }, nested = { ...instanceNode(main, 0, 0, middle.id), w: 200 };
+        const outer = { ...makeNode('frame', 0, 0), component: true }, wrapper = instanceNode(middle, 0, 0, outer.id);
+        const instance: Node = { ...instanceNode(outer, 300, 0), overrides: { [wrapper.id + '/' + nested.id + '/' + child.id]: { constraintH: 'right' } } };
+        const missing = { ...instanceNode(main, 0, 0, outer.id), instanceOf: 'missing' };
+        instance.overrides![missing.id] = { opacity: .5 };
+        const doc: Doc = new Map([main, child, middle, nested, outer, wrapper, missing, instance].map(n => [n.id, n]));
+        expect(expand(doc).get(instance.id + '/' + wrapper.id + '/' + nested.id + '/' + child.id)).toMatchObject({ constraintH: 'right', x: 120 });
+        expect(expand(doc).get(instance.id + '/' + missing.id)?.opacity).toBe(.5);
+        expect(expand(new Map()).size).toBe(0);
+    });
+    it('measures overridden text before per-instance Hug layout and preserves the baked layout', () => {
+        const main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const, gap: 5 };
+        const text = { ...makeNode('text', 0, 0), parent: main.id, text: 'AB', fontSize: 10 };
+        const child = { ...makeNode('rect', 0, 0), parent: main.id, index: 'z', w: 10, h: 10 };
+        const a = { ...instanceNode(main, 200, 0), overrides: { [text.id]: { fontSize: 30 } } }, b = instanceNode(main, 400, 0);
+        const measure = (n: TextNode) => ({ w: Math.max(1, n.text.length * n.fontSize), h: n.fontSize * 1.2 });
+        const doc: Doc = new Map([main, text, child, a, b].map(n => [n.id, n])), resolved = expand(doc, measure);
+        expect(resolved.get(a.id)).toMatchObject({ w: 75, h: 36 });
+        expect(resolved.get(a.id + '/' + child.id)?.x).toBe(65);
+        expect(resolved.get(b.id)).toMatchObject({ w: 35, h: 12 });
+        expect(resolved.get(main.id)).toMatchObject({ w: 35, h: 12 });
+        expect(doc.get(text.id)?.fontSize).toBe(10);
+        apply(doc, detachOps(doc, a.id, measure));
+        expect(doc.get(a.id)).toMatchObject({ w: 75, h: 36 });
+        expect([...doc.values()].find(n => n.parent === a.id && n.type === 'text')).toMatchObject({ w: 60, h: 36, fontSize: 30 });
+    });
+    it('remeasures fixed-width wrapping and empty text without accepting invalid font overrides', () => {
+        const main = { ...makeNode('frame', 0, 0), component: true, layout: 'vertical' as const, sizeH: 'hug' as const, gap: 5 };
+        const text = { ...makeNode('text', 0, 0), parent: main.id, text: 'ABCD', fontSize: 10, textWidth: 'fixed' as const, w: 40 };
+        const child = { ...makeNode('rect', 0, 0), parent: main.id, index: 'z', w: 10, h: 10 };
+        const instance = { ...instanceNode(main, 200, 0), overrides: { [text.id]: { fontSize: 20 } } };
+        const measure = (n: TextNode) => ({ w: n.w, h: Math.max(1, Math.ceil(n.text.length * n.fontSize / n.w)) * n.fontSize * 1.2 });
+        const doc: Doc = new Map([main, text, child, instance].map(n => [n.id, n]));
+        expect(expand(doc, measure).get(instance.id)).toMatchObject({ h: 63 });
+        expect(expand(doc, measure).get(instance.id + '/' + child.id)?.y).toBe(53);
+        apply(doc, [{ t: 'override', id: instance.id, target: text.id, key: 'fontSize', value: -1 }]);
+        expect(expand(doc, measure).get(instance.id + '/' + text.id)?.fontSize).toBe(20);
+        apply(doc, [{ t: 'override', id: instance.id, target: text.id, key: 'text', value: '' }]);
+        expect(expand(doc, measure).get(instance.id)).toMatchObject({ h: 39 });
+        expect(expand(new Map(), measure).size).toBe(0);
+    });
     it('owns root rotation while inheriting and overriding descendant rotations', () => {
         const { doc, main, child, instance } = setup();
         apply(doc, [{ t: 'set', id: main.id, key: 'rotation', value: 60 }, { t: 'set', id: child.id, key: 'rotation', value: 15 }]);

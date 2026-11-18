@@ -4,9 +4,34 @@ import { hit, maskContains, transform, worldMatrix } from '../src/shared/geometr
 import { containsPath, corner } from '../src/shared/path';
 import { maskOps } from '../src/shared/layers';
 import { exportBounds, exportSVG } from '../src/client/export';
+import { detachOps, expand, instanceNode } from '../src/shared/components';
+import { Store } from '../src/client/store';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 const mask = (type: 'rect' | 'ellipse' = 'rect'): Node => ({ ...makeNode(type, 0, 0, 'A'), mask: true });
+it('opens an inherited mask path and syncs and undoes its mask clear with the override', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true }, path = { ...makeNode('path', 0, 0), parent: main.id, closed: true, mask: true };
+    const instance = instanceNode(main, 200, 0), store = new Store(), peer = new Store();
+    store.init([main, path, instance]); peer.init([main, path, instance]); store.send = ops => peer.remote(ops);
+    store.set(instance.id + '/' + path.id, { closed: false });
+    for (const s of [store, peer]) expect(expand(s.doc).get(instance.id + '/' + path.id)).toMatchObject({ closed: false, mask: false });
+    expect(store.undoStack).toHaveLength(1);
+    expect(store.doc.get(path.id)).toMatchObject({ closed: true, mask: true });
+    store.history(); expect(expand(store.doc).get(instance.id + '/' + path.id)).toMatchObject({ closed: true, mask: true });
+    store.history(true);
+    store.commit(detachOps(store.doc, instance.id));
+    const baked = [...store.doc.values()].find(n => n.parent === instance.id)!;
+    expect(baked).toMatchObject({ type: 'path', closed: false, mask: false }); expect(validNode(baked)).toBe(true);
+    store.history(); expect(expand(store.doc).get(instance.id + '/' + path.id)).toMatchObject({ closed: false, mask: false });
+});
+it('does not clear masks for rejected overrides or add mask overrides to unmasked paths', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true }, path = { ...makeNode('path', 0, 0), parent: main.id, closed: true };
+    const instance = instanceNode(main, 200, 0), store = new Store(); store.init([main, path, instance]);
+    store.commit([{ t: 'override', id: instance.id, target: path.id, key: 'closed', value: 'invalid' }]);
+    expect(store.undoStack).toHaveLength(0);
+    store.set(instance.id + '/' + path.id, { closed: false });
+    expect(store.doc.get(instance.id)?.overrides?.[path.id]).toEqual({ closed: false });
+});
 
 it.each([false, true])('clips a blurred frame after filtering its children (inner mask: %s)', innerMask => {
     const m = { ...mask(), w: 50 }, frame = { ...makeNode('frame', 0, 0, 'B'), fills: [], effects: [{ type: 'layer-blur' as const, radius: 10, visible: true }] };

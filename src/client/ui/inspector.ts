@@ -68,7 +68,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
     window.addEventListener('pointerup', () => { if (pressing) setTimeout(() => { pressing = false; if (stale) render(); }); }, true);
     el.addEventListener('focusout', e => { if (stale && !el.contains(e.relatedTarget as HTMLElement | null)) setTimeout(render); });
     const render = () => {
-        const doc = expand(store.doc);
+        const doc = expand(store.doc, store.measureText);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
         if (refreshFocusedInspector(content, nodes, pressing || editing() ? document.activeElement ?? el : null)) {
             stale = true;
@@ -133,7 +133,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
         else if (nodes.length === 1 && first.instanceOf) {
             const main = store.doc.get(first.instanceOf), s = section('Instance of ' + (main?.name ?? 'missing component'));
             if (main) button(s, 'Go to main', () => { viewport.x = 80 - main.x * viewport.zoom; viewport.y = 80 - main.y * viewport.zoom; viewport.changed(); select(main.id); });
-            button(s, 'Detach', () => store.commit(detachOps(store.doc, first.id)));
+            button(s, 'Detach', () => store.commit(detachOps(store.doc, first.id, store.measureText)));
             button(s, 'Reset overrides', () => reset(first.id));
         }
         else if (nodes.length === 1 && first.component) {
@@ -223,7 +223,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
                     for (const n of nodes) { write(n, key, color); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); }
                 };
                 swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) { write(n, key, swatch.value); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); } };
-                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => expand(store.doc).get(n.id)?.[key])); };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => expand(store.doc, store.measureText).get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
             }
@@ -304,7 +304,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             effectsSection(content, store, nodes);
         }
         if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
-        if (nodes.every(n => { const p = n.parent ? store.doc.get(n.parent) : undefined; return p?.type === 'frame' && !isAutoLayout(p); }))
+        if (nodes.every(n => { const p = n.parent ? doc.get(n.parent) : undefined; return p?.type === 'frame' && !isAutoLayout(p); }))
             content.append(constraints(store, nodes, render));
         if (nodes.length === 1) {
             const section = document.createElement('section');
@@ -328,6 +328,8 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
 const hLabels: Record<typeof horizontalConstraints[number], string> = { left: 'Left', right: 'Right', both: 'Left & right', center: 'Center', scale: 'Scale' };
 const vLabels: Record<typeof verticalConstraints[number], string> = { top: 'Top', bottom: 'Bottom', both: 'Top & bottom', center: 'Center', scale: 'Scale' };
 function constraints(store: Store, nodes: Node[], render: () => void): HTMLElement {
+    const resolved = expand(store.doc, store.measureText);
+    nodes = nodes.map(n => resolved.get(n.id) ?? n);
     const section = document.createElement('section');
     section.className = 'constraints';
     const h = nodes.map(n => n.constraintH ?? 'left'), v = nodes.map(n => n.constraintV ?? 'top');

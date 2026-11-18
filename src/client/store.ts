@@ -79,7 +79,7 @@ export class Store extends EventTarget {
         if (this.pagesEnabled && this.currentPage) ops = ops.map(op => op.t === 'create' && op.node.type !== 'page' && op.node.parent === null ? { ...op, node: { ...op.node, parent: this.currentPage! } } : op.t === 'set' && op.key === 'parent' && op.value === null && this.doc.get(op.id)?.type !== 'page' ? { ...op, value: this.currentPage! } : op);
         ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         ops = ops.map(op => {
-            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
+            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', 'constraintH', 'constraintV', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
             const { instance, target } = splitVirtual(op.id);
             return { t: 'override', id: instance, target, key: op.key, value: op.value };
         });
@@ -89,7 +89,7 @@ export class Store extends EventTarget {
             ops = ops.flatMap(op => {
                 if (op.t !== 'set' && op.t !== 'override') return [op];
                 if (op.t === 'override' && (op.target || op.clear || op.value !== 'fixed' || !['sizeW', 'sizeH'].includes(op.key) || !this.doc.get(op.id)?.instanceOf)) return [op];
-                const n = op.t === 'override' ? (resolved ??= expand(this.doc)).get(op.id) : this.doc.get(op.id);
+                const n = op.t === 'override' ? (resolved ??= expand(this.doc, this.measureText)).get(op.id) : this.doc.get(op.id);
                 if (!n) return [op];
                 const geometry: Op[] = [];
                 const freeze = (key: 'w' | 'h', value: number) => {
@@ -114,7 +114,7 @@ export class Store extends EventTarget {
         const shadow = new Map(this.doc), prefix: Op[] = [];
         for (const n of this.doc.values()) {
             if (!n.instanceOf || !mains.has(n.instanceOf) || deleting.has(n.id)) continue;
-            const detach = detachOps(shadow, n.id);
+            const detach = detachOps(shadow, n.id, this.measureText);
             prefix.push(...detach);
             for (const op of detach) applyOp(shadow, op);
         }
@@ -123,10 +123,17 @@ export class Store extends EventTarget {
     for (let i = 0; i < queue.length; i++) {
         const op = queue[i];
         const id = op.t === 'create' ? op.node.id : op.id, n = this.doc.get(id);
+        if (op.t === 'override' && op.key === 'closed') {
+            const shadow = new Map(this.doc); applyOp(shadow, op);
+            const target = expand(shadow, this.measureText).get(op.id + (op.target ? '/' + op.target : ''));
+            if (target?.type === 'path' && !target.closed && target.mask) {
+                queue.splice(i, 0, { t: 'override', id: op.id, target: op.target, key: 'mask', value: false }); i--; continue;
+            }
+        }
         if (op.t === 'delete' && n) {
             const mains = new Set([n, ...descendants(this.doc, n.id)].filter(n => !final!.has(n.id)).map(n => n.id));
             const instance = [...this.doc.values()].find(n => n.instanceOf && mains.has(n.instanceOf) && final!.has(n.id));
-            if (instance) { queue.splice(i, 0, ...detachOps(this.doc, instance.id)); i--; continue; }
+            if (instance) { queue.splice(i, 0, ...detachOps(this.doc, instance.id, this.measureText)); i--; continue; }
         }
         const removed = n && op.t === 'delete' ? [n, ...descendants(this.doc, n.id)] : [];
         const follow = record && n?.component && op.t === 'set' && (op.key === 'w' || op.key === 'h') ? resizeFollowOps(this.doc, n.id, op.key, n[op.key], op.value as number) : [];
@@ -185,7 +192,7 @@ export class Store extends EventTarget {
             } else if (!pendingKey(op) || !keys.has(pendingKey(op)))
                 applyOp(this.doc, op);
         }
-        const resolved = expand(this.doc);
+        const resolved = [...this.selection].some(isVirtual) ? expand(this.doc, this.measureText) : this.doc;
         for (const id of this.selection)
             if (!resolved.has(id)) this.selection.delete(id);
         if (layout) applyLayout(this.doc, this.measureText);

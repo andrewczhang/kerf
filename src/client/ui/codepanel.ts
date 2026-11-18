@@ -7,9 +7,10 @@ import { expand, isVirtual } from '../../shared/components';
 import { codeRoot, codeScopeIds, commitCode, CodeDiffError, diffCode } from '../codesync';
 import { download } from '../export';
 import type { Store } from '../store';
+import type { MeasureText } from '../../shared/layout';
 
-export function codePanelScope(doc: Doc, selection: Iterable<string>, page?: string) {
-    const resolved = pageDocument(expand(doc), page), rootId = codeRoot(resolved, selection), ids = codeScopeIds(resolved, rootId);
+export function codePanelScope(doc: Doc, selection: Iterable<string>, page?: string, measure?: MeasureText) {
+    const resolved = pageDocument(expand(doc, measure), page), rootId = codeRoot(resolved, selection), ids = codeScopeIds(resolved, rootId);
     return { doc: resolved, rootId, ids, readOnly: [...ids].some(id => isVirtual(id) || !!resolved.get(id)?.instanceOf) };
 }
 
@@ -61,7 +62,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     const scroll = () => { pre.scrollTop = input.scrollTop; pre.scrollLeft = input.scrollLeft; gutter.style.transform = `translateY(${-input.scrollTop}px)`; };
     const showPreview = () => {
         if (preview.hidden) return;
-        const doc = pageDocument(expand(store.doc), store.currentPage);
+        const doc = pageDocument(expand(store.doc, store.measureText), store.currentPage);
         iframe.srcdoc = toHTML(doc, rootId);
         const root = rootId ? doc.get(rootId) : undefined;
         const r = root ? { x: 0, y: 0, w: root.w, h: root.h } : bounds(children(doc, store.currentPage ?? null).map(n => world(doc, n)));
@@ -72,7 +73,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     };
     const regenerate = () => {
         if (!active || applying) return;
-        const scope = codePanelScope(store.doc, store.selection, store.currentPage);
+        const scope = codePanelScope(store.doc, store.selection, store.currentPage, store.measureText);
         if (dirty && document.activeElement === input && scope.rootId === rootId && scope.readOnly === input.readOnly) return;
         rootId = scope.rootId;
         input.readOnly = scope.readOnly;
@@ -87,7 +88,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     const apply = () => {
         clearTimeout(timer);
         if (!dirty) return;
-        const scope = codePanelScope(store.doc, store.selection, store.currentPage);
+        const scope = codePanelScope(store.doc, store.selection, store.currentPage, store.measureText);
         if (input.readOnly || scope.readOnly || scope.rootId !== rootId) { dirty = false; regenerate(); return; }
         const tree = parseJSX(input.value);
         if ('error' in tree) { error = tree; paint(); return; }
@@ -129,7 +130,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         void navigator.clipboard.writeText(input.value).catch(() => { errorLabel.textContent = 'Clipboard unavailable'; });
     };
     button('jsx').onclick = () => download(new Blob([input.value], { type: 'text/jsx' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.jsx');
-    button('html').onclick = () => download(new Blob([toHTML(pageDocument(expand(store.doc), store.currentPage), rootId)], { type: 'text/html' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
+    button('html').onclick = () => download(new Blob([toHTML(pageDocument(expand(store.doc, store.measureText), store.currentPage), rootId)], { type: 'text/html' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
     button('preview').onclick = () => {
         preview.hidden = !preview.hidden;
         button('preview').setAttribute('aria-pressed', String(!preview.hidden));

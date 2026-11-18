@@ -1,8 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { applyOp, makeNode, validNode, type Doc, type Op } from '../src/shared/doc';
 import { detachOps, resolveStyleOps, styleOps, validStyle, type Style } from '../src/shared/styles';
+import { expand, instanceNode } from '../src/shared/components';
 const color: Style = { id: 'orange', kind: 'color', name: 'Accent', color: '#123456' };
 describe('shared styles', () => {
+    it('updates and deletes root and nested override links, including restored links', () => {
+        const main = { ...makeNode('frame', 0, 0), component: true }, text = { ...makeNode('text', 0, 0), parent: main.id };
+        const nested = instanceNode(main, 0, 0), outer = { ...makeNode('frame', 0, 0), component: true };
+        nested.parent = outer.id;
+        const instance = { ...instanceNode(outer, 200, 0), overrides: { '': { fillStyle: color.id }, [nested.id + '/' + text.id]: { textStyle: 'title' } } };
+        const doc: Doc = new Map([main, text, outer, nested, instance].map(n => [n.id, n]));
+        const title: Style = { id: 'title', kind: 'text', name: 'Title', fontFamily: 'serif', fontSize: 48, fontWeight: 700 };
+        for (const op of [...styleOps(doc, color), ...styleOps(doc, title)]) applyOp(doc, op);
+        expect(expand(doc).get(instance.id)?.fill).toBe(color.color);
+        expect(expand(doc).get(instance.id + '/' + nested.id + '/' + text.id)).toMatchObject({ fontSize: 48, fontWeight: 700 });
+        expect(styleOps(doc, color)).toEqual([]); expect(styleOps(doc, title)).toEqual([]);
+        for (const op of [...detachOps(doc, color.id), ...detachOps(doc, title.id)]) applyOp(doc, op);
+        expect(doc.get(instance.id)?.overrides?.['']).toMatchObject({ fillStyle: null, fill: color.color });
+        expect(doc.get(instance.id)?.overrides?.[nested.id + '/' + text.id]?.textStyle).toBeNull();
+        const relink: Op = { t: 'override', id: instance.id, target: '', key: 'fillStyle', value: color.id };
+        applyOp(doc, relink);
+        const updated = { ...color, color: '#abcdef' };
+        for (const op of resolveStyleOps(doc, [updated], [relink])) applyOp(doc, op);
+        expect(expand(doc).get(instance.id)?.fill).toBe('#abcdef');
+        expect(styleOps(doc, { ...title, fontSize: 70 })).toEqual([]);
+        expect(detachOps(doc, 'missing')).toEqual([]);
+    });
     it('preserves normalized rotation while linked color and text styles update', () => {
         const doc: Doc = new Map(), textStyle: Style = { id: 'title', kind: 'text', name: 'Title', fontFamily: 'serif', fontSize: 48, fontWeight: 700 }, n = { ...makeNode('text', 0, 0), rotation: 390, fillStyle: color.id, textStyle: textStyle.id };
         applyOp(doc, { t: 'create', node: n });

@@ -387,3 +387,71 @@ it('pastes a copied child beside the original after its frame moves', async () =
     const pasted = store.doc.get([...store.selection][0])!;
     expect(pasted.parent).toBe(frame.id); expect([pasted.x, pasted.y]).toEqual([70, 80]);
 });
+it('remaps pasted component sources and override paths even when instances are copied first', async () => {
+    const { store, tool } = setupCanvas(), main = { ...makeNode('frame', 0, 0), component: true };
+    const child = { ...makeNode('rect', 80, 0), parent: main.id, w: 20 }, instance = { ...instanceNode(main, 200, 0), overrides: { [child.id]: { fill: '#123456' } } };
+    store.init([main, child, instance]); store.selection.add(instance.id); store.selection.add(main.id); key(tool, 'c', { ctrlKey: true });
+    const target = new Store(); await pasteLayers(target, 'other-file');
+    const copy = [...target.doc.values()].find(n => n.instanceOf)!, source = [...target.doc.values()].find(n => n.component)!;
+    const leaf = children(target.doc, source.id)[0];
+    expect(copy.instanceOf).toBe(source.id); expect(copy.instanceOf).not.toBe(main.id);
+    expect(expand(target.doc).get(copy.id + '/' + leaf.id)?.fill).toBe('#123456');
+    target.set(leaf.id, { radius: 7 }); expect(expand(target.doc).get(copy.id + '/' + leaf.id)?.radius).toBe(7);
+    expect(store.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    target.history(); target.history(); expect(target.doc.size).toBe(0);
+    target.history(true); expect([...target.doc.values()].find(n => n.instanceOf)?.instanceOf).toBe(source.id);
+});
+it('materializes an instance with overrides and constraints when its source is absent in another file', async () => {
+    const { store, tool } = setupCanvas(), main = { ...makeNode('frame', 0, 0), component: true };
+    const child = { ...makeNode('rect', 80, 0), parent: main.id, w: 20, constraintH: 'right' as const };
+    const instance = { ...instanceNode(main, 200, 0), w: 50, overrides: { [child.id]: { fill: '#123456' } } };
+    store.init([main, child, instance]); store.selection.add(instance.id); key(tool, 'c', { ctrlKey: true });
+    const target = new Store(); await pasteLayers(target, 'other-file');
+    const copy = target.doc.get([...target.selection][0])!, leaf = children(target.doc, copy.id)[0];
+    expect(copy.instanceOf).toBeUndefined(); expect(copy.overrides).toBeUndefined(); expect(copy.w).toBe(50);
+    expect(leaf).toMatchObject({ x: 30, fill: '#123456' }); expect(leaf.id).not.toBe(child.id);
+    expect(store.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    expect(target.undoStack).toHaveLength(1); target.history(); expect(target.doc.size).toBe(0);
+    target.history(true); expect(children(target.doc, copy.id)).toHaveLength(1);
+});
+it.each([0, 30, -45])('preserves resolved world corners when pasting a rotated Hug instance out of a %s-degree parent', async rotation => {
+    const { store, tool } = setupCanvas(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id, w: 80, h: 30 };
+    const parent = { ...makeNode('frame', 100, 50), w: 400, h: 300, rotation };
+    const instance = { ...instanceNode(main, 50, 60, parent.id), rotation: 45, overrides: { '': { padLeft: 20, padRight: 30, padTop: 10, padBottom: 15 } } };
+    store.init([main, child, parent, instance]); store.selection.add(instance.id);
+    const resolved = expand(store.doc), original = resolved.get(instance.id)!;
+    expect(original).toMatchObject({ w: 130, h: 55 }); expect(store.doc.get(instance.id)?.w).not.toBe(original.w);
+    const before = worldCorners(resolved, original);
+    key(tool, 'c', { ctrlKey: true });
+    const target = new Store(); await pasteLayers(target, 'other-file');
+    const baked = target.doc.get([...target.selection][0])!, after = worldCorners(target.doc, baked);
+    expect(baked).toMatchObject({ w: 130, h: 55 }); expect(baked.instanceOf).toBeUndefined();
+    expect(baked.rotation).toBeCloseTo(rotation + 45);
+    after.forEach((p, i) => { expect(p.x).toBeCloseTo(before[i].x + 20); expect(p.y).toBeCloseTo(before[i].y + 20); });
+    target.history(); expect(target.doc.size).toBe(0);
+    target.history(true); expect(worldCorners(target.doc, target.doc.get(baked.id)!)).toEqual(after);
+});
+it('composes nested materialization with overrides on a pasted enclosing main', async () => {
+    const { store, tool } = setupCanvas(), leafMain = { ...makeNode('frame', 0, 0), component: true };
+    const leaf = { ...makeNode('rect', 0, 0), parent: leafMain.id }, main = { ...makeNode('frame', 200, 0), component: true };
+    const nested = instanceNode(leafMain, 0, 0, main.id), instance = { ...instanceNode(main, 400, 0), overrides: { [nested.id + '/' + leaf.id]: { fill: '#123456' } } };
+    store.init([leafMain, leaf, main, nested, instance]); store.selection.add(main.id); store.selection.add(instance.id); key(tool, 'c', { ctrlKey: true });
+    const target = new Store(); await pasteLayers(target, 'other-file');
+    const copy = [...target.doc.values()].find(n => n.instanceOf)!, source = target.doc.get(copy.instanceOf!)!;
+    const baked = children(target.doc, source.id)[0], child = children(target.doc, baked.id)[0];
+    expect(baked.instanceOf).toBeUndefined(); expect(child).toBeDefined();
+    expect(expand(target.doc).get(copy.id + '/' + child.id)?.fill).toBe('#123456');
+});
+it('keeps an existing source link when only its instance is pasted', async () => {
+    const { store, tool } = setupCanvas(), main = { ...makeNode('frame', 0, 0), component: true }, instance = instanceNode(main, 200, 0);
+    store.init([main, instance]); store.selection.add(instance.id); key(tool, 'c', { ctrlKey: true });
+    await pasteLayers(store);
+    expect(store.doc.get([...store.selection][0])?.instanceOf).toBe(main.id);
+});
+it('rejects legacy clipboard instances with unavailable sources rather than pasting empty frames', async () => {
+    const { store, tool } = setupCanvas(), main = { ...makeNode('frame', 0, 0), component: true }, instance = instanceNode(main, 200, 0);
+    store.init([instance]); store.selection.add(instance.id); key(tool, 'c', { ctrlKey: true });
+    const target = new Store(); await expect(pasteLayers(target, 'other-file')).rejects.toThrow('Component source is unavailable');
+    expect(target.doc.size).toBe(0); expect(target.undoStack).toHaveLength(0);
+});

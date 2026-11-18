@@ -1,10 +1,10 @@
 import { pageDocument } from '../../shared/pages';
-import { between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
-import { bounds, handles, intersects, inverse, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
+import { applyOp, between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
+import { bounds, handles, intersects, inverse, localMatrix, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, world, worldMatrix } from '../geometry';
 import type { Store } from '../store';
 import { copyAsset } from '../assets';
-import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
@@ -13,7 +13,7 @@ import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
-type Clipboard = { roots: string[]; nodes: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
+type Clipboard = { roots: string[]; nodes: Node[]; components?: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
 const currentFile = () => typeof location === 'undefined' ? '' : location.pathname.split('/')[2] || 'untitled';
 let memoryClipboard: Clipboard | null = null, copyPending = false;
 export const layerCopyPending = () => { const pending = copyPending; copyPending = false; return pending; };
@@ -75,9 +75,9 @@ export class Select implements Tool {
         this.ctx.invalidate();
     }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.pageDoc.get(id)).filter((n): n is Node => !!n); }
-    pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(pageDocument(expand(store.doc), store.currentPage), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
+    pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(pageDocument(expand(store.doc, store.measureText), store.currentPage), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
     deepSelect(p: Point) { const { store } = this.ctx; const n = this.pick(p, true); if (n) { store.selection.clear(); store.selection.add(n.id); store.changed(); } }
-    selectionHandles(nodes = this.selected()) { const doc = expand(this.ctx.store.doc); return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
+    selectionHandles(nodes = this.selected()) { const doc = expand(this.ctx.store.doc, this.ctx.store.measureText); return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => isVirtual(n.id)) || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
     onPointerDown(p: Point, e: PointerEvent) {
         this.start = undefined;
@@ -94,7 +94,7 @@ export class Select implements Tool {
         if (modified && isVirtual(this.pick(p, true)?.id ?? '')) { this.deepSelect(p); return; }
         this.start = p;
         this.resized.clear();
-        const resolved = expand(store.doc), nodes = this.selected().map(n => resolved.get(n.id)!);
+        const resolved = expand(store.doc, store.measureText), nodes = this.selected().map(n => resolved.get(n.id)!);
         this.box = nodes.length ? bounds(nodes.map(n => aabb(resolved, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
         this.handle = this.box && nodes.every(n => n.type !== 'text') ? this.selectionHandles(nodes).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
@@ -251,7 +251,7 @@ export class Select implements Tool {
         store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx, start = this.start; try { if (this.ctx.marquee) {
-        const resolved = pageDocument(expand(store.doc), store.currentPage);
+        const resolved = pageDocument(expand(store.doc, store.measureText), store.currentPage);
         if (this.moved) for (const n of resolved.values())
             if (n.type !== 'page' && !isVirtual(n.id) && !blocked(resolved, n) && intersects(aabb(resolved, n), this.ctx.marquee))
                 store.selection.add(outerGroup(resolved, n).id);
@@ -333,7 +333,17 @@ export class Select implements Tool {
         for (const n of roots)
             for (const c of [n, ...descendants(store.doc, n.id)])
                 copied.set(c.id, { ...c });
-        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
+        const components = new Map<string, Node>(), seen = new Set<string>();
+        const collect = (n: Node) => {
+            if (!n.instanceOf || seen.has(n.instanceOf)) return;
+            seen.add(n.instanceOf);
+            const main = store.doc.get(n.instanceOf); if (!main) return;
+            const nodes = [main, ...descendants(store.doc, main.id)];
+            for (const node of nodes) components.set(node.id, { ...node });
+            nodes.forEach(collect);
+        };
+        copied.forEach(collect);
+        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], components: [...components.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
         return true;
     } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v') {
         return hasLayerClipboard();
@@ -373,19 +383,45 @@ export async function pasteLayers(store: Store, file = currentFile()) {
     if (!clip?.nodes.length) return;
     clip.pastes++;
     writeClipboard(clip);
+    const source = new Map([...(clip.components ?? []), ...clip.nodes].map(n => [n.id, n]));
+    const matrices = { ...clip.matrices };
+    for (const n of source.values()) if (n.parent && !source.has(n.parent)) source.set(n.id, { ...n, parent: null });
+    const pasted = new Set(clip.nodes.map(n => n.id));
+    for (const id of pasted) {
+        const n = source.get(id)!;
+        if (!n.instanceOf || pasted.has(n.instanceOf) || store.doc.has(n.instanceOf)) continue;
+        if (!source.has(n.instanceOf)) throw Error('Component source is unavailable. Copy the instance again.');
+        for (const op of detachOps(source, id, store.measureText)) {
+            applyOp(source, op);
+            if (op.t === 'create') pasted.add(op.node.id);
+        }
+        if (clip.roots.includes(id) && matrices[id]) matrices[id] = multiply(matrices[id], multiply(inverse(localMatrix(n)), localMatrix(source.get(id)!)));
+    }
+    const nodes = [...pasted].map(id => source.get(id)!);
     if (clip.file && clip.file !== file) {
-        const hashes = new Set(clip.nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
+        const hashes = new Set(nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
         await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
     }
-    const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
+    const ids = new Map(nodes.map(n => [n.id, crypto.randomUUID()]));
     const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.pageDoc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
     const created: Node[] = [];
-    for (const n of clip.nodes) {
+    for (const n of nodes) {
         const copy: Node = { ...n, id: ids.get(n.id)! };
+        if (n.instanceOf) {
+            copy.instanceOf = ids.get(n.instanceOf) ?? n.instanceOf;
+            if (n.overrides && ids.has(n.instanceOf)) copy.overrides = Object.fromEntries(Object.entries(n.overrides).map(([path, values]) => {
+                let remap = true;
+                return [path.split('/').map(part => {
+                    const mapped = remap ? ids.get(part) ?? part : part, child = source.get(part);
+                    if (child?.instanceOf) remap = remap && ids.has(child.instanceOf);
+                    return mapped;
+                }).join('/'), values];
+            }));
+        }
         if (clip.roots.includes(n.id)) {
             const parent = target(n.id);
             copy.parent = parent?.id ?? store.currentPage ?? null;
-            const m = clip.matrices?.[n.id];
+            const m = matrices[n.id];
             if (parent || !m) {
                 copy.x = n.x + 20 * clip.pastes;
                 copy.y = n.y + 20 * clip.pastes;

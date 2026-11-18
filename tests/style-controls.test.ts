@@ -61,3 +61,17 @@ it('applies typography as virtual text overrides and leaves empty style pickers 
     empty.parent.children[0].children[0].onclick!();
     expect(empty.parent.children[1].children[0].textContent).toBe('No styles yet'); expect(store.undoStack).toHaveLength(count);
 });
+it.each(['fill', 'stroke', 'text'] as const)('freezes inherited %s appearance when detaching an instance layer style', target => {
+    const { store, main, child, text, instance } = fixture(), source = target === 'text' ? text : child, id = instance.id + '/' + source.id;
+    const style: Style = target === 'text' ? { id: 'title', kind: 'text', name: 'Title', fontFamily: 'serif', fontSize: 32, fontWeight: 700 } : { id: 'accent', kind: 'color', name: 'Accent', color: '#123456' };
+    store.set(source.id, styleValues(style, target));
+    const before = expand(store.doc).get(id)!, { parent, linked } = control(store, before, style, target);
+    expect(linked).toBe(true); parent.children[1].children[1].onclick!();
+    const changed: Style = style.kind === 'color' ? { ...style, color: '#abcdef' } : { ...style, fontSize: 64 };
+    store.set(source.id, styleValues(changed, target));
+    const resolved = expand(store.doc).get(id)!;
+    expect(resolved[target === 'text' ? 'fontSize' : target]).toBe(before[target === 'text' ? 'fontSize' : target]);
+    expect(resolved[target === 'text' ? 'textStyle' : target === 'fill' ? 'fillStyle' : 'strokeStyle']).toBeNull();
+    if (target === 'fill') expect(resolved.fills).toEqual(before.fills);
+    expect(store.doc.get(main.id)?.overrides).toBeUndefined();
+});

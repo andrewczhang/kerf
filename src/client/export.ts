@@ -64,7 +64,7 @@ export function exportBounds(doc: Doc, roots: Node[], tree = childIndex(doc)) {
 }
 
 function exportImages(doc: Doc, ids: Iterable<string>) {
-    doc = expand(doc);
+    doc = expand(doc, measureTextNode);
     const tree = childIndex(doc);
     const images = new Set<string>(), collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group' && (n.type !== 'path' || n.closed)) for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') (tree.get(n.id) ?? []).forEach(collect); };
     exportRoots(doc, ids).forEach(collect); return images;
@@ -82,7 +82,7 @@ export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Prom
 }
 
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
-    doc = expand(doc);
+    doc = expand(doc, measureTextNode);
     const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
     if (!roots.length || !validExportScale(scale))
         throw new Error('Select objects and use a positive export scale (0.5–4 in steps of 0.5).');
@@ -110,7 +110,7 @@ const escape = (s: unknown) => String(s).replace(/&/g, '&amp;').replace(/</g, '&
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
 export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<string, string> = new Map()): string {
-    doc = expand(doc);
+    doc = expand(doc, measureTextNode);
     const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots, tree);
     const masksByNode = new Map<string, Node>();
     for (const siblings of tree.values()) {
@@ -231,7 +231,7 @@ export function download(blob: Blob, filename: string) {
 }
 
 export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1, mode: 'combined' | 'each' = 'combined') {
-    doc = expand(doc);
+    doc = expand(doc, measureTextNode);
     for (const job of exportJobs(doc, ids, format, scale, mode)) {
         const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, job.ids)], { type: 'image/svg+xml' }) : await exportPNG(doc, job.ids, scale);
         download(blob, job.filename);

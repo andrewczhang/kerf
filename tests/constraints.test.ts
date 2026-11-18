@@ -5,9 +5,62 @@ import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
 import { transform, worldMatrix } from '../src/shared/geometry';
+import { expand, instanceNode } from '../src/shared/components';
 
 const from = { w: 200, h: 100 }, to = { w: 300, h: 160 };
 const box = { ...makeNode('rect', 20, 10), w: 40, h: 20 };
+it.each([
+    [undefined, { x: 250, y: 120, w: 20, h: 20 }],
+    [{ constraintH: 'both', constraintV: 'both' }, { x: 150, y: 60, w: 120, h: 80 }],
+    [{ constraintH: 'center', constraintV: 'center' }, { x: 200, y: 90, w: 20, h: 20 }],
+    [{ constraintH: 'left', constraintV: 'top' }, { x: 150, y: 60, w: 20, h: 20 }]
+] as const)('uses inherited and root override pins when resizing an instance parent (%j)', (overrides, expected) => {
+    const frame = { ...makeNode('frame', 0, 0), w: 200, h: 100 };
+    const main = { ...makeNode('frame', 400, 0), component: true, w: 20, h: 20, constraintH: 'right' as const, constraintV: 'bottom' as const };
+    const instance = { ...instanceNode(main, 150, 60, frame.id), overrides: overrides ? { '': overrides } : undefined };
+    const store = new Store(); store.init([frame, main, instance]);
+    store.commit([...constraintOps(store.doc, frame.id, { w: 300, h: 160 }), { t: 'set', id: frame.id, key: 'w', value: 300 }, { t: 'set', id: frame.id, key: 'h', value: 160 }]);
+    expect(store.doc.get(instance.id)).toMatchObject(expected);
+    expect(store.doc.get(main.id)).toMatchObject({ w: 20, h: 20, constraintH: 'right', constraintV: 'bottom' });
+    store.history(); expect(store.doc.get(instance.id)).toMatchObject({ x: 150, y: 60, w: 20, h: 20 });
+    store.history(true); expect(store.doc.get(instance.id)).toMatchObject(expected);
+});
+it('does not resolve missing sources or replace already resolved virtual pins', () => {
+    const frame = makeNode('frame', 0, 0), main = { ...makeNode('frame', 0, 0), component: true, constraintH: 'right' as const };
+    const child = { ...instanceNode(main, 10, 0, frame.id), id: 'outer/child', constraintH: 'left' as const, overrides: { '': { constraintH: 'right' } } };
+    const missing = { ...instanceNode(main, 20, 0, frame.id), instanceOf: 'missing' };
+    const doc: Doc = new Map([frame, main, child, missing].map(n => [n.id, n]));
+    expect(constraintOps(doc, frame.id, { w: 200, h: 100 })).toEqual([]);
+    expect(constraintOps(doc, 'missing', { w: 200, h: 100 })).toEqual([]);
+});
+it.each([
+    ['left', 80, 20], ['right', 30, 20], ['center', 55, 20], ['scale', 40, 10], ['both', 80, 1]
+] as const)('resolves instance %s pins without changing the main', (constraintH, x, w) => {
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const child = { ...makeNode('rect', 80, 10), parent: main.id, w: 20, h: 20, constraintH, constraintV: 'bottom' as const };
+    const instance = { ...instanceNode(main, 200, 0), w: 50, h: 150 };
+    const doc: Doc = new Map([main, child, instance].map(n => [n.id, n]));
+    expect(expand(doc).get(instance.id + '/' + child.id)).toMatchObject({ x, y: 60, w, h: 20 });
+    expect(doc.get(child.id)).toMatchObject({ x: 80, y: 10, w: 20 });
+    expect(expand(doc).get(child.id)).toEqual(child);
+});
+it('uses overridden pins through nested constrained frames and instances', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const frame = { ...makeNode('frame', 0, 0), parent: main.id, constraintH: 'both' as const };
+    const child = { ...makeNode('rect', 80, 0), parent: frame.id, w: 20, constraintH: 'left' as const };
+    const instance = { ...instanceNode(main, 200, 0), w: 50, overrides: { [child.id]: { constraintH: 'right' } } };
+    const store = new Store(); store.init([main, frame, child, instance]);
+    expect(expand(store.doc).get(instance.id + '/' + child.id)).toMatchObject({ x: 30 });
+    store.set(main.id, { constraintH: 'right' });
+    expect(expand(store.doc).get(instance.id)?.constraintH).toBe('right');
+    store.set(instance.id, { constraintH: 'both' });
+    store.set(instance.id + '/' + child.id, { constraintH: 'center' });
+    expect(expand(store.doc).get(instance.id)?.constraintH).toBe('both');
+    expect(expand(store.doc).get(instance.id + '/' + child.id)).toMatchObject({ constraintH: 'center', x: 55 });
+    store.history(); store.history();
+    expect(expand(store.doc).get(instance.id)?.constraintH).toBe('right');
+    expect(expand(store.doc).get(instance.id + '/' + child.id)?.constraintH).toBe('right');
+});
 it('pins each axis per constraint', () => {
     expect(constrain(box, from, to)).toEqual({ x: 20, y: 10, w: 40, h: 20 });
     expect(constrain({ ...box, constraintH: 'right', constraintV: 'bottom' }, from, to)).toEqual({ x: 120, y: 70, w: 40, h: 20 });
