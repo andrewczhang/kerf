@@ -18,7 +18,7 @@ export function svgStroke(n: Node, r: Rect, tag: string, geometry: string, point
         else {
             const b = strokeBounds(n, r, points);
             const region = `x="${b.x - 1}" y="${b.y - 1}" width="${b.w + 2}" height="${b.h + 2}"`;
-            extra = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="white"/><${tag} ${geometry} fill="black" fill-rule="evenodd"/></mask></defs><${tag} ${geometry} fill="none"${attrs} mask="url(#${id})"/>`;
+            extra = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="white"/><${tag} ${geometry} fill="black"${geometry.includes('fill-rule=') ? '' : ' fill-rule="evenodd"'}/></mask></defs><${tag} ${geometry} fill="none"${attrs} mask="url(#${id})"/>`;
         }
     }
     const arrowOpacity = opacity === 1 ? '' : ` opacity="${opacity}"`;
