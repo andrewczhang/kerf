@@ -14,3 +14,7 @@ export async function uploadAsset(file: string, blob: Blob): Promise<{ hash: str
     const response = await fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`, { method: 'PUT', headers: { 'content-type': encoded.type }, body: bytes }); if (!response.ok) throw Error(`Asset upload failed: ${response.status}`);
     return { hash, w: canvas.width, h: canvas.height };
 }
+export async function copyAsset(from: string, to: string, hash: string) {
+    const source = await fetch(`/f/${encodeURIComponent(from)}/assets/${hash}`); if (!source.ok) throw Error('Asset unavailable');
+    const blob = await source.blob(), target = await fetch(`/f/${encodeURIComponent(to)}/assets/${hash}`, { method: 'PUT', headers: { 'content-type': blob.type }, body: blob }); if (!target.ok) throw Error(`Asset copy failed: ${target.status}`);
+}

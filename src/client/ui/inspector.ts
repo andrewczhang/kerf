@@ -16,6 +16,7 @@ import { formatNumber, inputElement, parseColor, refreshColorField } from './val
 import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 import { alignSection } from './align';
+import { shortcutList } from './shortcuts';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -23,7 +24,7 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
         if (input === active) continue;
         const key = input.dataset.key as Key;
         const stroke = key === 'strokeDash' || key === 'strokeGap' || key === 'strokeMiterLimit';
-        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : n[key] ?? 0);
+        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : key === 'strokeWidth' && n.stroke === null ? 0 : n[key] ?? 0);
         const mixed = values.some(value => value !== values[0]);
         input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
         input.placeholder = mixed ? 'Mixed' : '';
@@ -46,15 +47,22 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
     };
     el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
     el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
+    let pressing = false, stale = false;
+    const editing = () => !!document.activeElement?.closest('input,select,textarea') && el.contains(document.activeElement);
+    el.addEventListener('pointerdown', () => { pressing = true; }, true);
+    window.addEventListener('pointerup', () => { if (pressing) setTimeout(() => { pressing = false; if (stale) render(); }); }, true);
+    el.addEventListener('focusout', e => { if (stale && !el.contains(e.relatedTarget as HTMLElement | null)) setTimeout(render); });
     const render = () => {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
-        if (el.contains(document.activeElement)) {
+        if (pressing || editing()) {
+            stale = true;
             refreshNumericFields(content, nodes, document.activeElement);
             refreshLayoutGridFields(content, store, document.activeElement);
             return;
         }
+        stale = false;
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Use as mask</span><kbd>Ctrl/⌘ Alt M</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div>' + shortcutList(12) + '<p class="path-hint">Press ? for every shortcut</p></section>';
             styleLibrary(content, store, sync);
             return;
         }
@@ -127,11 +135,16 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
             if (key === 'rotation') input.disabled = nodes.every(n => n.type === 'group');
             input.placeholder = mixed ? 'Mixed' : '';
+            const noStroke = nodes.every(n => n.stroke === null);
             if (key === 'fill' || key === 'stroke') {
                 label.classList.add('color-field');
                 const value = document.createElement('div'); value.className = 'color-value';
                 const swatch = inputElement(`${key} color`); swatch.type = 'color'; swatch.className = 'color-swatch';
                 swatch.value = String(nodes[0][key] ?? '#000000');
+                if (key === 'stroke' && noStroke) {
+                    swatch.classList.add('is-none');
+                    swatch.title = 'No stroke. Pick a color or set a weight to add one.';
+                }
                 input.value = mixed ? '' : (nodes[0][key]?.toUpperCase() ?? 'None');
                 input.spellcheck = false;
                 input.onfocus = swatch.onfocus = () => store.begin();
@@ -153,11 +166,12 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             if (key === 'fontSize') input.max = String(maxFontSize);
             if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
             if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
-            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
+            input.value = key === 'strokeWidth' && noStroke ? '0' : mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
+            if (key === 'strokeWidth') input.min = '0';
             let base = store.doc;
             input.onfocus = () => { base = new Map(store.doc); store.begin(); };
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
+                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, key === 'strokeWidth' && (store.doc.get(n.id) ?? n).stroke === null && Number(value) > 0 ? { stroke: '#000000', strokeWidth: value } : { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };

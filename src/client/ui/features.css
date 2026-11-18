@@ -27,3 +27,34 @@ aside.previewing > :not(.preview-inspector) { display: none; }
 .present-overlay canvas { flex: 1 1 0; height: 0; min-height: 0; width: 100%; }
 .present-footer { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; color: #fbfbf9; border-top: 1px solid #50514d; }
 .present-footer button { color: inherit; background: none; border: 1px solid #77766f; padding: 7px 14px; }
+header { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+header > * { flex-shrink: 0; }
+.shortcuts-button { width: 30px; padding: 0; }
+.feature-panel.shortcuts-panel { top: 12px; right: 12px; bottom: auto; max-height: calc(100% - 24px); }
+.shortcuts-panel .shortcut-list { font-size: 11px; gap: 10px 16px; }
+.feature-panel { max-width: calc(100vw - 24px); }
+.field input[type=color].is-none { opacity: .45; background: linear-gradient(to top right, transparent calc(50% - 1px), #d13c57 50%, transparent calc(50% + 1px)); }
+@media (max-width: 1100px) {
+    header { gap: 8px; padding: 0 12px; }
+    .wordmark { margin-right: 2px; }
+    .layers { width: 190px; }
+    aside { width: 220px; }
+    .feature-panel { right: 220px; }
+}
+@media (max-width: 900px) {
+    .file-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 760px) {
+    .wordmark { font-size: 22px; letter-spacing: -1px; }
+    .bar-divider, .file-name { display: none; }
+    .toolset { gap: 2px; }
+    .toolset button { width: 30px; height: 30px; padding: 5px; }
+    .toolset svg { width: 19px; height: 19px; }
+    .feature-button, #share { padding: 0 8px; }
+    .layers { width: 150px; }
+    aside { width: 184px; }
+    aside section { padding: 16px 12px; }
+    .feature-panel { right: 184px; }
+    footer { gap: 12px; padding: 0 12px; }
+}
+.shortcuts-panel kbd { justify-self: end; }

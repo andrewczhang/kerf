@@ -57,8 +57,8 @@ export function exportBounds(doc: Doc, roots: Node[]) {
         for (const mask of ancestorMasks(doc, n)) { const m = transformedBounds(worldMatrix(doc, mask), { x: 0, y: 0, w: mask.w, h: mask.h }), x = Math.max(result.x, m.x), y = Math.max(result.y, m.y); result = { x, y, w: Math.max(0, Math.min(result.x + result.w, m.x + m.w) - x), h: Math.max(0, Math.min(result.y + result.h, m.y + m.h) - y) }; }
         return result;
     }).filter(r => r.w > 0 && r.h > 0));
-    const x = Math.floor(r.x), y = Math.floor(r.y);
-    return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
+    const snap = (v: number) => Math.round(v * 1e6) / 1e6;
+    return { x: snap(r.x), y: snap(r.y), w: Math.ceil(snap(r.w)), h: Math.ceil(snap(r.h)) };
 }
 
 function exportImages(doc: Doc, ids: Iterable<string>) {
