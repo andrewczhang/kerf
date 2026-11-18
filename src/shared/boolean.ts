@@ -60,7 +60,7 @@ let steps = 0;
  * coincide with a's, including edges a inherited from earlier shifted operands: the degenerate cases Greiner-Hormann cannot handle.
  */
 function prepare(a: Region, b: Region): [Region, Region] {
-    const all = [...a, ...b].flat(), g = Math.max(1, ...all.map(p => Math.abs(p.x)), ...all.map(p => Math.abs(p.y))) * 1e-7;
+    const g = 1e-3;
     const hash = (v: number) => { const h = Math.sin(v) * 43758.5453; return 0.2 + 0.8 * (h - Math.floor(h)); };
     const k = ++steps, dx = g * hash(k * 12.9898), dy = g * hash(k * 78.233);
     return [a, b.map(poly => poly.map(p => ({ x: p.x + dx, y: p.y + dy })))];

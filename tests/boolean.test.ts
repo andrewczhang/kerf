@@ -97,3 +97,14 @@ describe('boolean ops match point sampling for random rects and ellipses', () =>
         }
     }, 60000);
 });
+
+describe('rotated coincident shapes', () => {
+    const sq = (deg: number, cx = 50, cy = 50, s = 20): Region => { const a = deg * Math.PI / 180; return [[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => ({ x: cx + (x * Math.cos(a) - y * Math.sin(a)) * s, y: cy + (x * Math.sin(a) + y * Math.cos(a)) * s }))]; };
+    it('cancel exactly at 30 and 45 degrees', () => {
+        for (const d of [30, 45]) {
+            expect(combine([sq(d), sq(d)], 'subtract')).toEqual([]);
+            expect(combine([sq(d), sq(d)], 'exclude')).toEqual([]);
+            close(Math.abs(regionArea(combine([sq(d), sq(0, 55, 50, 10), sq(d)], 'exclude'))), 400);
+        }
+    });
+});
