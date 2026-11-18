@@ -21,7 +21,7 @@ export function transform(m: Mat, p: Point): Point { return { x: m[0] * p.x + m[
 export const identity: Mat = [1, 0, 0, 1, 0, 0];
 export function multiply(a: Mat, b: Mat): Mat { return [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]]; }
 export function inverse(m: Mat): Mat { const d = m[0] * m[3] - m[1] * m[2]; return [m[3] / d, -m[1] / d, -m[2] / d, m[0] / d, (m[2] * m[5] - m[3] * m[4]) / d, (m[1] * m[4] - m[0] * m[5]) / d]; }
-export function localMatrix(n: Node, size: Pick<Rect, 'w' | 'h'> = n): Mat { const a = (n.type === 'group' ? 0 : n.rotation ?? 0) * Math.PI / 180, c = Math.abs(Math.cos(a)) < 1e-12 ? 0 : Math.cos(a), s = Math.abs(Math.sin(a)) < 1e-12 ? 0 : Math.sin(a), x = size.w / 2, y = size.h / 2; return [c, s, -s, c, n.x + x - c * x + s * y, n.y + y - s * x - c * y]; }
+export function localMatrix(n: Node, size: Pick<Rect, 'w' | 'h'> = n): Mat { if (n.type === 'page') return identity; const a = (n.type === 'group' ? 0 : n.rotation ?? 0) * Math.PI / 180, c = Math.abs(Math.cos(a)) < 1e-12 ? 0 : Math.cos(a), s = Math.abs(Math.sin(a)) < 1e-12 ? 0 : Math.sin(a), x = size.w / 2, y = size.h / 2; return [c, s, -s, c, n.x + x - c * x + s * y, n.y + y - s * x - c * y]; }
 export function worldMatrix(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Mat { const chain: Node[] = [], seen = new Set<string>(); let node: Node | undefined = n; while (node && !seen.has(node.id)) { chain.unshift(node); seen.add(node.id); node = node.parent ? doc.get(node.parent) : undefined; } return chain.reduce((m, node) => multiply(m, localMatrix(node, sizeOf(node))), identity); }
 export function parentMatrix(doc: Doc, n: Node, sizeOf?: SizeOf): Mat { const p = n.parent ? doc.get(n.parent) : undefined; return p ? worldMatrix(doc, p, sizeOf) : identity; }
 export function matrixAngle(m: Mat): number { return Math.atan2(m[1], m[0]) * 180 / Math.PI; }
@@ -51,8 +51,7 @@ export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x 
     const a = doc.get(p);
     if (!a)
         break;
-    x += a.x;
-    y += a.y;
+    if (a.type !== 'page') { x += a.x; y += a.y; }
     p = a.parent;
 } const { w, h } = sizeOf(n); return { x, y, w, h }; }
 function hitsEllipse(r: Rect, p: Point, outset: number) {
@@ -71,6 +70,7 @@ function hitsEllipse(r: Rect, p: Point, outset: number) {
 export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf, tol = 4): Node | undefined {
     for (const n of children(doc, parent).reverse()) {
         if (n.hidden || n.locked) continue;
+        if (n.type === 'page') { const found = hit(doc, p, n.id, sizeOf, tol); if (found) return found; continue; }
         if (ancestorMasks(doc, n).some(mask => !maskContains(doc, mask, p, sizeOf))) continue;
         if (n.mask) { if (maskContains(doc, n, p, sizeOf)) return n; continue; }
         if (n.type === 'group') {

@@ -1,6 +1,7 @@
 import { applyOp, descendants, isTextNode, normalizeNode, normalizeRotation, type Doc, type Op, type Key } from '../shared/doc';
 import { applyLayout, type MeasureText } from '../shared/layout';
 import { MAX_OPS } from '../shared/protocol';
+import { migrationOps, pageDocument, pages } from '../shared/pages';
 import { docIndex, indexDoc } from '../shared/doc-index';
 type Change = {
     before: Op;
@@ -29,7 +30,22 @@ export class Store extends EventTarget {
     undoStack: Change[][] = [];
     redoStack: Change[][] = [];
     group: Change[] | null = null;
-    changed() { this.dispatchEvent(new Event('change')); }
+    pagesEnabled = false;
+    currentPage?: string;
+    private preferredPage?: string;
+    private scoped?: Doc;
+    get pageDoc() { return this.pagesEnabled ? this.scoped ??= indexDoc(pageDocument(this.doc, this.currentPage)) : this.doc; }
+    enablePages(page?: string) { this.pagesEnabled = true; this.preferredPage = page; }
+    setPage(id: string) { if (this.doc.get(id)?.type !== 'page' || id === this.currentPage) return; this.dispatchEvent(new Event('page-leave')); this.currentPage = id; this.selection.clear(); this.scoped = undefined; this.dispatchEvent(new Event('page-change')); this.changed(); }
+    changed() {
+        this.scoped = undefined;
+        if (this.pagesEnabled) {
+            const list = pages(this.doc), next = list.find(n => n.id === this.currentPage)?.id ?? list.find(n => n.id === this.preferredPage)?.id ?? list[0]?.id;
+            if (next !== this.currentPage) { this.currentPage = next; this.selection.clear(); this.dispatchEvent(new Event('page-change')); }
+            for (const id of this.selection) if (!this.pageDoc.has(id) || this.doc.get(id)?.type === 'page') this.selection.delete(id);
+        }
+        this.dispatchEvent(new Event('change'));
+    }
     clearHistory() { this.undoStack = []; this.redoStack = []; this.group = null; }
     begin() { this.group = []; }
     end() { if (this.group?.length) {
@@ -52,6 +68,7 @@ export class Store extends EventTarget {
     } this.group = null; }
     commit(ops: Op[], record = true) {
         if (this.readOnly) return;
+        if (this.pagesEnabled && this.currentPage) ops = ops.map(op => op.t === 'create' && op.node.type !== 'page' && op.node.parent === null ? { ...op, node: { ...op.node, parent: this.currentPage! } } : op.t === 'set' && op.key === 'parent' && op.value === null && this.doc.get(op.id)?.type !== 'page' ? { ...op, value: this.currentPage! } : op);
         ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         if (record) {
             const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
@@ -132,7 +149,7 @@ export class Store extends EventTarget {
     }
     init(nodes: import('../shared/doc').Node[], replayPending = true) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of replayPending ? this.pending.values() : [])
         for (const op of ops)
-            applyOp(this.doc, op); for (const id of this.selection) if (!this.doc.has(id)) this.selection.delete(id); applyLayout(this.doc, this.measureText); this.changed(); }
+            applyOp(this.doc, op); for (const id of this.selection) if (!this.doc.has(id)) this.selection.delete(id); applyLayout(this.doc, this.measureText); if (this.pagesEnabled && !this.readOnly) this.commit(migrationOps(this.doc), false); else this.changed(); }
     history(redo = false) { if (this.readOnly) return; const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = [], accepted: Change[] = []; const shadow = new Map(this.doc);
         const created = new Set(group.flatMap(c => c.after.t === 'create' ? [c.after.node.id] : []));

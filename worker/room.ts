@@ -108,6 +108,7 @@ export class Room {
                     return;
                 }
                 const ops: Op[] = [], text: Op[] = [];
+                const deletingPage = msg.ops.some(op => op.t === 'delete' && this.doc.get(op.id)?.type === 'page');
                 for (const op of msg.ops) {
                     applyOp(this.doc, op);
                     if (op?.t === 'set' && op.key === 'text' && op.baseText !== undefined) {
@@ -121,6 +122,7 @@ export class Room {
                 await this.doc.persist(this.state.storage, receiptKey ? { [receiptKey]: msg.seq } : {});
                 this.broadcast({ type: 'ops', ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq, ...(text.length ? { text } : {}) });
+                if (deletingPage) this.broadcast({ type: 'pages-state', nodes: [...this.doc.values()] });
                 if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }
@@ -133,6 +135,7 @@ export class Room {
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
+                peer.page = typeof msg.page === 'string' ? msg.page : undefined;
                 peer.cursor = msg.cursor;
                 peer.selection = msg.selection;
                 peer.viewport = msg.viewport;

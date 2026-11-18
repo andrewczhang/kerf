@@ -31,5 +31,5 @@ export function renderBounds(doc: Doc, node: Node, zoom: number, labelWidth = 0)
 }
 
 export function inViewport(doc: Doc, node: Node, viewport: Rect, zoom: number, labelWidth = 0) {
-    return node.type === 'group' || intersects(renderBounds(doc, node, zoom, labelWidth), viewport);
+    return node.type === 'group' || node.type === 'page' || intersects(renderBounds(doc, node, zoom, labelWidth), viewport);
 }

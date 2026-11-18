@@ -42,7 +42,7 @@ export class Select implements Tool {
     lastPoint?: Point;
     modifiers = { ctrlKey: false, metaKey: false, shiftKey: false };
     updateCursor(p: Point, alt: boolean) {
-        const n = hit(this.ctx.store.doc, p, 4 / this.ctx.viewport.zoom);
+        const n = hit(this.ctx.store.pageDoc, p, 4 / this.ctx.viewport.zoom);
         this.cursor = (this.start ? this.rotating : this.rotationHit(p)) ? this.rotateCursor : alt && (this.start ? this.handle < 0 && !this.ctx.marquee && this.original.size > 0 : !!n && !blocked(this.ctx.store.doc, n)) ? 'copy' : 'default';
     }
     modifier(alt: boolean) {
@@ -54,7 +54,7 @@ export class Select implements Tool {
     lastClick?: { time: number; x: number; y: number };
     constructor(public ctx: Context) {
         ctx.store.addEventListener('change', () => {
-            if (this.start && [...this.original.keys()].some(id => !ctx.store.doc.has(id))) this.cancelGesture();
+            if (this.start && [...this.original.keys()].some(id => !ctx.store.pageDoc.has(id))) this.cancelGesture();
         });
     }
     cancelGesture() {
@@ -72,7 +72,7 @@ export class Select implements Tool {
         this.ctx.store.end();
         this.ctx.invalidate();
     }
-    selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
+    selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.pageDoc.get(id)).filter((n): n is Node => !!n); }
     selectionHandles(nodes = this.selected()) { const doc = this.ctx.store.doc; return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
     onPointerDown(p: Point, e: PointerEvent) {
@@ -86,7 +86,7 @@ export class Select implements Tool {
         this.box = nodes.length ? bounds(nodes.map(n => aabb(store.doc, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
         this.handle = this.box && nodes.every(n => n.type !== 'text') ? this.selectionHandles(nodes).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
-        const inner = hit(store.doc, p, 4 / viewport.zoom);
+        const inner = hit(store.pageDoc, p, 4 / viewport.zoom);
         const double = this.lastClick && e.timeStamp - this.lastClick.time < 400 && Math.hypot(p.x - this.lastClick.x, p.y - this.lastClick.y) < 5 / viewport.zoom;
         this.lastClick = { time: e.timeStamp, ...p };
         const n = inner && (double ? inner : outerGroup(store.doc, inner));
@@ -127,7 +127,7 @@ export class Select implements Tool {
         if (e.buttons !== 0 && gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
-            this.ctx.hover = hit(store.doc, p, 4 / viewport.zoom)?.id;
+            this.ctx.hover = hit(store.pageDoc, p, 4 / viewport.zoom)?.id;
             this.ctx.invalidate();
             return;
         }
@@ -226,7 +226,7 @@ export class Select implements Tool {
             }
         }
         else {
-            const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start);
+            const insertion = dragInsertion(store.pageDoc, [...this.original.values()], p, this.start);
             if (insertion) layoutInsertions.set(store, insertion); else layoutInsertions.delete(store);
             this.ctx.invalidate();
             const b = bounds([...this.original.values()].map(n => aabb(this.snapshot, n)));
@@ -239,31 +239,31 @@ export class Select implements Tool {
         store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx) || !this.start) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
-        if (this.moved) for (const n of store.doc.values())
-            if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
+        if (this.moved) for (const n of store.pageDoc.values())
+            if (n.type !== 'page' && !blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
     }
     else if (this.moved && this.handle < 0 && !this.rotating && !this.copies) {
-        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        const insertion = dragInsertion(store.pageDoc, [...this.original.values()], p, this.start!);
         if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
         else
         for (const id of this.original.keys()) {
             const n = store.doc.get(id)!;
             if (n.parent && store.doc.get(n.parent)?.type === 'group') continue;
-            const frames = eligibleDropFrames(store.doc, [this.original.get(id)!], p, this.start!, [...this.original.values()]);
+            const frames = eligibleDropFrames(store.pageDoc, [this.original.get(id)!], p, this.start!, [...this.original.values()]);
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
-            if ((parent?.id ?? null) !== n.parent) {
+            if ((parent?.id ?? store.currentPage ?? null) !== n.parent) {
                 const shadow = new Map(store.doc), original = this.original.get(id)!;
                 if (isAutoLayout(store.doc.get(original.parent ?? ''))) {
                     const m = inverse(parentMatrix(this.snapshot, original)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: p.x - this.start!.x, y: p.y - this.start!.y });
                     shadow.set(id, { ...n, x: original.x + b.x - a.x, y: original.y + b.y - a.y });
                 }
-                store.commit(moveOps(shadow, id, parent?.id ?? null, {}, sizeOf));
+                store.commit(moveOps(shadow, id, parent?.id ?? store.currentPage ?? null, {}, sizeOf));
             }
         }
     } if (this.copies) {
-        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        const insertion = dragInsertion(store.pageDoc, [...this.original.values()], p, this.start!);
         if (insertion && [...this.original.values()].every(n => n.parent === insertion.parent))
             reorderInAutoLayout(store, [...this.original.values()], insertion, false);
     }
@@ -278,7 +278,7 @@ export class Select implements Tool {
     } }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
-        for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
+        for (const n of children(store.doc, store.currentPage ?? null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
         store.changed(); return;
     }
     if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'm') {
@@ -340,13 +340,13 @@ export async function pasteLayers(store: Store, file = currentFile()) {
         await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
     }
     const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
-    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.doc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
+    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.pageDoc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
     const created: Node[] = [];
     for (const n of clip.nodes) {
         const copy: Node = { ...n, id: ids.get(n.id)! };
         if (clip.roots.includes(n.id)) {
             const parent = target(n.id);
-            copy.parent = parent?.id ?? null;
+            copy.parent = parent?.id ?? store.currentPage ?? null;
             const m = clip.matrices?.[n.id];
             if (parent || !m) {
                 copy.x = n.x + 20 * clip.pastes;

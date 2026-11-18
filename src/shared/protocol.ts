@@ -13,6 +13,7 @@ export interface Peer {
     cursor: Point | null;
     selection: string[];
     spotlight?: boolean;
+    page?: string;
     viewport: {
         x: number;
         y: number;
@@ -35,6 +36,9 @@ export type ClientMsg = FeatureClientMsg | { type: 'share-view' } | {
 export type ServerMsg = FeatureServerMsg | { type: 'share-view'; key: string } | { type: 'error'; request: string; message: string } | {
     type: 'name';
     name: string;
+} | {
+    type: 'pages-state';
+    nodes: Node[];
 } | {
     type: 'pong';
 } | {

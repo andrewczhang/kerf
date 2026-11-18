@@ -99,7 +99,7 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
         }
         if (!inViewport(doc, n, opts.viewport, opts.zoom, labelWidth)) return;
     }
-    if (n.type === 'group') {
+    if (n.type === 'group' || n.type === 'page') {
         drawChildren(c, doc, n.id, opts, applied);
         return;
     }

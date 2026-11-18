@@ -39,7 +39,7 @@ export class Presence extends EventTarget {
     private broadcast(spotlight?: boolean) {
         const you = this.sync.you;
         const { x, y, zoom } = this.viewport;
-        if (you) this.sync.send({ type: 'presence', cursor: this.cursor, selection: [...this.selection], name: you.name, viewport: { x, y, zoom }, spotlight });
+        if (you) this.sync.send({ type: 'presence', cursor: this.cursor, selection: [...this.selection], name: you.name, viewport: { x, y, zoom }, spotlight, page: this.sync.store?.currentPage });
     }
     private receive() {
         const presenter = [...this.sync.peers.values()].find(peer => peer.spotlight);
@@ -53,6 +53,6 @@ export class Presence extends EventTarget {
     }
     private applyFollow() {
         const remote = this.following?.viewport;
-        if (remote) this.viewport.follow(remote);
+        if (remote) { const page = this.following?.page; if (page) this.sync.store?.setPage(page); this.viewport.follow(remote); }
     }
 }

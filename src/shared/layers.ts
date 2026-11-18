@@ -4,7 +4,7 @@ import { bounds, center, identity, inverse, localMatrix, matrixAngle, parentMatr
 export function blocked(doc: Doc, n: Node, lock = true): boolean { return !!n.hidden || lock && !!n.locked || !!n.parent && !!doc.get(n.parent) && blocked(doc, doc.get(n.parent)!, lock); }
 export function outerGroup(doc: Doc, n: Node): Node { let result = n, p = n.parent; while (p) { const a = doc.get(p); if (!a || a.type === 'frame') break; if (a.type === 'group') result = a; p = a.parent; } return result; }
 function set(id: string, values: Partial<Node>): Op[] { return Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value } as Op)); }
-function validParent(doc: Doc, id: string, parent: string | null) { return parent === null || !!doc.get(parent) && ['frame', 'group'].includes(doc.get(parent)!.type) && parent !== id && !descendants(doc, id).some(n => n.id === parent); }
+function validParent(doc: Doc, id: string, parent: string | null) { return parent === null || !!doc.get(parent) && ['frame', 'group', 'page'].includes(doc.get(parent)!.type) && parent !== id && !descendants(doc, id).some(n => n.id === parent); }
 export function normalizeGroups(doc: Doc, sizeOf: SizeOf = n => n): Op[] {
     const shadow = new Map(doc), ops: Op[] = [];
     const visit = (n: Node) => { for (const c of children(shadow, n.id)) visit(c); if (n.type !== 'group') return; const cs = children(shadow, n.id); if (!cs.length) return;
@@ -35,7 +35,7 @@ export function rotateOps(doc: Doc, ids: string[], pivot: Point, angle: number, 
     return [...affected].flatMap(id => { const n = shadow.get(id)!; return set(id, { x: n.x, y: n.y, w: n.w, h: n.h, rotation: n.rotation ?? 0 }); });
 }
 export function moveOps(doc: Doc, id: string, parent: string | null, position: { beforeId?: string; afterId?: string } = {}, sizeOf: SizeOf = n => n): Op[] {
-    const n = doc.get(id); if (!n || !validParent(doc, id, parent)) return [];
+    const n = doc.get(id); if (!n || n.type === 'page' || !validParent(doc, id, parent)) return [];
     const siblings = children(doc, parent).filter(n => n.id !== id), target = position.beforeId ?? position.afterId;
     const i = siblings.findIndex(n => n.id === target); if (target && i < 0) return [];
     const slot = i < 0 ? siblings.length : position.beforeId ? i : i + 1;
@@ -43,7 +43,7 @@ export function moveOps(doc: Doc, id: string, parent: string | null, position: {
 }
 export function groupOps(doc: Doc, ids: string[], sizeOf: SizeOf = n => n): Op[] {
     const order: Node[] = []; const visit = (p: string | null) => { for (const n of children(doc, p)) { order.push(n); visit(n.id); } }; visit(null);
-    const nodes = order.filter(n => ids.includes(n.id) && !ids.some(id => id !== n.id && descendants(doc, id).some(c => c.id === n.id)));
+    const nodes = order.filter(n => n.type !== 'page' && ids.includes(n.id) && !ids.some(id => id !== n.id && descendants(doc, id).some(c => c.id === n.id)));
     const top = nodes.at(-1); if (!top) return [];
     const g = { ...makeNode('group', 0, 0, top.index), parent: top.parent }, shadow = new Map(doc); shadow.set(g.id, g);
     const ops: Op[] = [{ t: 'create', node: g }]; let index: string | null = null;

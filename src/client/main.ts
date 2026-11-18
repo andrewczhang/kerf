@@ -36,6 +36,7 @@ const file = location.pathname.split('/')[2] || 'untitled';
 document.querySelector('#app')!.innerHTML = '<header></header><main><aside class="layers"></aside><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside class="inspector"></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
 const canvas = document.querySelector('canvas')!, store = new Store(measureTextNode);
+store.enablePages(new URL(location.href).searchParams.get('page') ?? undefined);
 const fontsChanged = () => {
     clearTextLayouts();
     if ([...store.doc.values()].some(isTextNode)) store.relayout();
@@ -88,18 +89,25 @@ if (store.readOnly) {
 }
 choose('select');
 inspector(document.querySelector('.inspector')!, store, sync);
-layers(document.querySelector('.layers')!, ctx);
+layers(document.querySelector('.layers')!, ctx, sync);
 people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);
 const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
 editorCommands(ctx, renderer, choose, isInspecting);
+store.addEventListener('page-leave', () => { textEditor.close(); active?.deactivate?.(); store.end(); });
+store.addEventListener('page-change', () => {
+    ctx.hover = undefined; ctx.marquee = undefined; if (ctx.snap) { ctx.snap.guides = []; ctx.snap.measure = []; }
+    store.end(); choose('select'); presence.update(null);
+    const url = new URL(location.href); if (store.currentPage) url.searchParams.set('page', store.currentPage); history.replaceState(null, '', url);
+});
+window.addEventListener('popstate', () => { const id = new URL(location.href).searchParams.get('page'); if (id) store.setPage(id); });
 trackRecent(store, file);
 fileName(sync, () => !isInspecting() && !renderer.preview);
 sync.addEventListener('restored', () => { cancelPointer(); active.cancelGesture?.(); textEditor.close(); renderer.invalidate(); });
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (store.readOnly || isInspecting() || active.id !== 'select') return;
-    const node = hit(store.doc, viewport.world(local(e)), 4 / viewport.zoom);
+    const node = hit(store.pageDoc, viewport.world(local(e)), 4 / viewport.zoom);
     if (isTextNode(node))
         textEditor.open(node);
     else if (node?.type === 'path') {

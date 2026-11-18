@@ -1,11 +1,11 @@
 import { inverse, transform, type Point } from '../../shared/geometry';
 import { hit, worldMatrix } from '../geometry';
-import type { Comment } from '../../shared/comments';
+import { commentOnPage, type Comment } from '../../shared/comments';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
 import { registry } from '../tools/tool';
 import type { Doc, Node } from '../../shared/doc';
-export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, screen: (p: Point) => Point, visible: (c: Comment) => boolean = () => true) {
+export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, screen: (p: Point) => Point, visible: (c: Comment) => boolean = () => true, page: () => string | undefined = () => undefined, fullDoc: () => Doc = doc) {
     const pins = document.createElement('div'), pop = document.createElement('div');
     pop.className = 'comment-pop'; pop.hidden = true; wrap.append(pins, pop);
     let open: string | null = null, draft: { x: number; y: number; node?: string } | null = null, showResolved = false;
@@ -19,7 +19,8 @@ export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, sc
     }
     function render() {
         pins.replaceChildren();
-        const roots = sync.comments.filter(c => c.thread === null);
+        const roots = sync.comments.filter(c => c.thread === null && commentOnPage(fullDoc(), c, page()) && visible(c));
+        if (open && !roots.some(c => c.id === open) || draft?.node && !doc().has(draft.node)) close();
         for (const [i, c] of roots.entries()) {
             if (c.resolved && !showResolved || !visible(c)) continue;
             const p = position(c), b = document.createElement('button'); b.className = 'comment-pin'; b.textContent = String(i + 1); b.style.background = c.color; b.style.left = p.x + 'px'; b.style.top = p.y + 'px'; b.title = c.text;
@@ -45,7 +46,7 @@ export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, sc
         const post = () => {
             if (!input.value.trim()) return;
             if (!sync.you) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
-            const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
+            const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), page: root?.page ?? page(), author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
             if (!sync.send({ type: 'comment-add', comment: c })) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
             if (draft) { open = c.id; draft = null; } input.value = ''; status.textContent = '';
         };
@@ -74,14 +75,15 @@ export function commentAnchor(doc: Doc, p: Point, n?: Node) {
     return { ...local, ...(n ? { node: n.id } : {}) };
 }
 export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, choose: (id: string) => void) {
-    const surface = commentSurface(sync, canvas.parentElement!, () => ctx.store.doc, p => ctx.viewport.screen(p));
+    const surface = commentSurface(sync, canvas.parentElement!, () => ctx.store.pageDoc, p => ctx.viewport.screen(p), undefined, () => ctx.store.currentPage, () => ctx.store.doc);
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
-        surface.start(p, hit(ctx.store.doc, p));
+        surface.start(p, hit(ctx.store.pageDoc, p));
     }, onPointerMove() {}, onPointerUp() {} });
     const b = document.createElement('button'); b.className = 'feature-button'; b.dataset.tool = 'comment'; b.title = 'Comment (C)'; b.textContent = 'Comment'; b.onclick = () => choose('comment');
     const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.onchange = () => surface.resolved(check.checked); label.append(check, ' Show resolved');
     document.querySelector('header')!.append(b, label);
     ctx.store.addEventListener('change', surface.render);
+    ctx.store.addEventListener('page-change', surface.close);
     const observer = new MutationObserver(surface.render); observer.observe(document.querySelector('#zoom-value')!, { childList: true });
     new ResizeObserver(surface.render).observe(canvas);
 }
