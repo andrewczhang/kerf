@@ -82,6 +82,21 @@ it('shows an offline create locally after refresh and init and replays it to the
     for (const raw of socket.sent) { const message = JSON.parse(raw); for (const op of message.ops ?? []) applyOp(server, op); }
     expect(server.get(n.id)).toEqual(n);
 });
+it('restores snapshot operations once without deleting layers moved into an undone frame', () => {
+    const { store } = setup(), frame = makeNode('frame', 0, 0), child = makeNode('rect', 20, 30);
+    store.init([frame, child]); store.commit([{ t: 'delete', id: frame.id }]); store.history();
+    store.set(child.id, { parent: frame.id }); window.dispatchEvent(new Event('pagehide'));
+    const refreshed = new Store(); new Sync(refreshed, 'test');
+    expect(refreshed.doc.get(child.id)?.parent).toBe(frame.id);
+    expect(refreshed.pending.size).toBe(3);
+});
+it('applies only operations newer than a throttled snapshot when recovering offline', () => {
+    const { store } = setup(), node = makeNode('rect', 0, 0);
+    store.commit([{ t: 'create', node }]); vi.advanceTimersByTime(250);
+    store.set(node.id, { x: 70 });
+    const refreshed = new Store(); new Sync(refreshed, 'test');
+    expect(refreshed.doc.get(node.id)?.x).toBe(70);
+});
 it('throttles snapshot serialization while keeping queue writes and pagehide synchronous', () => {
     const { store } = setup(); const setItem = vi.spyOn(localStorage, 'setItem');
     for (let i = 0; i < 50; i++) store.changed();

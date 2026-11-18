@@ -52,7 +52,13 @@ export class Sync extends EventTarget {
                 if (saved) {
                     this.store.seq = saved.seq;
                     this.store.pending = new Map(saved.pending);
-                    this.store.init(JSON.parse(localStorage.getItem(this.storageKey + ':nodes') ?? 'null') ?? saved.nodes ?? []);
+                    const snapshot = JSON.parse(localStorage.getItem(this.storageKey + ':nodes') ?? 'null');
+                    const nodes = snapshot?.nodes ?? snapshot ?? saved.nodes ?? [];
+                    const snapshotSeq = snapshot?.seq ?? (snapshot || saved.nodes ? saved.seq : 0);
+                    this.store.init(nodes, false);
+                    for (const [seq, ops] of this.store.pending) if (seq > snapshotSeq)
+                        for (const op of ops) applyOp(this.store.doc, op);
+                    this.store.relayout();
                 }
             } catch { this.storageError = true; }
             this.claimed = true;
@@ -84,7 +90,7 @@ export class Sync extends EventTarget {
         if (!this.claimed) return;
         try {
             localStorage.setItem(this.storageKey, JSON.stringify({ clientId: this.clientId, seq: this.store.seq, pending: [...this.store.pending] }));
-            if (snapshot) localStorage.setItem(this.storageKey + ':nodes', JSON.stringify([...this.store.doc.values()]));
+            if (snapshot) localStorage.setItem(this.storageKey + ':nodes', JSON.stringify({ nodes: [...this.store.doc.values()], seq: this.store.seq }));
             this.storageError = false;
         } catch { this.storageError = true; this.notify(); }
     }
