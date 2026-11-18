@@ -27,6 +27,29 @@ describe('prototype links', () => {
     });
 });
 describe('version diff', () => {
+    it('deletes reversed nested references before restoring a detached instance', () => {
+        const a = { ...makeNode('frame', 0, 0), component: true }, b = { ...makeNode('frame', 300, 0), component: true };
+        const leaf = { ...makeNode('rect', 10, 10), parent: b.id }, nested = instanceNode(b, 0, 0, a.id);
+        const target: Doc = new Map([a, b, nested, leaf].map(n => [n.id, n])), current = new Map(target);
+        for (const op of detachOps(current, nested.id)) applyOp(current, op);
+        const reverse = instanceNode(a, 0, 0, b.id);
+        applyOp(current, { t: 'create', node: reverse });
+        expect(current.has(reverse.id)).toBe(true);
+        const ops = versionDiff(current, target), firstWrite = ops.findIndex(op => op.t !== 'delete');
+        expect(ops.slice(firstWrite).some(op => op.t === 'delete')).toBe(false);
+        for (const op of ops) applyOp(current, op);
+        expect(current).toEqual(target);
+    });
+    it('clears old containment before creating reversed nested references', () => {
+        const a = { ...makeNode('frame', 0, 0), component: true }, b = { ...makeNode('frame', 300, 0), component: true };
+        const nested = instanceNode(b, 0, 0, a.id), reverse = instanceNode(a, 0, 0, b.id);
+        const current: Doc = new Map([a, b, nested].map(n => [n.id, n]));
+        const target: Doc = new Map([a, b, reverse, { ...nested, parent: null }].map(n => [n.id, n]));
+        const ops = versionDiff(current, target);
+        expect(ops[0]).toEqual({ t: 'set', id: nested.id, key: 'parent', value: null });
+        for (const op of ops) applyOp(current, op);
+        expect(current).toEqual(target);
+    });
     it('restores component instances across detach and preserves overrides and children', () => {
         const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 10, 10), parent: main.id };
         const instance = { ...instanceNode(main, 200, 0), overrides: { [child.id]: { fill: '#123456' } } };
