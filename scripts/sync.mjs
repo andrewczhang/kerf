@@ -17,6 +17,7 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
  assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
  const a=await client(),ai=await a.take('init'),b=await client(),bi=await b.take('init');
+ a.send({type:'ping'});await a.take('pong');a.ws.send('{ "type": "ping" }');await a.take('pong');console.log('PASS browser heartbeat auto-response and legacy JSON ping');
  assert.equal(ai.name,'');a.send({type:'rename',name:'  Layout\n study  '});assert.equal((await a.take('name')).name,'Layout study');assert.equal((await b.take('name')).name,'Layout study');
  const named=await client();assert.equal((await named.take('init')).name,'Layout study');named.ws.close();console.log('PASS sanitized file rename reaches sender, peer and fresh client');
  const node={id:'rectangle',type:'rect',parent:null,index:'U',name:'Rectangle',x:10,y:20,w:100,h:80,fill:'#ff4f00',stroke:null,strokeWidth:1,radius:0,opacity:1};a.send({type:'ops',seq:1,ops:[{t:'create',node}]});assert.deepEqual((await b.take('ops')).ops[0].node,node);await a.take('ack');console.log('PASS client B receives rectangle creation');
@@ -115,5 +116,5 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const persisted=await client(),persistedInit=await persisted.take('init');
  assert.equal(persistedInit.nodes.find(n=>n.id===text.id).text,afterPeer);
  console.log('PASS reconnect retries a committed text edit without duplicating it after a peer edit');
- console.log('Sync integration: 20 checks passed');
+ console.log('Sync integration: 21 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}
