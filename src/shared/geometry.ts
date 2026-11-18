@@ -73,6 +73,11 @@ export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: S
         if (n.hidden || n.locked) continue;
         if (ancestorMasks(doc, n).some(mask => !maskContains(doc, mask, p, sizeOf))) continue;
         if (n.mask) { if (maskContains(doc, n, p, sizeOf)) return n; continue; }
+        if (n.type === 'group') {
+            const child = hit(doc, p, n.id, sizeOf, tol);
+            if (child) return child;
+            continue;
+        }
         const { w, h } = sizeOf ? sizeOf(n) : n, r = { x: 0, y: 0, w, h }, local = transform(inverse(worldMatrix(doc, n, sizeOf)), p);
         if (n.type === 'path') {
             const points = toAbs(n.points ?? [], r), outset = strokeOutset(n);
@@ -83,7 +88,7 @@ export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: S
             continue;
         }
         const inside = contains(r, local);
-        if (inside || n.type === 'group') {
+        if (inside) {
             const child = hit(doc, p, n.id, sizeOf, tol);
             if (child) return child;
         }

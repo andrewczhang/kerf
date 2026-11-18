@@ -239,7 +239,7 @@ export class Select implements Tool {
         store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx) || !this.start) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
-        for (const n of store.doc.values())
+        if (this.moved) for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
