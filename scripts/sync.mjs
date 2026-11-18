@@ -1,6 +1,8 @@
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
+import {build} from 'esbuild';
+import {fileURLToPath} from 'node:url';
 const port=8790,id='test-'+Date.now();
 const target=new URL(process.env.KERF_URL||`http://127.0.0.1:${port}`);
 assert(['http:','https:','ws:','wss:'].includes(target.protocol),'KERF_URL must use http(s) or ws(s)');
@@ -15,6 +17,16 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const node={id:'rectangle',type:'rect',parent:null,index:'U',name:'Rectangle',x:10,y:20,w:100,h:80,fill:'#ff4f00',stroke:null,strokeWidth:1,radius:0,opacity:1};a.send({type:'ops',seq:1,ops:[{t:'create',node}]});assert.deepEqual((await b.take('ops')).ops[0].node,node);await a.take('ack');console.log('PASS client B receives rectangle creation');
  a.send({type:'ops',seq:2,ops:[{t:'set',id:node.id,key:'x',value:140}]});assert.equal((await b.take('ops')).ops[0].value,140);await a.take('ack');console.log('PASS client B receives live move');
  a.send({type:'presence',cursor:{x:125,y:90},selection:[node.id],name:'Ada',viewport:{x:1,y:2,zoom:1}});const presence=await b.take('presence',m=>m.peer.id===ai.you.id);assert.equal(presence.peer.name,'Ada');assert.deepEqual(presence.peer.cursor,{x:125,y:90});assert.deepEqual(presence.peer.selection,[node.id]);console.log('PASS presence cursor, name and selection relay');
+ const bundle=await build({entryPoints:[fileURLToPath(new URL('../src/client/store.ts',import.meta.url))],bundle:true,write:false,format:'esm',platform:'node'});
+ const {Store}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+ const bStore=new Store();
+ const frame={...node,id:'layout-frame',type:'frame',w:400,h:200};
+ const kids=[{...node,id:'layout-first',parent:frame.id,index:'A',x:90,w:40},{...node,id:'layout-second',parent:frame.id,index:'B',x:200,w:60}];
+ a.send({type:'ops',seq:3,ops:[frame,...kids].map(node=>({t:'create',node}))});bStore.remote((await b.take('ops')).ops);await a.take('ack');
+ const layoutOps=[{t:'set',id:frame.id,key:'layout',value:'horizontal'},{t:'set',id:frame.id,key:'gap',value:15}];
+ a.send({type:'ops',seq:4,ops:layoutOps});const relayed=(await b.take('ops')).ops;assert.deepEqual(relayed,layoutOps);bStore.remote(relayed);await a.take('ack');
+ assert.equal(bStore.doc.get(frame.id).layout,'horizontal');assert.equal(bStore.doc.get(frame.id).gap,15);assert.deepEqual(kids.map(n=>bStore.doc.get(n.id).x),[0,55]);
  const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);console.log('PASS late client init contains persisted rectangle and move');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 5 checks passed');
+ assert.equal(ci.nodes.find(n=>n.id===frame.id).layout,'horizontal');assert.equal(ci.nodes.find(n=>n.id===frame.id).gap,15);assert.deepEqual(kids.map(n=>ci.nodes.find(child=>child.id===n.id).x),[0,55]);console.log('PASS layout/gap relay, client B layout and persisted child positions on late join');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 6 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}
