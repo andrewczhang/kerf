@@ -13,7 +13,25 @@ export interface Node {
     strokeWidth: number;
     radius: number;
     opacity: number;
+    layout?: 'none' | 'horizontal' | 'vertical';
+    gap?: number;
+    padTop?: number;
+    padRight?: number;
+    padBottom?: number;
+    padLeft?: number;
+    justify?: 'start' | 'center' | 'end' | 'between';
+    align?: 'start' | 'center' | 'end';
+    sizeW?: 'fixed' | 'hug' | 'fill';
+    sizeH?: 'fixed' | 'hug' | 'fill';
 }
+export const layoutDefaults = { layout: 'none', gap: 0, padTop: 0, padRight: 0, padBottom: 0, padLeft: 0, justify: 'start', align: 'start', sizeW: 'fixed', sizeH: 'fixed' } as const;
+function validLayout(n: Node): boolean {
+    return (['gap', 'padTop', 'padRight', 'padBottom', 'padLeft'] as const).every(k => n[k] === undefined || (Number.isFinite(n[k]) && n[k]! >= 0))
+        && (Object.keys(layoutEnums) as (keyof typeof layoutEnums)[]).every(k => n[k] === undefined || layoutEnums[k].includes(n[k]!));
+}
+const layoutEnums: Record<'layout' | 'justify' | 'align' | 'sizeW' | 'sizeH', readonly string[]> = {
+    layout: ['none', 'horizontal', 'vertical'], justify: ['start', 'center', 'end', 'between'], align: ['start', 'center', 'end'], sizeW: ['fixed', 'hug', 'fill'], sizeH: ['fixed', 'hug', 'fill']
+};
 export type Doc = Map<string, Node>;
 export type Key = Exclude<keyof Node, 'id'>;
 export type Op = {
@@ -65,7 +83,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity'].includes(op.key))
+    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if (op.key === 'parent') {
         let p = op.value as string | null;
@@ -83,5 +101,5 @@ export function applyOp(doc: Doc, op: Op): void {
     if (validNode(next))
         doc.set(n.id, next);
 }
-export function validNode(n: Node): boolean { return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse'].includes(n.type) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)); }
+export function validNode(n: Node): boolean { return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse'].includes(n.type) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)); }
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node { return { id: crypto.randomUUID(), type, parent: null, index, name: type === 'frame' ? 'Frame' : type === 'rect' ? 'Rectangle' : 'Ellipse', x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 }; }

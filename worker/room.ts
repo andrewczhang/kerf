@@ -1,5 +1,6 @@
 import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers-types';
 import { applyOp, type Doc, type Node } from '../src/shared/doc';
+import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
@@ -32,6 +33,7 @@ export class Room {
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= 1000) {
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
+                applyLayout(this.doc);
                 await this.state.storage.put('nodes', [...this.doc.values()]);
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });

@@ -34,6 +34,11 @@ Later features (pen/vector paths, text, layers panel, export) each land as a new
 Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
+Optional layout fields: `layout: 'none'|'horizontal'|'vertical'` (default none), `gap`, `padTop`, `padRight`, `padBottom`, `padLeft` (finite nonnegative numbers, default 0), `justify: 'start'|'center'|'end'|'between'` and `align: 'start'|'center'|'end'` (default start), `sizeW`, `sizeH: 'fixed'|'hug'|'fill'` (default fixed). Absent fields preserve existing documents.
+
+### Auto layout
+Only horizontal/vertical frames lay out children, in fractional-index order with parent-relative positions. Shared `applyLayout(doc)` derives geometry directly (never as ops) after document changes on client and server: bottom-up hug sizing, then top-down fill sizing and justify/align placement. Empty hug frames retain their size; hug applies only to auto-layout frames. Fill splits available main-axis space equally or spans the cross axis (minimum 1), but acts fixed when that parent axis hugs; fill outside an auto-layout parent is ignored. Nested frames lay out their children after receiving their fill size.
+
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.
 - Server applies in arrival order, broadcasts `{type:'ops', ops, from}` to others, acks sender `{type:'ack', seq}`.
