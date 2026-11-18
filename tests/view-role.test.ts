@@ -15,7 +15,7 @@ it('leaves focus navigation and control activation to the browser while excludin
     expect(isViewerCanvasShortcut({ ...event('h'), metaKey: true }, false)).toBe(false);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('blocks local document mutations and undo in a read-only store, but accepts remote edits', () => {
     const store = new Store(), node = makeNode('rect', 0, 0);
     store.init([node]); store.set(node.id, { x: 5 });
@@ -26,11 +26,16 @@ it('blocks local document mutations and undo in a read-only store, but accepts r
     store.commit([]); expect(store.pending.size).toBe(0);
 });
 it('connects viewers using only the opaque key and initializes read-only before hello', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('navigator', { onLine: true, locks: { request: (_name: string, _options: unknown, callback: (lock: object) => unknown) => Promise.resolve(callback({})) } });
+    vi.stubGlobal('sessionStorage', { getItem: () => null, setItem() {} });
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem() {} });
     const socket = vi.fn(); vi.stubGlobal('WebSocket', class { constructor(url: string) { socket(url); } });
     vi.stubGlobal('location', { pathname: '/v/opaque-view-key', protocol: 'https:', host: 'example.com' });
     const store = new Store(), sync = new Sync(store, 'opaque-view-key');
     expect(sync.role).toBe('view'); expect(store.readOnly).toBe(true);
-    expect(socket).toHaveBeenCalledWith('wss://example.com/v/opaque-view-key/ws');
+    expect(socket).toHaveBeenCalledWith('wss://example.com/v/opaque-view-key/ws?clientId=' + encodeURIComponent(sync.clientId));
 });
 it('loads viewer assets through the view alias and reports missing assets', async () => {
     vi.stubGlobal('location', { pathname: '/v/opaque-view-key' });
