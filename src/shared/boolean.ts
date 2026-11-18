@@ -38,7 +38,13 @@ export function area(poly: Polygon) {
 
 /** Signed area of a region under even-odd fill, assuming its contours do not cross. */
 export function regionArea(region: Region) {
-    return region.reduce((s, poly) => s + (inside(region.filter(q => q !== poly), poly[0]) ? -1 : 1) * Math.abs(area(poly)), 0);
+    return region.reduce((s, poly) => s + (inside(region.filter(q => q !== poly), probe(poly)) ? -1 : 1) * Math.abs(area(poly)), 0);
+}
+
+/** A point just inside poly next to its first edge, away from vertices other contours may touch. */
+function probe(poly: Polygon): Point {
+    const a = poly[0], b = poly[1], l = Math.hypot(b.x - a.x, b.y - a.y) || 1, s = -Math.sign(area(poly)) * Math.min(1e-3, l / 4);
+    return { x: (a.x + b.x) / 2 - (b.y - a.y) / l * s, y: (a.y + b.y) / 2 + (b.x - a.x) / l * s };
 }
 
 function insert(v: V, start: V, end: V) {
@@ -47,12 +53,22 @@ function insert(v: V, start: V, end: V) {
     v.next = at; v.prev = at.prev; at.prev.next = v; at.prev = v;
 }
 
-/** Greiner-Hormann clipping on even-odd regions. Degenerate overlaps are avoided by nudging b off a's vertices and edges. */
+let steps = 0;
+
+/**
+ * Shift b by a tiny offset (about 1e-7 of the scene) that is different on every call, so none of b's vertices or edges
+ * coincide with a's, including edges a inherited from earlier shifted operands: the degenerate cases Greiner-Hormann cannot handle.
+ */
+function prepare(a: Region, b: Region): [Region, Region] {
+    const all = [...a, ...b].flat(), g = Math.max(1, ...all.map(p => Math.abs(p.x)), ...all.map(p => Math.abs(p.y))) * 1e-7;
+    const hash = (v: number) => { const h = Math.sin(v) * 43758.5453; return 0.2 + 0.8 * (h - Math.floor(h)); };
+    const k = ++steps, dx = g * hash(k * 12.9898), dy = g * hash(k * 78.233);
+    return [a, b.map(poly => poly.map(p => ({ x: p.x + dx, y: p.y + dy })))];
+}
+
+/** Greiner-Hormann clipping on even-odd regions. Operands come from prepare. */
 function clip(a: Region, b: Region, op: 'union' | 'subtract' | 'intersect'): Region {
     a = a.filter(p => p.length > 2); b = b.filter(p => p.length > 2);
-    const all = [...a, ...b].flat(), size = Math.max(1, ...all.map(p => Math.abs(p.x)), ...all.map(p => Math.abs(p.y)));
-    const e = size * 1e-7;
-    b = b.map(poly => poly.map(p => ({ x: p.x + e * 0.7548776662, y: p.y + e * 0.5698402910 })));
     const ra = a.map(ring), rb = b.map(ring);
     for (const sa of ra) each(sa, va => { if (va.inter) return; const wa = nextReal(va.next);
         for (const sb of rb) each(sb, vb => { if (vb.inter) return; const wb = nextReal(vb.next);
@@ -92,8 +108,69 @@ function clip(a: Region, b: Region, op: 'union' | 'subtract' | 'intersect'): Reg
     return out;
 }
 
+const perimeter = (poly: Polygon) => poly.reduce((s, p, i) => { const q = poly[(i + 1) % poly.length]; return s + Math.hypot(q.x - p.x, q.y - p.y); }, 0);
+
+/** Snap to a tol/10 grid, collapsing the hairline gaps shifted coincident edges leave, then cut the spikes that leaves. */
+function despike(poly: Polygon, tol: number): Polygon {
+    const q = tol / 10, pts = poly.map(p => ({ x: Math.round(p.x / q) * q, y: Math.round(p.y / q) * q }));
+    for (let changed = true; changed && pts.length > 2;) {
+        changed = false;
+        for (let i = 0; i < pts.length && pts.length > 2; i++) {
+            const a = pts[(i + pts.length - 1) % pts.length], p = pts[i], b = pts[(i + 1) % pts.length];
+            const ux = p.x - a.x, uy = p.y - a.y, vx = b.x - p.x, vy = b.y - p.y;
+            if ((!ux && !uy) || (Math.abs(ux * vy - uy * vx) <= 1e-9 * (Math.hypot(ux, uy) * Math.hypot(vx, vy) + 1) && ux * vx + uy * vy < 0)) { pts.splice(i--, 1); changed = true; }
+        }
+    }
+    return pts;
+}
+
+/**
+ * Merge contours that share edges (pieces that touch once snapped): orient every contour by its even-odd depth,
+ * split edges where another contour's vertex lies on them, cancel each edge against its reverse, and relink the rest.
+ */
+function merge(region: Region, tol: number): Region {
+    if (region.length < 2) return region;
+    const q = tol / 10, key = (p: Point) => `${p.x},${p.y}`;
+    const oriented = region.map(poly => {
+        const depth = region.filter(o => o !== poly && inside([o], probe(poly))).length;
+        return (area(poly) < 0) === (depth % 2 === 0) ? poly : [...poly].reverse();
+    });
+    const verts = oriented.flat(), edges: [Point, Point][] = [];
+    for (const poly of oriented) poly.forEach((a, i) => {
+        const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+        const on = verts.map(v => ({ v, t: ((v.x - a.x) * dx + (v.y - a.y) * dy) / l2 }))
+            .filter(({ v, t }) => t > 1e-9 && t < 1 - 1e-9 && Math.abs((v.x - a.x) * dy - (v.y - a.y) * dx) / Math.sqrt(l2) < q / 2)
+            .sort((m, n) => m.t - n.t).map(({ v }) => v);
+        [a, ...on, b].forEach((p, j, ps) => { if (j && key(ps[j - 1]) !== key(p)) edges.push([ps[j - 1], p]); });
+    });
+    const count = new Map<string, number>();
+    for (const [a, b] of edges) count.set(key(a) + '>' + key(b), (count.get(key(a) + '>' + key(b)) ?? 0) + 1);
+    const out = new Map<string, [Point, Point][]>();
+    for (const e of edges) {
+        const fwd = key(e[0]) + '>' + key(e[1]), back = key(e[1]) + '>' + key(e[0]);
+        if (count.get(back)) { count.set(back, count.get(back)! - 1); count.set(fwd, count.get(fwd)! - 1); continue; }
+        if (!count.get(fwd)) continue;
+        count.set(fwd, count.get(fwd)! - 1);
+        (out.get(key(e[0])) ?? out.set(key(e[0]), []).get(key(e[0]))!).push(e);
+    }
+    const loops: Region = [];
+    for (const list of out.values()) while (list.length) {
+        const loop: Polygon = [];
+        let e = list.pop()!;
+        for (let guard = 0; e && guard < edges.length; guard++) {
+            loop.push(e[0]);
+            const next = out.get(key(e[1]));
+            if (!next?.length) break;
+            e = next.pop()!;
+        }
+        if (loop.length > 2) loops.push(loop);
+    }
+    return loops;
+}
+
+/** Simplify contours and drop the hairline slivers that shifted coincident edges leave behind. */
 function clean(region: Region, tol: number): Region {
-    return region.map(poly => simplify(poly, tol)).filter(p => p.length > 2 && Math.abs(area(p)) > tol * tol);
+    return (tol > 0 ? merge(region.map(poly => despike(poly, tol)).filter(p => p.length > 2), tol) : region).map(poly => simplify(poly, tol)).filter(p => p.length > 2 && Math.abs(area(p)) > tol * tol && 2 * Math.abs(area(p)) / perimeter(p) > tol / 10);
 }
 
 /** Drop near-duplicate and near-collinear vertices (Ramer-Douglas-Peucker on a closed ring). */
@@ -115,8 +192,11 @@ export function simplify(poly: Polygon, tol: number): Polygon {
 /** Combine regions bottom to top: subtract removes every upper region from the bottom one. */
 export function combine(regions: Region[], op: BooleanOp, tol = 0.05): Region {
     if (!regions.length) return [];
-    if (op === 'subtract') return clean(clip(regions[0], combine(regions.slice(1), 'union', tol), 'subtract'), tol);
-    return clean(regions.slice(1).reduce((acc, r) => op === 'exclude'
-        ? [...clip(acc, r, 'subtract'), ...clip(r, acc, 'subtract')]
-        : clip(acc, r, op), regions[0]), tol);
+    if (op === 'subtract') return clean(clip(...prepare(regions[0], combine(regions.slice(1), 'union', tol)), 'subtract'), tol);
+    return regions.slice(1).reduce((acc, r) => {
+        const [a, b] = prepare(acc, r);
+        if (op !== 'exclude') return clean(clip(a, b, op), tol);
+        const left = clean(clip(a, b, 'subtract'), tol), right = clean(clip(b, a, 'subtract'), tol);
+        return !left.length ? right : !right.length ? left : clean(clip(...prepare(left, right), 'union'), tol);
+    }, clean(regions[0], tol));
 }

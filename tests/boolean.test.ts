@@ -35,3 +35,38 @@ describe('boolean ops', () => {
         close(Math.abs(regionArea(combine([sq(0, 0, 30), sq(2, 2, 5), sq(20, 20, 5)], 'subtract'))), 850);
     });
 });
+
+describe('boolean ops on repeated and aligned edges', () => {
+    const r = (x: number, y: number, w: number, h: number): Region => [[{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }]];
+    it('folds aligned rectangles', () => {
+        close(Math.abs(regionArea(combine([r(0, 0, 10, 10), r(5, 0, 10, 10), r(10, 0, 10, 10)], 'union'))), 200);
+        close(Math.abs(regionArea(combine([r(0, 0, 10, 10), r(0, 0, 20, 10), r(5, 0, 20, 10)], 'union'))), 250);
+        close(Math.abs(regionArea(combine([r(0, 0, 10, 10), r(0, 0, 20, 10), r(0, 0, 10, 20)], 'intersect'))), 100);
+        close(Math.abs(regionArea(combine([r(0, 0, 20, 10), r(5, 0, 10, 10), r(5, 0, 10, 5)], 'intersect'))), 50);
+    });
+    it('excludes repeated shapes', () => {
+        const A = r(0, 0, 10, 10), B = r(5, 5, 10, 10);
+        close(Math.abs(regionArea(combine([A, B, A], 'exclude'))), 100);
+        close(Math.abs(regionArea(combine([A, A, B], 'exclude'))), 100);
+        close(Math.abs(regionArea(combine([A, r(10, 0, 10, 10), r(5, 0, 10, 10)], 'exclude'))), 100);
+    });
+});
+
+describe('boolean ops match a grid count for random aligned rectangles', () => {
+    let seed = 7;
+    const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    it('agrees for 1000 random folds of 10px cells', () => {
+        for (let run = 0; run < 1000; run++) {
+            const rects = Array.from({ length: 2 + rand(3) }, () => { const x = rand(8), y = rand(8); return { x, y, w: 1 + rand(8 - x), h: 1 + rand(8 - y) }; });
+            const regions: Region[] = rects.map(({ x, y, w, h }) => [[{ x: x * 10, y: y * 10 }, { x: (x + w) * 10, y: y * 10 }, { x: (x + w) * 10, y: (y + h) * 10 }, { x: x * 10, y: (y + h) * 10 }]]);
+            const count = (keep: (hits: boolean[]) => boolean) => { let n = 0;
+                for (let x = 0; x < 9; x++) for (let y = 0; y < 9; y++) if (keep(rects.map(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h))) n++;
+                return n; };
+            const want = { union: count(h => h.some(Boolean)), intersect: count(h => h.every(Boolean)), subtract: count(h => h[0] && !h.slice(1).some(Boolean)), exclude: count(h => h.filter(Boolean).length % 2 === 1) };
+            for (const op of ['union', 'intersect', 'subtract', 'exclude'] as const) {
+                const got = Math.abs(regionArea(combine(regions, op))) / 100;
+                expect(Math.abs(got - want[op]), `${op} ${JSON.stringify(rects)}`).toBeLessThan(0.01);
+            }
+        }
+    });
+});
