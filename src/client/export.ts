@@ -2,7 +2,7 @@ import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/
 import { activeMask, ancestorMasks, bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { world, worldMatrix } from './geometry';
 import { clipMask, drawNode } from './draw';
-import { loadAsset } from './assets';
+import { assetURL, loadAsset } from './assets';
 import { svgPaints, svgStroke } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
@@ -69,7 +69,7 @@ const exportFile = () => typeof location === 'undefined' ? 'untitled' : location
 export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Promise<string> {
     const selection = [...ids], file = exportFile(), images = new Map<string, string>();
     await Promise.all([...exportImages(doc, selection)].map(async hash => {
-        const response = await fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`); if (!response.ok) throw Error('Asset unavailable');
+        const response = await fetch(assetURL(file, hash)); if (!response.ok) throw Error('Asset unavailable');
         const blob = await response.blob(); if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) throw Error('Unsupported image asset');
         const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
         images.set(hash, `data:${blob.type};base64,${btoa(binary)}`);

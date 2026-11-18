@@ -4,6 +4,24 @@ import { makeNode } from '../src/shared/doc';
 import { Sync } from '../src/client/sync';
 import { loadAsset } from '../src/client/assets';
 import { isViewerCanvasShortcut } from '../src/client/shortcuts';
+import { exportSVGWithAssets } from '../src/client/export';
+
+it('embeds SVG images through the current editor or viewer asset route and reports missing assets', async () => {
+    const node = { ...makeNode('rect', 0, 0), fills: [{ type: 'image' as const, asset: 'image-hash', fit: 'fill' as const, w: 10, h: 10, visible: true, opacity: 1 }] };
+    const doc = new Map([[node.id, node]]);
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['image'], { type: 'image/png' }) });
+    vi.stubGlobal('fetch', fetcher);
+    for (const route of ['f', 'v']) {
+        vi.stubGlobal('location', { pathname: `/${route}/opaque-key` });
+        expect(await exportSVGWithAssets(doc, [node.id])).toContain('data:image/png;base64,');
+        expect(fetcher).toHaveBeenLastCalledWith(`/${route}/opaque-key/assets/image-hash`);
+    }
+    fetcher.mockResolvedValue({ ok: false });
+    await expect(exportSVGWithAssets(doc, [node.id])).rejects.toThrow('Asset unavailable');
+    fetcher.mockClear();
+    await exportSVGWithAssets(new Map(), []);
+    expect(fetcher).not.toHaveBeenCalled();
+});
 
 it('leaves focus navigation and control activation to the browser while excluding editor shortcuts', () => {
     const event = (key: string) => ({ key, ctrlKey: false, metaKey: false, altKey: false });
