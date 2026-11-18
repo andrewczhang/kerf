@@ -63,7 +63,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
     el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
     el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
     let pressing = false, stale = false;
-    const editing = () => !!document.activeElement?.closest('input,select,textarea') && el.contains(document.activeElement);
+    const editing = () => !!document.activeElement?.closest('input,select,textarea,.color-picker') && el.contains(document.activeElement);
     el.addEventListener('pointerdown', () => { pressing = true; }, true);
     window.addEventListener('pointerup', () => { if (pressing) setTimeout(() => { pressing = false; if (stale) render(); }); }, true);
     el.addEventListener('focusout', e => { if (stale && !el.contains(e.relatedTarget as HTMLElement | null)) setTimeout(render); });

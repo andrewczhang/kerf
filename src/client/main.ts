@@ -30,6 +30,7 @@ import { home } from './ui/home';
 import { trackRecent } from './recent-preview';
 import { editorCommands } from './ui/editor-commands';
 import { fileName } from './ui/file-name';
+import { installColorPicker } from './ui/color-picker';
 if (location.pathname === '/') home();
 else bootEditor();
 function bootEditor() {
@@ -48,6 +49,7 @@ let renderer: Renderer;
 let textEditor: TextEditor;
 const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
 const sync = new Sync(store, file);
+installColorPicker(store, sync);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
 installGuides(canvas, ctx, file, () => space || active?.id === 'hand');

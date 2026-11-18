@@ -4,6 +4,10 @@ import { isTextNode, maxFontSize, nodeFills, textFonts, textWeights, type Key, t
 import { expand, isVirtual, splitVirtual } from '../../shared/components';
 import { styleValues, validStyle, type Style } from '../../shared/styles';
 import './styles.css';
+import type { Palette } from '../../shared/color';
+export function addColorPalette(sync: Sync, palette: Palette) {
+    for (const [i, color] of palette.colors.entries()) sync.send({ type: 'style-upsert', style: { id: crypto.randomUUID(), name: `${palette.name} / ${i + 1}`, kind: 'color', color } });
+}
 const fonts = { sans: 'Arial, sans-serif', serif: 'Georgia, serif', mono: 'monospace' };
 function button(text: string, action: () => void) { const b = document.createElement('button'); b.textContent = text; b.onclick = () => { b.blur(); action(); }; return b; }
 function create(sync: Sync, kind: Style['kind'], node?: Node, target = 'fill') {
