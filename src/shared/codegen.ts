@@ -1,7 +1,7 @@
 import { children, type Doc, type Node } from './doc';
 
 export type CodeStyle = Record<string, string | number>;
-export const defaultName = (type: Node['type']) => ({ frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse' })[type];
+export const defaultName = (type: Node['type']) => ({ frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', group: 'Group', text: 'Text', path: 'Path' })[type];
 
 export function componentName(name: string): string {
     const result = name.split(/[^a-zA-Z0-9]+/).filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join('');

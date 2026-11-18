@@ -4,6 +4,8 @@ import type { CodeElement } from '../shared/jsxparse';
 import { world } from '../shared/geometry';
 import type { Store } from './store';
 
+const codeKeys: Key[] = ['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity'];
+
 export function commitCode(store: Store, ops: Op[]): void {
     if (ops.length > 1000) throw new CodeDiffError(`Too many changes at once (${ops.length}); split the edit`, 1, 1);
     if (ops.length) store.commit(ops);
@@ -52,7 +54,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
             if (id && seen.has(id)) fail('duplicate data-kerf');
             const old = id ? doc.get(id) : undefined;
             const nested = flatten(element.children);
-            const type = style.borderRadius === '50%' ? 'ellipse' : nested.length || attrs['data-type'] === 'frame' ? 'frame' : 'rect';
+            const type = old && ['text', 'path', 'group'].includes(old.type) ? old.type : style.borderRadius === '50%' ? 'ellipse' : nested.length || attrs['data-type'] === 'frame' ? 'frame' : 'rect';
             if (old?.type === 'frame' && type !== 'frame') convertedFrames.add(old.id);
             if (type === 'ellipse' && nested.length) fail('ellipses cannot contain children');
             const number = (key: string, fallback: number) => {
@@ -85,7 +87,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
             previous = node.index;
             seen.add(node.id);
             if (!old) ops.push({ t: 'create', node });
-            else for (const key of Object.keys(node) as (keyof Node)[]) if (key !== 'id' && old[key] !== node[key]) ops.push({ t: 'set', id: node.id, key: key as Key, value: node[key] });
+            else for (const key of codeKeys) if (old[key] !== node[key]) ops.push({ t: 'set', id: node.id, key, value: node[key] });
             visit(nested, node.id);
         }
     };

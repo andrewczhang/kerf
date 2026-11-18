@@ -18,6 +18,25 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('preserves properties outside the code subset after merging richer node types', () => {
+        const doc = fixture();
+        Object.assign(doc.get('frame')!, { layout: 'horizontal', gap: 16, padTop: 8, sizeH: 'hug' });
+        Object.assign(doc.get('rect')!, { hidden: true, locked: true, fills: [{ type: 'linear', visible: true, opacity: 1, from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, stops: [{ pos: 0, color: '#ff4f00', opacity: 1 }, { pos: 1, color: '#ffffff', opacity: 1 }] }], effects: [{ type: 'layer-blur', radius: 4, visible: true }] });
+        const group = { ...makeNode('group', 30, 40, 'b'), id: 'group', parent: 'frame' };
+        const text = { ...makeNode('text', 5, 6), id: 'text', parent: group.id, text: 'Keep this copy', fontSize: 37, fontFamily: 'serif' as const };
+        const path = { ...makeNode('path', 7, 8, 'c'), id: 'path', parent: 'frame' };
+        for (const node of [group, text, path]) doc.set(node.id, node);
+        expect(diffCode(doc, 'frame', tree(toReact(doc, 'frame')))).toEqual([]);
+        expect(diffCode(doc, null, tree(toReact(doc, null)))).toEqual([]);
+        const parsed = tree(toReact(doc, 'frame')); parsed.children[0].children[0].style.width = 144;
+        const ops = diffCode(doc, 'frame', parsed);
+        expect(ops).toEqual([{ t: 'set', id: 'rect', key: 'w', value: 144 }]);
+        for (const op of ops) applyOp(doc, op);
+        expect(doc.get('rect')).toMatchObject({ hidden: true, locked: true, w: 144 });
+        expect(doc.get('rect')!.fills).toHaveLength(1);
+        expect(doc.get('rect')!.effects).toHaveLength(1);
+        expect(doc.get('text')).toEqual(text);
+    });
     it.each(['rect', 'ellipse'] as const)('refuses frame-to-%s conversion around new collaborator children', type => {
         for (const parent of ['frame', 'nested']) {
             const doc = fixture(), baseline = codeScopeIds(doc, 'frame');
