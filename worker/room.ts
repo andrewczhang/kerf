@@ -1,12 +1,12 @@
 import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers-types';
-import { applyOp, type Doc, type Node } from '../src/shared/doc';
+import { applyOp, normalizeNode, type Doc, type Node } from '../src/shared/doc';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 export class Room {
     doc: Doc = new Map();
     peers = new Map<WebSocket, Peer>();
-    constructor(private state: DurableObjectState) { state.blockConcurrencyWhile(async () => { const nodes = await state.storage.get<Node[]>('nodes'); this.doc = new Map((nodes ?? []).map(n => [n.id, n])); }); }
+    constructor(private state: DurableObjectState) { state.blockConcurrencyWhile(async () => { const nodes = await state.storage.get<Node[]>('nodes'); this.doc = new Map((nodes ?? []).map(n => [n.id, normalizeNode(n)])); }); }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
     }

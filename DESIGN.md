@@ -28,10 +28,11 @@ worker/
   index.ts        routes: GET /f/:id/ws -> DO (by idFromName(id)); everything else -> static assets (Workers static assets, SPA fallback to index.html)
   room.ts         Durable Object (SQLite-backed or KV storage API): holds Doc in memory, persists nodes, broadcasts
 ```
-Later features (pen/vector paths, text, layers panel, export) each land as a new tool file / ui file plus new Node type in doc.ts without touching sync.
+The left layers panel renders the live tree, with rename, visibility, lock and drag reordering. Pure group/reparent/bounds operations live in shared/layers.ts. Later features (pen/vector paths, text, export) land without touching sync.
 
 ## Document model
-Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
+Node = { id, type: 'frame'|'group'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity, hidden, locked }.
+Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
 ## Sync (Figma-style property LWW, server authoritative)

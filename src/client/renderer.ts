@@ -2,6 +2,7 @@ import { children, type Node } from '../shared/doc';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { blocked } from '../shared/layers';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -26,7 +27,7 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        const drawNode = (n: Node) => { const r = world(store.doc, n); c.save(); c.globalAlpha *= n.opacity; c.beginPath(); if (n.type === 'ellipse')
+        const drawNode = (n: Node) => { if (n.hidden) return; if (n.type === 'group') { for (const child of children(store.doc, n.id)) drawNode(child); return; } const r = world(store.doc, n); c.save(); c.globalAlpha *= n.opacity; c.beginPath(); if (n.type === 'ellipse')
             c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
         else
             c.roundRect(r.x, r.y, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2)); c.fillStyle = n.fill; c.fill(); if (n.stroke) {
@@ -45,10 +46,10 @@ export class Renderer {
         for (const n of children(store.doc, null))
             drawNode(n);
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
-        const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n && !blocked(store.doc, n, false));
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
-            if (n)
+            if (n && !blocked(store.doc, n, false))
                 outline(world(store.doc, n), '#ff4f00');
         }
         if (selected.length) {
@@ -71,7 +72,7 @@ export class Renderer {
         for (const peer of this.sync.peers.values()) {
             for (const id of peer.selection) {
                 const n = store.doc.get(id);
-                if (n)
+                if (n && !blocked(store.doc, n, false))
                     outline(world(store.doc, n), peer.color, true);
             }
         }

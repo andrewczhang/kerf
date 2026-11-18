@@ -28,6 +28,7 @@ export function world(doc: Doc, n: Node): Rect { let x = n.x, y = n.y, p = n.par
     p = a.parent;
 } return { x, y, w: n.w, h: n.h }; }
 export function hit(doc: Doc, p: Point, parent: string | null = null): Node | undefined { for (const n of children(doc, parent).reverse()) {
+    if (n.hidden || n.locked) continue;
     const r = world(doc, n);
     if (!contains(r, p))
         continue;
