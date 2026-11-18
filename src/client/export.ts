@@ -63,7 +63,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         const tag = n.type === 'ellipse' ? 'ellipse' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
-            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`; }
+            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, 1)).join('')}</g>`; }
             return svgPaints(n, r, tag, geometry, opacity, nested, paintId);
         }
         const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry} fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
