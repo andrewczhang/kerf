@@ -1,5 +1,6 @@
 import './style.css';
 import { Store } from './store';
+import { addAutoLayout, isAutoLayout, wrapInAutoLayout } from './autolayout';
 import { Sync } from './sync';
 import { Viewport } from './viewport';
 import { Presence } from './presence';
@@ -78,7 +79,7 @@ else {
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]'))
     return; if (e.code === 'Space') {
     e.preventDefault();
     space = true;
@@ -87,6 +88,12 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
 } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     store.history(e.shiftKey);
+    return;
+} if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'a') {
+    e.preventDefault();
+    const nodes = [...store.selection].flatMap(id => { const n = store.doc.get(id); return n ? [n] : []; });
+    if (nodes.length === 1 && nodes[0].type === 'frame' && !isAutoLayout(nodes[0])) addAutoLayout(store, nodes[0]);
+    else if (nodes.length) wrapInAutoLayout(store, nodes);
     return;
 } if (e.key === 'Escape') {
     store.selection.clear();

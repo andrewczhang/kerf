@@ -1,5 +1,6 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
+import { autoLayoutSection, sizingControl } from './autolayout';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -45,9 +46,11 @@ export function inspector(el: HTMLElement, store: Store) {
                 store.set(n.id, { [key]: value }); };
             input.onblur = () => { store.end(); render(); };
             label.append(span, input);
+            sizingControl(label, input, key, nodes, store);
             grid.append(label);
         } content.append(section); };
         fields('Layout', ['x', 'y', 'w', 'h']);
+        autoLayoutSection(content, nodes, store);
         fields('Appearance', ['radius', 'opacity']);
         fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
     };
