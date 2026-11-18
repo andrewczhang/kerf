@@ -73,3 +73,14 @@ it('rasterizes an outside stroke shadow with rotated bounds, silhouette and offs
     const matrix = caster.setTransform.mock.calls[0]; expect(matrix[0]).toBeCloseTo(0); expect(matrix[1]).toBeCloseTo(1); expect(matrix[2]).toBeCloseTo(-1); expect(matrix[3]).toBeCloseTo(0);
     expect(target.shadowOffsetY).toBeCloseTo(10); expect(target.drawImage).toHaveBeenCalledOnce();
 });
+
+it.each([false, true])('keeps SVG backdrop replays global through rotated clips (painted inner frame: %s)', painted => {
+    const outer = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation: 30, fills: [solid] }, inner = { ...makeNode('frame', 100, 100), parent: outer.id, w: 200, h: 200, rotation: -15, ...(painted ? { fills: [solid] } : {}) }, asset = 'a'.repeat(64), uri = 'data:image/png;base64,AQID';
+    const n = { ...makeNode('rect', 20, 20), parent: inner.id, rotation: 45, fills: [{ type: 'image' as const, asset, w: 40, h: 20, fit: 'fill' as const, opacity: 1, visible: true }], effects: [{ type: 'background-blur' as const, radius: 6, visible: true }] }, doc = docOf(outer, inner, n), svg = exportSVG(doc, [outer.id], new Map([[asset, uri]]));
+    const parent = correction(doc, painted ? inner : outer), local = multiply(inverse(parent), correction(doc, n));
+    expect(svg).toContain(`<g transform="matrix(${local.join(' ')})">`);
+    expect(svg).toContain(`<g transform="matrix(${inverse(correction(doc, n)).join(' ')})"><use href=`);
+    expect(svg).toContain(`<g transform="matrix(${inverse(correction(doc, outer)).join(' ')})"><use href=`);
+    expect(svg).toContain(uri); expect(svg).toContain('stdDeviation="6"');
+    const ids = [...svg.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]); expect(new Set(ids).size).toBe(ids.length);
+});

@@ -59,13 +59,27 @@ export function exportBounds(doc: Doc, roots: Node[]) {
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
 }
 
+function exportImages(doc: Doc, ids: Iterable<string>) {
+    const images = new Set<string>(), collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group' && (n.type !== 'path' || n.closed)) for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') children(doc, n.id).forEach(collect); };
+    exportRoots(doc, ids).forEach(collect); return images;
+}
+const exportFile = () => typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled';
+export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Promise<string> {
+    const selection = [...ids], file = exportFile(), images = new Map<string, string>();
+    await Promise.all([...exportImages(doc, selection)].map(async hash => {
+        const response = await fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`); if (!response.ok) throw Error('Asset unavailable');
+        const blob = await response.blob(); if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) throw Error('Unsupported image asset');
+        const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        images.set(hash, `data:${blob.type};base64,${btoa(binary)}`);
+    }));
+    return exportSVG(doc, selection, images);
+}
+
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
-    const file = typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled', images = new Set<string>();
-    const collect = (n: Node) => { if (n.hidden) return; if (n.type !== 'group') for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame' || n.type === 'group') for (const child of children(doc, n.id)) collect(child); };
-    roots.forEach(collect); await Promise.all([...images].map(hash => loadAsset(file, hash)));
+    const file = exportFile(); await Promise.all([...exportImages(doc, roots.map(n => n.id))].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
     canvas.width = r.w * scale;
     canvas.height = r.h * scale;
@@ -88,30 +102,44 @@ export function pathData(abs: PathPoint[], closed: boolean): string {
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-export function exportSVG(doc: Doc, ids: Iterable<string>): string {
+export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<string, string> = new Map()): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
+    type Clip = { id: string; applied?: Mat };
+    const matrix = (m?: Mat) => m && m.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${m.join(' ')})"` : '';
+    const wrapped = (content: string, m?: Mat) => content && matrix(m) ? `<g${matrix(m)}>${content}</g>` : content;
     let clip = 0, paint = 0;
+    const needsBackdrop = (nodes: Node[]): boolean => nodes.some(n => !n.hidden && ((n.type !== 'path' || n.closed) && n.effects?.some(e => e.visible && e.type === 'background-blur') || (n.type === 'frame' || n.type === 'group') && needsBackdrop(children(doc, n.id))));
+    const hasBackdrop = needsBackdrop(roots);
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
-    const clipId = () => {
-        let id: string;
-        do { id = `clip-${clip++}`; } while (doc.has(id));
-        return id;
+    const clipId = () => { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); return id; };
+    const definitions: string[] = [], plainIds = new Map<string, string>();
+    const plainRef = (n: Node, alpha: number, shell = false): string => {
+        const key = `${n.id}/${alpha}/${shell}`; let id = plainIds.get(key);
+        if (!id) { id = paintId(); plainIds.set(key, id); const content = render(n, alpha, '', true, shell); definitions.push(`<g id="${id}">${content}</g>`); }
+        return `<use href="#${id}"/>`;
     };
-    const render = (n: Node, alpha: number, applied?: Mat): string => {
+    const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
+    const clipped = (content: string, clips: Clip[]) => clips.reduceRight((body, clip) => wrapped(`<g clip-path="url(#${clip.id})">${wrapped(body, clip.applied && inverse(clip.applied))}</g>`, clip.applied), content);
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat): string => {
+        let output = '', below = backdrop;
+        for (const n of nodes) { if (n.hidden) continue; if (!plain && !hasBackdrop) { output += render(n, alpha, '', false, false, clips, applied); continue; } const original = plainRef(n, alpha); if (plain) output += wrapped(original, applied && inverse(applied)); else { output += render(n, alpha, below, false, false, clips, applied); below = extendBackdrop(below, clipped(original, clips)); } }
+        return output;
+    };
+    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false, clips: Clip[] = [], applied?: Mat): string => {
         if (n.hidden)
             return '';
         if (n.type === 'group')
-            return children(doc, n.id).map(child => render(child, alpha, applied)).join('');
+            return renderList(children(doc, n.id), alpha, backdrop, plain, clips, applied);
         const r = world(doc, n), opacity = alpha * n.opacity, m = worldMatrix(doc, n);
         const correction: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
-        const relative = applied ? multiply(inverse(applied), correction) : correction;
-        const transform = relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${relative.join(' ')})"` : '';
+        const relative = applied ? multiply(inverse(applied), correction) : correction, transform = matrix(relative), localBackdrop = wrapped(backdrop, inverse(correction));
+        const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur' && (!shell || e.type !== 'layer-blur')) } : n, nodeId = plain ? painted.id : n.id;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
-            if (n.fills !== undefined || n.effects !== undefined) { const painted = svgPaints(n, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs); return transform ? `<g${transform}>${painted}</g>` : painted; }
-            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+            if (n.fills !== undefined || n.effects !== undefined) return wrapped(svgPaints(painted, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs, { images, backdrop: localBackdrop, region: r }), relative);
+            return `<text id="${escape(nodeId)}" data-name="${escape(n.name)}"${transform} xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
@@ -120,20 +148,18 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
-            if (n.type === 'frame') { const id = clipId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, 1, correction)).join('')}</g>`; }
-            const painted = svgPaints(n, r, tag, geometry, opacity, nested, paintId, '', points);
-            return transform ? `<g${transform}>${painted}</g>` : painted;
+            if (n.type === 'frame' && !shell) { const id = clipId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied: correction }], correction)}</g>`; }
+            return wrapped(svgPaints(painted, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop: localBackdrop, region: r, points }), relative);
         }
-        const stroke = svgStroke(n, r, tag, geometry, points, opacity, clipId);
-        const fill = n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${stroke.fillRule}`;
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${fill}${stroke.inline}/>${stroke.extra}`;
-        const rotated = transform ? `<g${transform}>${primitive}</g>` : primitive;
-        if (n.type !== 'frame')
-            return rotated;
+        const stroke = svgStroke(painted, r, tag, geometry, points, opacity, clipId);
+        const primitive = `<${tag} id="${escape(nodeId)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${stroke.fillRule}`}${stroke.inline}/>${stroke.extra}`;
+        if (n.type !== 'frame' || shell)
+            return wrapped(primitive, relative);
         const id = clipId();
-        return `${rotated}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity, applied)).join('')}</g>`;
+        return `${wrapped(primitive, relative)}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied }], applied)}</g>`;
     };
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${roots.map(n => render(n, 1)).join('')}</svg>`;
+    const content = renderList(roots, 1, '');
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${definitions.length ? `<defs>${definitions.join('')}</defs>` : ''}${content}</svg>`;
 }
 
 export function exportFilename(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1): string {
@@ -155,6 +181,6 @@ export async function downloadSelection(doc: Doc, ids: Iterable<string>, format:
     if (!exportRoots(doc, selection).length)
         return;
     const filename = exportFilename(doc, selection, format, scale);
-    const blob = format === 'svg' ? new Blob([exportSVG(doc, selection)], { type: 'image/svg+xml' }) : await exportPNG(doc, selection, scale);
+    const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, selection)], { type: 'image/svg+xml' }) : await exportPNG(doc, selection, scale);
     download(blob, filename);
 }

@@ -57,6 +57,10 @@ npm run test:sync
 
 The sync integration script starts its own Wrangler on port 8790, connects three real WebSocket clients, checks creation, movement, presence, late-join state and departure, then stops its server. Port 8787 can remain running independently.
 
+SVG exports embed image assets and include inner shadows and background blur. Like PNG, backdrop blur samples only exported content below the node.
+
+For the headless SVG/PNG pixel comparison, keep Wrangler running on port 8787 (`npm run build && npm start`), install Chromium with `npx playwright install chromium`, then run `node scripts/svg-parity.mjs`. Alternatively set `CHROME_BIN` to an existing Chromium executable. The check uploads a generated test image to the local `svg-parity-check` file, compares a 1× scene with image cover/contain/tile, inner shadows, backdrop blur and nested frames, and writes PNG/SVG/comparison artifacts under `~/kerf-shots/`. `KERF_URL` and `KERF_SHOTS` override the server and artifact directory.
+
 ## Extension points
 
 Shared document operations and geometry are pure functions in `src/shared`. Tools implement `Tool` and register in `main.ts`; pen/text can be separate files. Renderer, camera, local history, transport, presence and each UI surface have separate modules. Layers/export can be added as independent UI modules without changing the sync protocol.
