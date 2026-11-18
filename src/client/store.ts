@@ -192,7 +192,7 @@ export class Store extends EventTarget {
             } else if (!pendingKey(op) || !keys.has(pendingKey(op)))
                 applyOp(this.doc, op);
         }
-        const resolved = expand(this.doc, this.measureText);
+        const resolved = [...this.selection].some(isVirtual) ? expand(this.doc, this.measureText) : this.doc;
         for (const id of this.selection)
             if (!resolved.has(id)) this.selection.delete(id);
         if (layout) applyLayout(this.doc, this.measureText);
