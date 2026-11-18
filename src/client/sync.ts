@@ -13,8 +13,11 @@ export class Sync extends EventTarget {
     versions: Version[] = [];
     constructor(public store: Store, public file: string) { super(); store.send = (ops, seq) => this.send({ type: 'ops', ops, seq }); this.connect(); }
     notify() { this.dispatchEvent(new Event('change')); }
-    send(msg: ClientMsg) { if (this.socket?.readyState === WebSocket.OPEN)
-        this.socket.send(JSON.stringify(msg)); }
+    send(msg: ClientMsg): boolean {
+        if (this.socket?.readyState !== WebSocket.OPEN) return false;
+        this.socket.send(JSON.stringify(msg));
+        return true;
+    }
     connect() { const ws = this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/f/${this.file}/ws`); ws.onmessage = e => { const m = JSON.parse(e.data) as ServerMsg; if (m.type === 'init') {
         this.you = m.you;
         this.comments = m.comments;

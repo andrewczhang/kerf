@@ -34,3 +34,10 @@ it('restores without pending edits and preserves pending creates across restored
     socket.receive({ type: 'restored', ops: [{ t: 'delete', id: copy.id }] });
     expect(store.doc.get(copy.id)).toEqual(copy); expect(store.pending.size).toBe(1);
 });
+it('reports a disconnected send without sending and resumes sends when open', () => {
+    const { sync, socket } = setup(); socket.readyState = 3;
+    expect(sync.send({ type: 'comment-delete', id: 'one' })).toBe(false);
+    expect(socket.sent).toEqual([]); socket.readyState = Socket.OPEN;
+    expect(sync.send({ type: 'comment-delete', id: 'one' })).toBe(true);
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: 'comment-delete', id: 'one' });
+});

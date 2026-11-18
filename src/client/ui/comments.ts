@@ -31,12 +31,15 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
             meta.textContent = `${c.author} · ${new Date(c.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; body.textContent = c.text; article.append(meta, body); pop.append(article);
         }
         const input = document.createElement('textarea'); input.placeholder = draft ? 'Leave a comment…' : 'Reply…'; input.rows = 2; input.maxLength = 10000; input.setAttribute('aria-label', input.placeholder); pop.append(input);
+        const status = document.createElement('div'); status.setAttribute('role', 'status'); pop.append(status);
         const actions = document.createElement('div'); actions.className = 'comment-actions'; pop.append(actions);
         const button = (text: string, fn: () => void) => { const b = document.createElement('button'); b.className = 'feature-button'; b.textContent = text; b.onclick = fn; actions.append(b); };
         const post = () => {
-            if (!input.value.trim() || !sync.you) return;
+            if (!input.value.trim()) return;
+            if (!sync.you) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
             const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
-            sync.send({ type: 'comment-add', comment: c }); if (draft) { open = c.id; draft = null; } input.value = '';
+            if (!sync.send({ type: 'comment-add', comment: c })) { status.textContent = 'Offline — reconnect to post. Your draft is kept.'; return; }
+            if (draft) { open = c.id; draft = null; } input.value = ''; status.textContent = '';
         };
         input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } };
         button('Post', post);
