@@ -3,6 +3,7 @@ import { bounds, contains, handles, intersects, inverse, matrixAngle, parentMatr
 import { aabb, hit, nodeHandles, sizeOf, worldMatrix } from '../geometry';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
+import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap } from '../snapping';
 export class Select implements Tool {
@@ -26,6 +27,7 @@ export class Select implements Tool {
         const { store, viewport } = this.ctx;
         this.start = p;
         this.moved = false;
+        layoutInsertions.delete(store);
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => aabb(store.doc, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
@@ -115,6 +117,8 @@ export class Select implements Tool {
             ({ x, y, w, h } = adjusted);
             const resized = new Map(this.snapshot);
             for (const n of this.original.values()) {
+                if ((hx !== .5 || e.shiftKey) && n.sizeW && n.sizeW !== 'fixed') ops.push({ t: 'set', id: n.id, key: 'sizeW', value: 'fixed' });
+                if ((hy !== .5 || e.shiftKey) && n.sizeH && n.sizeH !== 'fixed') ops.push({ t: 'set', id: n.id, key: 'sizeH', value: 'fixed' });
                 const r = aabb(this.snapshot, n), nw = Math.max(1, n.w * w / b.w), nh = Math.max(1, n.h * h / b.h);
                 const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 }, origin = single ? transform(inverse(m!), c) : c;
                 const scaled = { x: x + (origin.x - b.x) * w / b.w, y: y + (origin.y - b.y) * h / b.h };
@@ -128,10 +132,13 @@ export class Select implements Tool {
             }
         }
         else {
+            const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start);
+            if (insertion) layoutInsertions.set(store, insertion); else layoutInsertions.delete(store);
+            this.ctx.invalidate();
             const b = bounds([...this.original.values()].map(n => aabb(this.snapshot, n)));
             const adjusted = snapped(this.ctx, { ...b, x: b.x + dx, y: b.y + dy }, e);
             dx = adjusted.x - b.x; dy = adjusted.y - b.y;
-            for (const n of this.original.values()) { const m = inverse(parentMatrix(this.snapshot, n)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: dx, y: dy });
+            for (const n of this.original.values()) { if (isAutoLayout(store.doc.get(n.parent ?? ''))) continue; const m = inverse(parentMatrix(this.snapshot, n)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: dx, y: dy });
                 ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + b.x - a.x }, { t: 'set', id: n.id, key: 'y', value: n.y + b.y - a.y }); }
         }
         store.commit(ops);
@@ -143,6 +150,9 @@ export class Select implements Tool {
         this.ctx.marquee = undefined;
     }
     else if (this.moved && this.handle < 0 && !this.rotating) {
+        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
+        else
         for (const id of this.original.keys()) {
             const n = store.doc.get(id)!;
             if (n.parent && store.doc.get(n.parent)?.type === 'group') continue;
@@ -150,10 +160,15 @@ export class Select implements Tool {
             const frames = [...store.doc.values()].filter(f => f.type === 'frame' && !blocked.has(f.id) && contains({ x: 0, y: 0, w: f.w, h: f.h }, transform(inverse(worldMatrix(store.doc, f)), p)));
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
-                store.commit(moveOps(store.doc, id, parent?.id ?? null, {}, sizeOf));
+                const shadow = new Map(store.doc), original = this.original.get(id)!;
+                if (isAutoLayout(store.doc.get(original.parent ?? ''))) {
+                    const m = inverse(parentMatrix(this.snapshot, original)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: p.x - this.start!.x, y: p.y - this.start!.y });
+                    shadow.set(id, { ...n, x: original.x + b.x - a.x, y: original.y + b.y - a.y });
+                }
+                store.commit(moveOps(shadow, id, parent?.id ?? null, {}, sizeOf));
             }
         }
-    } clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); this.start = undefined; store.changed(); }
+    } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); this.start = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id, sizeOf)); } }

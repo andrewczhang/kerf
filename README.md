@@ -27,6 +27,8 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.
 - Drag just outside a selection corner to rotate; Shift snaps to 15°. Single-object resize follows its rotated axes. The inspector's ° field edits each selected object's local angle; frames rotate their children, while groups keep a zero angle and rotate their contents.
 - Drag shapes into or out of a frame to reparent them without changing world position.
+- **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
+- The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates.
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.

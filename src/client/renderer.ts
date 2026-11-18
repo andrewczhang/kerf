@@ -4,6 +4,7 @@ import { aabb, nodeHandles, worldCorners, worldMatrix } from './geometry';
 import { transform } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { isAutoLayout, layoutInsertions } from './autolayout';
 import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
@@ -55,6 +56,12 @@ export class Renderer {
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
             return; const m = worldMatrix(store.doc, n); c.beginPath(); trace(c, toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }).map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n && !blocked(store.doc, n, false));
+        if (selected.length === 1 && isAutoLayout(selected[0])) {
+            const n = selected[0];
+            c.save(); c.transform(...worldMatrix(store.doc, n)); c.globalAlpha = .35;
+            outline({ x: n.padLeft ?? 0, y: n.padTop ?? 0, w: Math.max(0, n.w - (n.padLeft ?? 0) - (n.padRight ?? 0)), h: Math.max(0, n.h - (n.padTop ?? 0) - (n.padBottom ?? 0)) }, '#ff4f00', true);
+            c.restore();
+        }
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
             if (n && !blocked(store.doc, n, false) && n.id !== this.app.editingText)
@@ -72,6 +79,11 @@ export class Renderer {
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
+        }
+        const insertion = this.preview ? undefined : layoutInsertions.get(this.app.store);
+        if (insertion) {
+            c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / v.zoom;
+            c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
         }
         if (!this.preview) drawGradientHandles(c, this.app);
         this.app.active?.draw?.(c, v.zoom);
