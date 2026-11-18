@@ -1,10 +1,10 @@
 import { pageDocument } from '../../shared/pages';
-import { between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
+import { applyOp, between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
 import { bounds, handles, intersects, inverse, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, world, worldMatrix } from '../geometry';
 import type { Store } from '../store';
 import { copyAsset } from '../assets';
-import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
@@ -13,7 +13,7 @@ import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
-type Clipboard = { roots: string[]; nodes: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
+type Clipboard = { roots: string[]; nodes: Node[]; components?: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
 const currentFile = () => typeof location === 'undefined' ? '' : location.pathname.split('/')[2] || 'untitled';
 let memoryClipboard: Clipboard | null = null, copyPending = false;
 export const layerCopyPending = () => { const pending = copyPending; copyPending = false; return pending; };
@@ -333,7 +333,17 @@ export class Select implements Tool {
         for (const n of roots)
             for (const c of [n, ...descendants(store.doc, n.id)])
                 copied.set(c.id, { ...c });
-        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
+        const components = new Map<string, Node>(), seen = new Set<string>();
+        const collect = (n: Node) => {
+            if (!n.instanceOf || seen.has(n.instanceOf)) return;
+            seen.add(n.instanceOf);
+            const main = store.doc.get(n.instanceOf); if (!main) return;
+            const nodes = [main, ...descendants(store.doc, main.id)];
+            for (const node of nodes) components.set(node.id, { ...node });
+            nodes.forEach(collect);
+        };
+        copied.forEach(collect);
+        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], components: [...components.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
         return true;
     } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v') {
         return hasLayerClipboard();
@@ -373,15 +383,39 @@ export async function pasteLayers(store: Store, file = currentFile()) {
     if (!clip?.nodes.length) return;
     clip.pastes++;
     writeClipboard(clip);
+    const source = new Map([...(clip.components ?? []), ...clip.nodes].map(n => [n.id, n]));
+    for (const n of source.values()) if (n.parent && !source.has(n.parent)) source.set(n.id, { ...n, parent: null });
+    const pasted = new Set(clip.nodes.map(n => n.id));
+    for (const id of pasted) {
+        const n = source.get(id)!;
+        if (!n.instanceOf || pasted.has(n.instanceOf) || store.doc.has(n.instanceOf)) continue;
+        if (!source.has(n.instanceOf)) throw Error('Component source is unavailable. Copy the instance again.');
+        for (const op of detachOps(source, id)) {
+            applyOp(source, op);
+            if (op.t === 'create') pasted.add(op.node.id);
+        }
+    }
+    const nodes = [...pasted].map(id => source.get(id)!);
     if (clip.file && clip.file !== file) {
-        const hashes = new Set(clip.nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
+        const hashes = new Set(nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
         await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
     }
-    const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
+    const ids = new Map(nodes.map(n => [n.id, crypto.randomUUID()]));
     const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.pageDoc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
     const created: Node[] = [];
-    for (const n of clip.nodes) {
+    for (const n of nodes) {
         const copy: Node = { ...n, id: ids.get(n.id)! };
+        if (n.instanceOf) {
+            copy.instanceOf = ids.get(n.instanceOf) ?? n.instanceOf;
+            if (n.overrides && ids.has(n.instanceOf)) copy.overrides = Object.fromEntries(Object.entries(n.overrides).map(([path, values]) => {
+                let remap = true;
+                return [path.split('/').map(part => {
+                    const mapped = remap ? ids.get(part) ?? part : part, child = source.get(part);
+                    if (child?.instanceOf) remap = remap && ids.has(child.instanceOf);
+                    return mapped;
+                }).join('/'), values];
+            }));
+        }
         if (clip.roots.includes(n.id)) {
             const parent = target(n.id);
             copy.parent = parent?.id ?? store.currentPage ?? null;
