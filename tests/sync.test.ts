@@ -62,6 +62,19 @@ it('advances past server receipts when local sequence storage is lost, including
     expect(JSON.parse(socket.sent[0]).seq).toBe(16);
     store.set(node.id, { x: 20 }); expect(JSON.parse(socket.sent[1]).seq).toBe(17);
 });
+it('renumbers the entire unsent queue in order when it crosses the server receipt', () => {
+    const { store, socket } = setup(), node = makeNode('rect', 0, 0);
+    store.commit([{ t: 'create', node }]); store.set(node.id, { x: 90 });
+    socket.receive({ type: 'init', nodes: [], peers: [], comments: [], versions: [], ackSeq: 1 });
+    const messages = socket.sent.map(raw => JSON.parse(raw));
+    expect(messages.map(m => m.seq)).toEqual([3, 4]);
+    expect(messages.map(m => m.ops[0].t)).toEqual(['create', 'set']);
+    expect(store.doc.get(node.id)?.x).toBe(90);
+    const server: Doc = new Map();
+    for (const m of messages) for (const op of m.ops) applyOp(server, op);
+    expect(server.get(node.id)?.x).toBe(90);
+    store.set(node.id, { y: 80 }); expect(store.seq).toBe(5);
+});
 it('gives a duplicated live tab a fresh identity and sequence without claiming the original queue', () => {
     const { store, sync } = setup();
     store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);

@@ -113,10 +113,9 @@ export class Sync extends EventTarget {
         this.peers = new Map(m.peers.map(p => [p.id, p]));
         const ackSeq = m.ackSeq ?? 0;
         this.store.seq = Math.max(this.store.seq, ackSeq);
-        for (const [seq, ops] of [...this.store.pending]) if (seq <= ackSeq) {
-            this.store.pending.delete(seq);
-            if (this.unsent.has(seq)) this.store.pending.set(++this.store.seq, ops);
-        }
+        const pending = [...this.store.pending].filter(([seq]) => seq > ackSeq || this.unsent.has(seq));
+        const renumber = pending.some(([seq]) => seq <= ackSeq);
+        this.store.pending = new Map(pending.map(([seq, ops]) => [renumber ? ++this.store.seq : seq, ops]));
         this.unsent.clear();
         this.store.init(m.nodes);
         this.ready = true;
