@@ -39,11 +39,29 @@ class PanelElement {
     clientWidth = 500; clientHeight = 300;
     attributes: Record<string, string> = {};
     oninput?: () => void; onblur?: () => void; onclick?: () => void;
+    onkeydown?: (event: KeyboardEvent) => void;
     querySelector(selector: string): PanelElement { if (!this.nodes.has(selector)) this.nodes.set(selector, new PanelElement()); return this.nodes.get(selector)!; }
     closest() { return this; }
     append() {} replaceChildren() {} setSelectionRange() {}
     setAttribute(key: string, value: string) { this.attributes[key] = value; }
 }
+it.each(['ctrlKey', 'metaKey'])('uses document undo and redo from read-only instance code with %s', modifier => {
+    vi.stubGlobal('document', { createElement: () => new PanelElement(), createTextNode: () => new PanelElement(), activeElement: null });
+    vi.stubGlobal('window', { setTimeout, innerWidth: 1200 });
+    vi.stubGlobal('ResizeObserver', class { observe() {} });
+    const { store, child } = fixture(), el = new PanelElement();
+    store.set(child.id, { radius: 8 }); codepanel(el as unknown as HTMLElement, store).activate(true);
+    const input = el.querySelector('textarea'); expect(input.readOnly).toBe(true);
+    for (const [key, shiftKey, radius] of [['z', false, 0], ['z', true, 8], ['z', false, 0], ['y', false, 8]] as const) {
+        const event = { key, shiftKey, [modifier]: true, preventDefault: vi.fn() };
+        input.onkeydown!(event as unknown as KeyboardEvent);
+        expect(event.preventDefault).toHaveBeenCalledOnce(); expect(store.doc.get(child.id)?.radius).toBe(radius);
+    }
+    for (const key of ['Tab', 'x', 'z']) {
+        const event = { key, preventDefault: vi.fn() };
+        input.onkeydown!(event as unknown as KeyboardEvent); expect(event.preventDefault).not.toHaveBeenCalled();
+    }
+});
 it('keeps instance code read-only, previews resolved layers, and still edits plain main code', () => {
     vi.useFakeTimers();
     vi.stubGlobal('document', { createElement: () => new PanelElement(), createTextNode: () => new PanelElement(), activeElement: null });

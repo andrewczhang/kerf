@@ -111,7 +111,13 @@ export function codepanel(el: HTMLElement, store: Store) {
     input.onscroll = scroll;
     input.onblur = () => { apply(); if (!error) regenerate(); };
     input.onkeydown = event => {
-        if (input.readOnly) return;
+        if (input.readOnly) {
+            const key = event.key.toLowerCase();
+            if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'y')) {
+                event.preventDefault(); store.history(key === 'y' || event.shiftKey);
+            }
+            return;
+        }
         if (event.key === 'Tab') { event.preventDefault(); input.setRangeText('  ', input.selectionStart, input.selectionEnd, 'end'); edited(); }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !dirty) {
             event.preventDefault(); store.history(event.shiftKey);
