@@ -3,6 +3,7 @@
 Multiplayer browser design tool, written from scratch. No editor/canvas/design/UI libraries (no React, no Konva/Fabric/Yjs). TypeScript + Vite for the client, one Cloudflare Worker with a Durable Object for sync.
 
 ## Layout
+Canvas overlays include 20px top/left rulers, local ruler guides, smart alignment guides, gap measurements and selection size labels. Snapping/measurement math lives in `shared/snap.ts`; `client/snapping.ts` bridges tools and `client/guides.ts` owns overlays, ruler interaction and local preferences. Signal labels are square orange rectangles with small white tabular numerals.
 ```
 src/shared/       types + pure logic shared by client and worker
   doc.ts          Node types, Doc = Map<id, Node>, applyOp(doc, op), fractional index helpers
@@ -49,6 +50,9 @@ Main components are frames marked `component`; instances are childless frames wi
 - Presence: `{type:'presence', cursor:{x,y}|null, selection:[ids], name, viewport}` relayed, not persisted. Server assigns a color from a fixed palette and a name; peer join/leave messages.
 - Persist: DO storage, write-through per op (or debounced), loaded on DO start.
 - Drag moves send set ops throttled per frame so others see motion live.
+
+## Prototype, comments and versions
+Prototype links are optional node properties. `draw.ts` shares Canvas2D drawing between editor and presentation. Presentation isolates the current top-level frame, with live navigation and ancestor hotspots. Comments are independent records (`comments` storage), with node-relative pins and no undo entries. `worker/features.ts` owns thread validation and version storage (`versions`, `version:<id>`). Restore broadcasts a minimal shared op diff, saves a safety snapshot first and clears client undo/pending state. History previews use a separate renderer document without mutating the live store. New surfaces retain flat hairline panels and the single orange navigation signal.
 
 ## Visual direction (acz hates stock "AI" look)
 Reference: Swiss / International Typographic Style tool UI — think early Figma crossed with a Dieter Rams instrument panel. Light warm-gray app chrome (#e9e8e4) with pure white canvas? No: canvas #f4f3ef, panels #fbfbf9 separated by 1px hairlines (#d6d4ce), no shadows, no rounded cards, no gradients, no emoji, no pills. Type: "Inter Tight" or system-ui sans at 11-12px for UI, tabular numerals in inspector; one signal color: international orange #ff4f00 for selection/handles. Cursor colors from a saturated palette. Wordmark "Kerf" set in bold sans, lowercase, top-left. Toolbar is a thin top bar of icon glyphs drawn as inline SVG strokes.

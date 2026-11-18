@@ -16,6 +16,7 @@ interface TextProperties {
 }
 
 export interface Node extends Partial<TextProperties> {
+    link?: string | null;
     id: string;
     type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path';
     parent: string | null;
@@ -126,7 +127,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys].includes(op.key))
+    if (!['link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -186,6 +187,7 @@ function validOverrides(value: unknown): boolean {
     return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
+    if (key === 'link') return validLink(value);
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
     if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path'].includes(value as string);
     if (key === 'points') return validPoints(value);
@@ -207,7 +209,8 @@ function validProperty(key: string, value: unknown): boolean {
     if (key === 'opacity') return value >= 0 && value <= 1;
     return key === 'x' || key === 'y' || value >= 0;
 }
-export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
+export function validNode(n: Node): boolean { return !!n && ['link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {

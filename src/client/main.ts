@@ -14,6 +14,8 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { features } from './ui/features';
+import { installGuides } from './guides';
 import { downloadSelection } from './export';
 import { componentOps, detachOps, isVirtual, splitVirtual } from '../shared/components';
 if (location.pathname === '/')
@@ -28,6 +30,7 @@ const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update
 const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
+installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
@@ -53,6 +56,7 @@ toolbar(document.querySelector('header')!, choose);
 choose('select');
 inspector(document.querySelector('aside')!, store, viewport);
 people(document.querySelector('#people')!, sync, viewport);
+features(renderer, sync, ctx, choose);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (active.id !== 'select') return;
@@ -80,8 +84,10 @@ canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
     pan = { ...p, vx: viewport.x, vy: viewport.y };
     canvas.style.cursor = 'grabbing';
 }
-else
-    active.onPointerDown(viewport.world(p), e); };
+else {
+    if (active.id === 'comment') e.preventDefault();
+    active.onPointerDown(viewport.world(p), e);
+} };
 canvas.onpointermove = e => { pointer = e; if (!queued) {
     queued = true;
     requestAnimationFrame(() => { queued = false; if (pointer) {
@@ -95,7 +101,7 @@ canvas.onpointerup = e => { if (pointer) {
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
 canvas.onpointerleave = () => presence.update(null);
-canvas.parentElement!.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
+canvas.parentElement!.addEventListener('wheel', e => { if ((e.target as HTMLElement).closest('.comment-pop')) return; e.preventDefault(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
 else {
     viewport.x -= e.deltaX;
