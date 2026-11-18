@@ -8,7 +8,7 @@ import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
 import { applyBoolean, booleanOps, canCombine } from '../boolean';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
-import { layoutGridsSection } from './layout-grids';
+import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
@@ -44,10 +44,11 @@ export function inspector(el: HTMLElement, store: Store) {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (el.contains(document.activeElement)) {
             refreshNumericFields(content, nodes, document.activeElement);
+            refreshLayoutGridFields(content, store, document.activeElement);
             return;
         }
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
             return;
         }
         content.innerHTML = '';
