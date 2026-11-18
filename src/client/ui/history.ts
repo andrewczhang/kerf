@@ -12,6 +12,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
         const head = document.createElement('section'); head.innerHTML = '<h2>Version history</h2><input aria-label="Version name" placeholder="Name this version"><button class="feature-button">Save version</button>';
         head.querySelector('button')!.onclick = () => { sync.send({ type: 'version-save', name: head.querySelector('input')!.value || 'Saved version' }); };
         panel.append(head);
+        head.querySelector('input')!.onkeydown = e => e.stopPropagation();
         head.querySelector('input')!.value = value;
         if (focused) head.querySelector('input')!.focus();
         if (!sync.versions.length) { const empty = document.createElement('section'); empty.textContent = 'No versions yet. Save a milestone to return to it later.'; panel.append(empty); }

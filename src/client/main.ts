@@ -59,8 +59,10 @@ canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
     pan = { ...p, vx: viewport.x, vy: viewport.y };
     canvas.style.cursor = 'grabbing';
 }
-else
-    active.onPointerDown(viewport.world(p), e); };
+else {
+    if (active.id === 'comment') e.preventDefault();
+    active.onPointerDown(viewport.world(p), e);
+} };
 canvas.onpointermove = e => { pointer = e; if (!queued) {
     queued = true;
     requestAnimationFrame(() => { queued = false; if (pointer) {

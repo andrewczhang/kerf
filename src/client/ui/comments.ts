@@ -38,7 +38,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
             const c: Comment = { id: crypto.randomUUID(), thread: root?.id ?? null, ...(draft ?? { x: root!.x, y: root!.y, node: root!.node }), author: sync.you.name, color: sync.you.color, text: input.value.trim(), at: Date.now() };
             sync.send({ type: 'comment-add', comment: c }); if (draft) { open = c.id; draft = null; } input.value = '';
         };
-        input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } };
+        input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } };
         button('Post', post);
         if (root) { button(root.resolved ? 'Reopen' : 'Resolve', () => { sync.send({ type: 'comment-edit', id: root.id, resolved: !root.resolved }); close(); }); button('Delete', () => { sync.send({ type: 'comment-delete', id: root.id }); close(); }); }
         button('Close', close); render(); input.focus();
