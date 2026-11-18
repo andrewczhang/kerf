@@ -7,7 +7,7 @@ import { svgPaints, svgStroke } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
-import { strokeBounds } from '../shared/stroke';
+import { arrowBounds, strokeBounds, strokeShadowCaster } from '../shared/stroke';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -34,10 +34,25 @@ export function exportBounds(doc: Doc, roots: Node[]) {
             const ink = textPaintBounds(n);
             r = { ...ink, x: r.x + ink.x, y: r.y + ink.y };
         }
+        const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
         if (n.type !== 'group')
-            r = strokeBounds(n, r, n.type === 'path' ? toAbs(n.points ?? [], r) : []);
+            r = strokeBounds(n, r, points);
         let left = 0, top = 0, right = 0, bottom = 0, blur = 0;
-        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) {
+            if (e.type === 'drop-shadow') {
+                const feather = e.blur * 2, size = Math.max(0, e.spread) + feather;
+                left = Math.max(left, size - e.x); top = Math.max(top, size - e.y);
+                right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y);
+                if (e.spread > 0 && n.stroke && n.strokeWidth > 0) {
+                    for (const arrow of arrowBounds(strokeShadowCaster(n, e.spread), points)) {
+                        left = Math.max(left, r.x - arrow.x - e.x + feather);
+                        top = Math.max(top, r.y - arrow.y - e.y + feather);
+                        right = Math.max(right, arrow.x + arrow.w + e.x + feather - r.x - r.w);
+                        bottom = Math.max(bottom, arrow.y + arrow.h + e.y + feather - r.y - r.h);
+                    }
+                }
+            } else if (e.type === 'layer-blur') blur += e.radius * 3;
+        }
         return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);

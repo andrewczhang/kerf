@@ -31,6 +31,14 @@ it('includes centered stroke overflow and rounds bounds outward in world coordin
     expect(exportBounds(docOf(frame, child, other), [child, other])).toEqual({ x: 98, y: -21, w: 25, h: 24 });
 });
 
+it('includes the spread-expanded arrowhead shadow in PNG export bounds', () => {
+    const node: Node = {
+        ...makeNode('path', 0, 0), h: 1, points: [corner(0, 0), corner(1, 0)], strokeWidth: 8, strokeEnd: 'circle',
+        effects: [{ type: 'drop-shadow', x: 0, y: 5, blur: 0, spread: 12, color: '#000000', opacity: 1, visible: true }]
+    };
+    expect(exportBounds(docOf(node), [node])).toEqual({ x: -16, y: -40, w: 132, h: 90 });
+});
+
 it('exports rounded frames, world-space ellipses, clips and cumulative primitive alpha', () => {
     const frame = { ...makeNode('frame', 10, 20), id: 'frame', radius: 12, opacity: .5 };
     const ellipse = { ...makeNode('ellipse', 5, 6), id: 'ellipse', parent: frame.id, opacity: .5, stroke: '#123456', strokeWidth: 3 };

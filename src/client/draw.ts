@@ -6,7 +6,7 @@ import { toAbs, trace, type PathPoint } from '../shared/path';
 import { maskedText, textMask, textShape } from './text-paint';
 import { blocked } from '../shared/layers';
 import type { Rect } from '../shared/geometry';
-import { pathArrows, strokeBounds, strokeStyle } from '../shared/stroke';
+import { pathArrows, strokeBounds, strokeShadowCaster, strokeStyle } from '../shared/stroke';
 
 function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: PathPoint[], shape: Path2D | (() => void), color: string) {
     const { align, cap, join, miter, dash, width } = strokeStyle(n);
@@ -159,9 +159,8 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
     const hasFill = (n.type !== 'path' || !!n.closed) && nodeFills(n).some(p => p.visible && p.opacity > 0 && (p.type !== 'linear' && p.type !== 'radial' || p.stops.some(s => s.opacity > 0))), hasStroke = !!n.stroke && n.strokeWidth > 0;
     for (const e of effects) {
         if (e.type !== 'drop-shadow' || !hasFill && !hasStroke) continue;
-        const align = strokeStyle(n).align, width = n.strokeWidth + e.spread * (align === 'center' ? 2 : 1);
-        if (!text && !hasFill && width <= 0) continue;
-        const caster = { ...n, strokeWidth: width };
+        const align = strokeStyle(n).align, caster = strokeShadowCaster(n, e.spread);
+        if (!text && !hasFill && caster.strokeWidth <= 0) continue;
         if (!text && !hasFill && (align !== 'center' || pathArrows(caster, points).length)) {
             drawStrokeShadow(target, caster, r, points, shape, e, scale);
             continue;

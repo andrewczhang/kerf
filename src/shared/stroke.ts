@@ -13,6 +13,11 @@ export function strokeStyle(n: Node) {
     return { align, cap, join, miter, dash, width };
 }
 
+export function strokeShadowCaster(n: Node, spread: number): Node {
+    const align = strokeOptions(n).strokeAlign;
+    return { ...n, strokeWidth: n.strokeWidth + spread * (align === 'center' ? 2 : 1) };
+}
+
 export function pathArrows(n: Node, points: PathPoint[]): Arrow[] {
     if (!isOpenPath(n) || !n.stroke || n.strokeWidth <= 0 || points.length < 2)
         return [];
