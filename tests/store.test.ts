@@ -3,6 +3,21 @@ import { Store } from '../src/client/store';
 import { applyOp, makeNode, type Op } from '../src/shared/doc';
 import { groupOps } from '../src/shared/layers';
 import { MAX_OPS } from '../src/shared/protocol';
+it('sends large commits in ordered batches of at most 1000 with separate pending sequences', () => {
+    const s = new Store(), n = makeNode('rect', 0, 0), sent: { ops: Op[]; seq: number }[] = [];
+    s.init([n]); s.send = (ops, seq) => sent.push({ ops, seq });
+    s.commit([]); expect(sent).toHaveLength(0); expect(s.pending.size).toBe(0);
+    const ops: Op[] = Array.from({ length: 2500 }, (_, i) => ({ t: 'set', id: n.id, key: 'x', value: i + 1 }));
+    s.commit(ops);
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([1, 2, 3]);
+    expect(sent.flatMap(batch => batch.ops)).toEqual(ops);
+    expect([...s.pending]).toEqual(sent.map(batch => [batch.seq, batch.ops]));
+    expect(s.doc.get(n.id)?.x).toBe(2500); expect(s.undoStack).toHaveLength(1);
+    sent.length = 0; s.history();
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([4, 5, 6]); expect(s.doc.get(n.id)?.x).toBe(0);
+});
 
 it('chunks large grouping transactions with independent pending sequences and one undo step', () => {
     const s = new Store(), nodes = Array.from({ length: 250 }, (_, i) => ({ ...makeNode('rect', i, i), index: String(i).padStart(4, '0') }));

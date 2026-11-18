@@ -1,5 +1,6 @@
 import './style.css';
 import { Store } from './store';
+import { addAutoLayout, isAutoLayout, wrapInAutoLayout } from './autolayout';
 import { Sync } from './sync';
 import { Viewport } from './viewport';
 import { Presence } from './presence';
@@ -10,10 +11,13 @@ import { Pen } from './tools/pen';
 import { TextEditor, TextTool } from './tools/text';
 import { isTextNode } from '../shared/doc';
 import { hit } from './geometry';
+import { clearTextLayouts, measureTextNode } from './text-layout';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
+import { installInspect } from './ui/inspect';
 import { people } from './ui/people';
+import { imageImport } from './image-import';
 import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
@@ -24,7 +28,13 @@ if (location.pathname === '/')
 const file = location.pathname.split('/')[2] || 'untitled';
 document.querySelector('#app')!.innerHTML = '<header></header><main><aside class="layers"></aside><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside class="inspector"></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
-const canvas = document.querySelector('canvas')!, store = new Store();
+const canvas = document.querySelector('canvas')!, store = new Store(measureTextNode);
+const fontsChanged = () => {
+    clearTextLayouts();
+    if ([...store.doc.values()].some(isTextNode)) store.relayout();
+};
+void document.fonts.ready.then(fontsChanged);
+document.fonts.addEventListener('loadingdone', fontsChanged);
 let renderer: Renderer;
 let textEditor: TextEditor;
 const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
@@ -34,6 +44,7 @@ const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate()
 installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
+imageImport(canvas, ctx, file);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
 let active: Tool;
@@ -50,7 +61,7 @@ function choose(id: string) { textEditor.close(); active?.deactivate?.(); active
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
-registry.set('text', new TextTool(ctx, (node, creating) => { choose('select'); textEditor.open(node, creating); }));
+registry.set('text', new TextTool(ctx, (node, creating) => { if (isInspecting()) return; choose('select'); textEditor.open(node, creating); }));
 registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
@@ -59,9 +70,10 @@ inspector(document.querySelector('.inspector')!, store);
 layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, viewport);
 features(renderer, sync, ctx, choose);
+const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
-    if (active.id !== 'select') return;
+    if (isInspecting() || active.id !== 'select') return;
     const node = hit(store.doc, viewport.world(local(e)), 4 / viewport.zoom);
     if (isTextNode(node))
         textEditor.open(node);
@@ -108,7 +120,7 @@ else {
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]'))
     return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
@@ -127,7 +139,13 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     e.preventDefault();
     store.history(e.shiftKey);
     return;
-} if (e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
+} if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'a') {
+    e.preventDefault();
+    const nodes = [...store.selection].flatMap(id => { const n = store.doc.get(id); return n ? [n] : []; });
+    if (nodes.length === 1 && nodes[0].type === 'frame' && !isAutoLayout(nodes[0])) addAutoLayout(store, nodes[0]);
+    else if (nodes.length) wrapInAutoLayout(store, nodes);
+    return;
+} if (!isInspecting() && e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
     const node = store.doc.get([...store.selection][0]);
     if (isTextNode(node)) {
         e.preventDefault();
