@@ -45,7 +45,8 @@ export function applyBoolean(store: Store, op: BooleanOp) {
     const next = children(store.doc, home).find(n => n.index > top.index && !store.selection.has(n.id));
     const f = fit(result[0], true, parent ? world(store.doc, parent) : { x: 0, y: 0 }, result.slice(1));
     const node: Node = { ...makeNode('path', f.x, f.y, between(top.index, next?.index ?? null)), parent: home, name: booleanOps.find(o => o[0] === op)![1], w: f.w, h: f.h,
-        points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: true, fill: bottom.fill, stroke: bottom.stroke, strokeWidth: bottom.strokeWidth, opacity: bottom.opacity };
+        points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: true, fill: bottom.fill, stroke: bottom.stroke, strokeWidth: bottom.strokeWidth, opacity: bottom.opacity,
+        ...(bottom.fills ? { fills: structuredClone(bottom.fills) } : {}), ...(bottom.effects ? { effects: structuredClone(bottom.effects) } : {}) };
     store.commit([...nodes.map(n => ({ t: 'delete', id: n.id }) as Op), { t: 'create', node }]);
     store.selection.clear();
     store.selection.add(node.id);
