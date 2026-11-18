@@ -1,3 +1,4 @@
+import { corner, validPoints, type PathPoint } from './path';
 export type Paint = { type: 'solid'; color: string; opacity: number; visible: boolean } | { type: 'linear' | 'radial'; stops: { pos: number; color: string; opacity: number }[]; from: { x: number; y: number }; to: { x: number; y: number }; opacity: number; visible: boolean } | { type: 'image'; asset: string; fit: 'fill' | 'fit' | 'tile'; w: number; h: number; opacity: number; visible: boolean };
 export type Effect = { type: 'drop-shadow' | 'inner-shadow'; x: number; y: number; blur: number; spread: number; color: string; opacity: number; visible: boolean } | { type: 'layer-blur' | 'background-blur'; radius: number; visible: boolean };
 export function nodeFills(n: Node): Paint[] { return n.fills ?? [{ type: 'solid', color: n.fill, opacity: 1, visible: true }]; }
@@ -24,8 +25,9 @@ interface TextProperties {
 }
 
 export interface Node extends Partial<TextProperties> {
+    link?: string | null;
     id: string;
-    type: 'frame' | 'rect' | 'ellipse' | 'text';
+    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path';
     parent: string | null;
     index: string;
     name: string;
@@ -40,6 +42,10 @@ export interface Node extends Partial<TextProperties> {
     strokeWidth: number;
     radius: number;
     opacity: number;
+    /** path only: anchors normalized to the node box */
+    points?: PathPoint[];
+    /** path only */
+    closed?: boolean;
 }
 export type TextNode = Node & TextProperties & { type: 'text' };
 export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
@@ -95,7 +101,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', ...textKeys].includes(op.key))
+    if (!['link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -114,11 +120,13 @@ export function applyOp(doc: Doc, op: Op): void {
             return;
     }
     const next = { ...n, [op.key]: op.value };
-    if (validNode(next))
+    if (validLink(next.link) && validNode(next))
         doc.set(n.id, next);
 }
+export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function validNode(n: Node): boolean {
-    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text'].includes(n.type) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
+    if (!n || !validLink(n.link)) return false;
+    return !!n && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path'].includes(n.type) && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean') && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
 }
 function validText(n: Node): boolean {
     return typeof n.text === 'string' && n.text.length <= maxTextLength
@@ -131,8 +139,10 @@ function validText(n: Node): boolean {
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
-    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
         return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
+    if (type === 'path')
+        return { ...node, stroke: '#272822', strokeWidth: 2, points: [corner(0, 0)], closed: false };
     return node;
 }

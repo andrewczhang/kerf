@@ -1,4 +1,5 @@
-import { world, type Point } from '../shared/geometry';
+import type { Point } from '../shared/geometry';
+import { world } from './geometry';
 import { copyFills, currentGradient, writeFills } from './paint-edit';
 import type { Context } from './tools/tool';
 const dragging = new WeakMap<Context, 'from' | 'to'>();
