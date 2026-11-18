@@ -1,5 +1,5 @@
 import type { WebSocket, DurableObjectState, Request } from '@cloudflare/workers-types';
-import { applyOp, normalizeNode, type Doc, type Node } from '../src/shared/doc';
+import { applyOp, isTextNode, normalizeNode, type Doc, type Node, type Op } from '../src/shared/doc';
 import { applyLayout } from '../src/shared/layout';
 import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
 import { MAX_OPS } from '../src/shared/protocol';
@@ -46,23 +46,46 @@ export class Room {
         const receiptKey = clientId ? 'receipt:' + clientId : undefined;
         let ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
-        const peer: Peer = { id: crypto.randomUUID(), name: ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'][this.peers.size % 5], color: palette[this.peers.size % 5], cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        this.send(ws, { type: 'init', name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
+        const names = ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'];
+        const usedColors = new Set([...this.peers.values()].map(p => p.color));
+        const usedNames = new Set([...this.peers.values()].map(p => p.name));
+        let slot = 0, name: string, color: string;
+        do {
+            name = names[slot] ?? 'Guest ' + (slot + 1);
+            color = palette[slot] ?? '#' + (Math.imul(slot + 1, 0x5b7e31) & 0xffffff).toString(16).padStart(6, '0');
+            slot++;
+        } while (usedColors.has(color) || usedNames.has(name));
+        const peer: Peer = { id: crypto.randomUUID(), name, color, cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
+        const joinedEpoch = this.features.epoch;
+        this.send(ws, { type: 'init', name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer, epoch: joinedEpoch });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
             const msg = JSON.parse(String(event.data)) as ClientMsg;
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= MAX_OPS) {
+                if ((msg.epoch ?? joinedEpoch) !== this.features.epoch) {
+                    this.send(ws, { type: 'ack', seq: msg.seq });
+                    return;
+                }
                 if (receiptKey) ackSeq = await this.state.storage.get<number>(receiptKey) ?? 0;
                 if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
-                for (const op of msg.ops)
+                const ops: Op[] = [], text: Op[] = [];
+                for (const op of msg.ops) {
                     applyOp(this.doc, op);
+                    if (op?.t === 'set' && op.key === 'text' && op.baseText !== undefined) {
+                        const n = this.doc.get(op.id);
+                        if (isTextNode(n)) {
+                            const merged = { t: 'set', id: op.id, key: 'text', value: n.text } as const;
+                            ops.push(merged); text.push(merged);
+                        }
+                    } else ops.push(op);
+                }
                 const resolved = resolveStyleOps(this.doc, this.features.styles, msg.ops);
                 for (const op of resolved) applyOp(this.doc, op);
                 applyLayout(this.doc);
                 await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
-                this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
-                this.send(ws, { type: 'ack', seq: msg.seq });
+                this.broadcast({ type: 'ops', ops, from: peer.id }, ws);
+                this.send(ws, { type: 'ack', seq: msg.seq, ...(text.length ? { text } : {}) });
                 if (resolved.length) this.broadcast({ type: 'ops', ops: resolved, from: peer.id });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }

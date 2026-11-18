@@ -57,6 +57,7 @@ export class Pen implements Tool {
 
     activate() { this.drawing = false; this.sel = -1; if (this.ctx.store.selection.size && !this.path()) { this.ctx.store.selection.clear(); this.ctx.store.changed(); } }
     deactivate() { this.finish(); this.sel = -1; this.drag = undefined; this.hover = undefined; }
+    cancelGesture() { this.drawing = false; this.drag = undefined; this.hover = undefined; this.sel = -1; this.ctx.store.end(); }
     /** Stop appending; a path left with a single anchor is removed. */
     finish() {
         if (!this.drawing) return;

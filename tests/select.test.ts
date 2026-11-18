@@ -200,3 +200,27 @@ it('keeps the rotate affordance and rotation drag when Alt is held instead of du
     expect(store.doc.size).toBe(1); expect(store.doc.get(node.id)?.rotation).toBeCloseTo(90); expect(store.undoStack).toHaveLength(1);
     store.history(); expect(store.doc.get(node.id)?.rotation).toBe(0);
 });
+
+it('keeps the peer’s X when the right-middle handle changes only width', () => {
+    const { store, tool } = setup(), n = makeNode('rect', 30, 40), drag = { buttons: 1 } as PointerEvent;
+    store.init([n]); store.selection.add(n.id);
+    tool.onPointerDown({ x: 130, y: 90 }, drag); tool.onPointerMove({ x: 145, y: 90 }, drag);
+    store.remote([{ t: 'set', id: n.id, key: 'x', value: 40 }]);
+    tool.onPointerMove({ x: 165, y: 90 }, drag); tool.onPointerUp({ x: 165, y: 90 });
+    expect(store.doc.get(n.id)).toMatchObject({ x: 40, y: 40, w: 135, h: 100 });
+    store.history(); expect(store.doc.get(n.id)).toMatchObject({ x: 40, w: 100 });
+});
+it('cancels a remote-deleted drag and clears both snap overlays', () => {
+    const { store, tool } = setup(), n = makeNode('rect', 30, 40), neighbor = makeNode('rect', 180, 40);
+    const snap = tool.ctx.snap = { guides: [], measure: [], rulers: false, grid: false, lines: [] };
+    store.init([n, neighbor]);
+    const drag = { buttons: 1 } as PointerEvent;
+    tool.onPointerDown({ x: 72, y: 80 }, drag);
+    tool.onPointerMove({ x: 77, y: 80 }, drag);
+    expect(snap.guides.length).toBeGreaterThan(0); expect(snap.measure.length).toBeGreaterThan(0);
+    store.remote([{ t: 'delete', id: n.id }]);
+    expect(tool.start).toBeUndefined(); expect(store.group).toBeNull();
+    tool.onPointerUp({ x: 77, y: 80 }); tool.onPointerMove({ x: 80, y: 80 }, { buttons: 0 } as PointerEvent);
+    expect(snap.guides).toEqual([]); expect(snap.measure).toEqual([]);
+    expect(store.selection.has(n.id)).toBe(false);
+});
