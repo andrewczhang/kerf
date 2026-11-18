@@ -25,12 +25,19 @@ export class Room {
             this.name = await state.storage.get<string>('file-name') ?? '';
             await this.doc.load(state.storage);
             await this.features.load();
+            const overflow = await state.storage.list<string[]>({ prefix: 'socket:' });
             for (const ws of state.getWebSockets()) {
                 const connection = this.attachment(ws);
                 if (!connection) continue;
-                if (connection.overflow) connection.peer.selection = await state.storage.get<string[]>('socket:' + connection.peer.id) ?? [];
+                if (connection.overflow) {
+                    const key = 'socket:' + connection.peer.id;
+                    connection.peer.selection = overflow.get(key) ?? [];
+                    overflow.delete(key);
+                }
                 this.connections.set(ws, connection);
             }
+            const stale = [...overflow.keys()];
+            for (let i = 0; i < stale.length; i += 128) await state.storage.delete(stale.slice(i, i + 128));
         });
     }
     private attachment(ws: WebSocket): Connection | undefined {

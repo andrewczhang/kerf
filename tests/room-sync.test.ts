@@ -85,7 +85,15 @@ it('restores connected peers, spotlight and roles, then relays edits and departu
     const cursor = { x: 5, y: 6 };
     await send(a, { ...presence, selection: [...selection], cursor });
     expect(data.get(overflowKey)).toBe(storedSelection);
+    const disconnected = await connect('disconnected'), disconnectedInit = disconnected.sent[0];
+    if (disconnectedInit.type !== 'init') throw Error('Missing init');
+    await send(disconnected, { ...presence, spotlight: false });
+    const orphanKey = 'socket:' + disconnectedInit.you.id;
+    expect(data.has(orphanKey)).toBe(true);
+    sockets.delete(disconnected);
     await wake();
+    expect(data.has(orphanKey)).toBe(false);
+    expect(data.get(overflowKey)).toBe(storedSelection);
     const late = await connect('late'), lateInit = late.sent[0];
     expect(lateInit).toMatchObject({ type: 'init', peers: [{ id: init.you.id, name: 'Ada', selection, cursor, page: 'page-2', spotlight: true }, { id: viewerInit.you.id }] });
     const changedSelection = selection.slice(1);
