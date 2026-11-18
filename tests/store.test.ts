@@ -3,6 +3,22 @@ import { Store } from '../src/client/store';
 import { makeNode } from '../src/shared/doc';
 import type { Op } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode } from '../src/shared/components';
+it('keeps references valid after unmarking and detaches them when their source is deleted', () => {
+    const s = new Store(), main = makeNode('frame', 0, 0), child = { ...makeNode('rect', 10, 10), parent: main.id };
+    s.init([main, child]); s.commit(componentOps.create(s.doc, [main.id]).ops);
+    const instance = instanceNode(main, 200, 0); s.remote([{ t: 'create', node: instance }]);
+    s.history();
+    expect(s.doc.get(main.id)?.component).toBeUndefined();
+    expect(expand(s.doc).get(instance.id + '/' + child.id)?.fill).toBe(child.fill);
+    s.set(main.id, { component: false });
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    s.commit([{ t: 'delete', id: main.id }]);
+    expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    expect([...s.doc.values()].filter(n => n.parent === instance.id)).toHaveLength(1);
+    s.history(); expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    expect(s.doc.get(main.id)?.component).toBe(false);
+    s.history(true); expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+});
 it('composes nested detaches sharing enclosing overrides in one undo step', () => {
     const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true };
     const child = { ...makeNode('rect', 0, 0), parent: main.id }, outer = { ...makeNode('frame', 0, 0), component: true };
