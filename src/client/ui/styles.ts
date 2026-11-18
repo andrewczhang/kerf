@@ -1,6 +1,7 @@
 import type { Sync } from '../sync';
 import type { Store } from '../store';
-import { isTextNode, maxFontSize, textFonts, textWeights, type Node } from '../../shared/doc';
+import { isTextNode, maxFontSize, textFonts, textWeights, type Key, type Node } from '../../shared/doc';
+import { isVirtual, splitVirtual } from '../../shared/components';
 import { styleValues, validStyle, type Style } from '../../shared/styles';
 import './styles.css';
 const fonts = { sans: 'Arial, sans-serif', serif: 'Georgia, serif', mono: 'monospace' };
@@ -42,9 +43,14 @@ export function styleLibrary(parent: HTMLElement, store: Store, sync: Sync) {
     }
 }
 export function styleControl(parent: HTMLElement, store: Store, sync: Sync, nodes: Node[], target: 'fill' | 'stroke' | 'text'): boolean {
+    const write = (node: Node, values: Partial<Record<Key, unknown>>) => {
+        const virtual = isVirtual(node.id), { instance, target } = splitVirtual(node.id);
+        if (virtual || node.instanceOf) store.commit(Object.entries(values).map(([key, value]) => ({ t: 'override', id: virtual ? instance : node.id, target: virtual ? target : '', key: key as Key, value })));
+        else store.set(node.id, values);
+    };
     const key = target === 'fill' ? 'fillStyle' : target === 'stroke' ? 'strokeStyle' : 'textStyle', kind = target === 'text' ? 'text' : 'color';
     const linked = sync.styles.find(s => s.kind === kind && s.id === nodes[0][key] && nodes.every(n => n[key] === s.id));
-    const apply = (style: Style) => { store.begin(); for (const n of nodes) if (target !== 'text' || isTextNode(n)) store.set(n.id, styleValues(style, target)); store.end(); };
+    const apply = (style: Style) => { store.begin(); for (const n of nodes) if (target !== 'text' || isTextNode(n)) write(n, styleValues(style, target)); store.end(); };
     const heading = parent.firstElementChild as HTMLElement; heading.classList.add('style-section-heading');
     const row = (style: Style, action: () => void) => {
         const b = button('', action); b.className = 'style-row';
@@ -70,7 +76,7 @@ export function styleControl(parent: HTMLElement, store: Store, sync: Sync, node
     trigger.title = 'Apply style'; trigger.setAttribute('aria-label', linked ? 'Apply style: ' + linked.name : 'Apply style'); trigger.setAttribute('aria-expanded', 'false');
     if (linked) {
         linkedRow = document.createElement('div'); linkedRow.className = 'style-linked';
-        const detach = button('×', () => { store.begin(); for (const n of nodes) store.set(n.id, { [key]: null }); store.end(); }); detach.title = 'Detach style'; detach.setAttribute('aria-label', 'Detach style');
+        const detach = button('×', () => { store.begin(); for (const n of nodes) write(n, { [key]: null }); store.end(); }); detach.title = 'Detach style'; detach.setAttribute('aria-label', 'Detach style');
         linkedRow.append(trigger, detach); heading.after(linkedRow);
         if (target === 'fill') heading.querySelector('button')?.remove();
     } else { trigger.className = 'style-apply'; heading.append(trigger); }
