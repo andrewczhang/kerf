@@ -1,6 +1,21 @@
 import { it, expect } from 'vitest';
 import { Store } from '../src/client/store';
-import { makeNode } from '../src/shared/doc';
+import { makeNode, type Op } from '../src/shared/doc';
+it('sends large commits in ordered batches of at most 1000 with separate pending sequences', () => {
+    const s = new Store(), n = makeNode('rect', 0, 0), sent: { ops: Op[]; seq: number }[] = [];
+    s.init([n]); s.send = (ops, seq) => sent.push({ ops, seq });
+    s.commit([]); expect(sent).toHaveLength(0); expect(s.pending.size).toBe(0);
+    const ops: Op[] = Array.from({ length: 2500 }, (_, i) => ({ t: 'set', id: n.id, key: 'x', value: i + 1 }));
+    s.commit(ops);
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([1, 2, 3]);
+    expect(sent.flatMap(batch => batch.ops)).toEqual(ops);
+    expect([...s.pending]).toEqual(sent.map(batch => [batch.seq, batch.ops]));
+    expect(s.doc.get(n.id)?.x).toBe(2500); expect(s.undoStack).toHaveLength(1);
+    sent.length = 0; s.history();
+    expect(sent.map(batch => batch.ops.length)).toEqual([1000, 1000, 500]);
+    expect(sent.map(batch => batch.seq)).toEqual([4, 5, 6]); expect(s.doc.get(n.id)?.x).toBe(0);
+});
 it('undoes an entire drag and redoes it', () => { const s = new Store(), n = makeNode('rect', 0, 0); s.commit([{ t: 'create', node: n }]); s.begin(); s.set(n.id, { x: 1 }); s.set(n.id, { x: 2 }); s.set(n.id, { x: 3 }); s.end(); s.history(); expect(s.doc.get(n.id)?.x).toBe(0); s.history(true); expect(s.doc.get(n.id)?.x).toBe(3); });
 it('does not undo a remote property overwrite', () => { const s = new Store(), n = makeNode('rect', 0, 0); s.commit([{ t: 'create', node: n }]); s.set(n.id, { x: 20, y: 30 }); s.pending.clear(); s.remote([{ t: 'set', id: n.id, key: 'x', value: 99 }]); s.history(); expect(s.doc.get(n.id)?.x).toBe(99); expect(s.doc.get(n.id)?.y).toBe(0); });
 it('protects pending properties and reapplies pending on init', () => { const s = new Store(), n = makeNode('rect', 0, 0); s.init([n]); s.set(n.id, { x: 20 }); s.remote([{ t: 'set', id: n.id, key: 'x', value: 99 }]); expect(s.doc.get(n.id)?.x).toBe(20); s.init([n]); expect(s.doc.get(n.id)?.x).toBe(20); });

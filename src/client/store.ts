@@ -58,10 +58,11 @@ export class Store extends EventTarget {
             this.undoStack.push(changes);
             this.redoStack = [];
         }
-    } if (ops.length) {
+    } for (let i = 0; i < ops.length; i += 1000) {
+        const batch = ops.slice(i, i + 1000);
         const seq = ++this.seq;
-        this.pending.set(seq, ops);
-        this.send(ops, seq);
+        this.pending.set(seq, batch);
+        this.send(batch, seq);
     } this.changed(); }
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)
