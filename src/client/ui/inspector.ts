@@ -8,6 +8,7 @@ import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection } from './layout-grids';
+import { codepanel } from './codepanel';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -22,8 +23,21 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
 }
 
 export function inspector(el: HTMLElement, store: Store) {
-    el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
+    const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
+    const setTab = (codeActive: boolean) => {
+        for (const id of ['design', 'code']) {
+            const button = el.querySelector<HTMLButtonElement>(`#${id}-tab`)!;
+            const active = (id === 'code') === codeActive;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+        }
+        content.hidden = codeActive;
+        code.activate(codeActive);
+    };
+    el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
+    el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
     const render = () => {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (el.contains(document.activeElement)) {
