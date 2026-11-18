@@ -8,6 +8,44 @@ import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
 
+it('restores exact root positions and parents after wrapping uneven rects and undoing', () => {
+    const a = { ...makeNode('rect', 70, 485, 'A'), w: 55, h: 55 };
+    const b = { ...makeNode('rect', 170, 500, 'B'), w: 70, h: 50 };
+    const s = setup([a, b]), peer = setup([a, b].map(n => ({ ...n })));
+    s.send = ops => peer.remote(ops);
+    const snapshot = (store: Store) => [a, b].map(n => { const { x, y, w, h, parent } = store.doc.get(n.id)!; return { x, y, w, h, parent }; });
+    const original = snapshot(s);
+    const frame = wrapInAutoLayout(s, [a, b])!;
+    const wrapped = snapshot(s);
+    expect(wrapped[1].y).toBe(0);
+    s.history();
+    expect(s.doc.has(frame.id)).toBe(false); expect(snapshot(s)).toEqual(original); expect(snapshot(peer)).toEqual(original);
+    s.history(true); expect(snapshot(s)).toEqual(wrapped); expect(snapshot(peer)).toEqual(wrapped); expect(s.doc.has(frame.id)).toBe(true);
+});
+
+it('restores a hug frame and cross-axis fill child after bottom-handle resize undo', () => {
+    const p = { ...makeNode('frame', 100, 100), w: 400, h: 300, layout: 'horizontal' as const, padTop: 10, padBottom: 30 };
+    const child = { ...makeNode('rect', 0, 0), parent: p.id, sizeH: 'fill' as const };
+    const s = setup([p, child]);
+    expect(s.doc.get(child.id)?.h).toBe(260);
+    s.set(p.id, { sizeH: 'hug' }); expect(s.doc.get(p.id)?.h).toBe(300);
+    s.selection.add(p.id);
+    const peer = setup([...s.doc.values()].map(n => ({ ...n })));
+    s.pending.clear(); s.send = ops => peer.remote(ops);
+    const tool = new Select({ store: s, viewport: { zoom: 1 }, invalidate() {} } as Context), event = { shiftKey: false, altKey: false } as PointerEvent;
+    tool.onPointerDown({ x: 300, y: 400 }, event);
+    tool.onPointerMove({ x: 300, y: 430 }, event);
+    tool.onPointerMove({ x: 300, y: 466.67 }, event);
+    tool.onPointerUp({ x: 300, y: 466.67 });
+    expect(s.doc.get(p.id)?.sizeH).toBe('fixed'); expect(s.doc.get(p.id)?.h).toBeCloseTo(366.67);
+    expect(s.doc.get(child.id)?.h).toBeCloseTo(326.67);
+    s.history();
+    expect(s.doc.get(p.id)).toMatchObject({ sizeH: 'hug', h: 300 });
+    expect(s.doc.get(child.id)?.h).toBe(260);
+    expect(peer.doc.get(p.id)).toMatchObject({ sizeH: 'hug', h: 300 }); expect(peer.doc.get(child.id)?.h).toBe(260);
+    s.history(true); expect(s.doc.get(p.id)).toMatchObject({ sizeH: 'fixed' }); expect(s.doc.get(p.id)?.h).toBeCloseTo(366.67);
+});
+
 it('undoes and redoes all geometry derived by adding auto layout without sending derived ops', () => {
     const p = { ...makeNode('frame', 50, 60), w: 200.4, h: 100.4 };
     const items = [
