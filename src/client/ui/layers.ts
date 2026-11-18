@@ -38,5 +38,6 @@ export function layers(el: HTMLElement, ctx: Context) {
             tree.append(row); if (container && !collapsed.has(n.id)) visit(n.id, depth + 1);
         } }; visit(null, 0);
     };
+    store.addEventListener('restore', () => { dragging = ''; });
     store.addEventListener('change', render); render();
 }

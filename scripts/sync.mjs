@@ -12,11 +12,11 @@ const wsBase=base.replace(/^http/,'ws');
 const server=process.env.KERF_URL?null:spawn('npx',['wrangler','dev','--port',String(port),'--ip','127.0.0.1'],{stdio:['ignore','pipe','pipe'],detached:true});
 let log='';server?.stdout.on('data',d=>log+=d);server?.stderr.on('data',d=>log+=d);const sockets=[];
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-async function client(){const ws=new WebSocket(wsBase+`/f/${id}/ws`),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
+async function client(session=''){const ws=new WebSocket(wsBase+`/f/${id}/ws`+(session?`?clientId=${session}`:'')),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
 try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readinessError='';for(let i=0;i<(server?160:1);i++){try{const r=await fetch(base+'/f/'+id);if(r.ok){ready=true;break;}readinessError=`HTTP ${r.status} ${r.statusText}`;}catch(e){readinessError=e.message;}if(server)await delay(100);}assert(ready,`${base} is not ready: ${readinessError}\n${log}`);
  const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
  assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
- const a=await client(),ai=await a.take('init'),b=await client();await b.take('init');
+ const a=await client(),ai=await a.take('init'),b=await client(),bi=await b.take('init');
  assert.equal(ai.name,'');a.send({type:'rename',name:'  Layout\n study  '});assert.equal((await a.take('name')).name,'Layout study');assert.equal((await b.take('name')).name,'Layout study');
  const named=await client();assert.equal((await named.take('init')).name,'Layout study');named.ws.close();console.log('PASS sanitized file rename reaches sender, peer and fresh client');
  const node={id:'rectangle',type:'rect',parent:null,index:'U',name:'Rectangle',x:10,y:20,w:100,h:80,fill:'#ff4f00',stroke:null,strokeWidth:1,radius:0,opacity:1};a.send({type:'ops',seq:1,ops:[{t:'create',node}]});assert.deepEqual((await b.take('ops')).ops[0].node,node);await a.take('ack');console.log('PASS client B receives rectangle creation');
@@ -55,10 +55,41 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const e=await client();assert.equal((await e.take('init')).nodes.find(n=>n.id===node.id).x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
  const style={id:'accent',kind:'color',name:'Accent',color:'#112233'};
  a.send({type:'style-upsert',style});await a.take('styles');await b.take('styles');await a.take('ops');await b.take('ops');
- b.send({type:'ops',seq:20,ops:[{t:'set',id:node.id,key:'fillStyle',value:style.id},{t:'set',id:node.id,key:'fill',value:style.color}]});await b.take('ack');await a.take('ops');
+ b.send({type:'ops',seq:20,epoch:restored.epoch,ops:[{t:'set',id:node.id,key:'fillStyle',value:style.id},{t:'set',id:node.id,key:'fill',value:style.color}]});await b.take('ack');await a.take('ops');
  a.send({type:'style-upsert',style:{...style,color:'#abcdef'}});
  for(const peer of [a,b,c,d,e]) { await peer.take('styles',m=>m.styles[0]?.color==='#abcdef');const update=await peer.take('ops',m=>m.ops.some(o=>o.key==='fill'&&o.value==='#abcdef'));assert(update.ops.some(o=>o.key==='fills')); }
  const late=await client(),li=await late.take('init');assert.equal(li.styles[0].color,'#abcdef');assert.equal(li.nodes.find(n=>n.id===node.id).fill,'#abcdef');
  a.send({type:'style-delete',id:style.id});await late.take('styles',m=>m.styles.length===0);assert((await late.take('ops')).ops.some(o=>o.key==='fillStyle'&&o.value===null));console.log('PASS authoritative shared style propagation, late join and detach');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 15 checks passed');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');
+ const returning=await client(),joined=await returning.take('init');
+ assert.equal(joined.you.name,ai.you.name);assert.equal(joined.you.color,ai.you.color);
+ assert(!joined.peers.some(p=>p.name===joined.you.name||p.color===joined.you.color));
+ console.log('PASS returning collaborator has a distinct presence name and color');
+ b.send({type:'ops',seq:10,epoch:bi.epoch,ops:[{t:'set',id:node.id,key:'x',value:198}]});await b.take('ack',m=>m.seq===10);
+ const afterStaleDrag=await client(),snapshot=await afterStaleDrag.take('init');
+ assert.equal(snapshot.nodes.find(n=>n.id===node.id).x,140);assert.equal(snapshot.epoch,restored.epoch);
+ b.send({type:'ops',seq:11,epoch:restored.epoch,ops:[{t:'set',id:node.id,key:'x',value:150}]});await b.take('ack',m=>m.seq===11);
+ assert.equal((await afterStaleDrag.take('ops')).ops[0].value,150);
+ console.log('PASS stale pre-restore drag packets cannot overwrite the restored document, but fresh drags can');
+ const baseText=typography.text,prefix='THE ',suffix=' HQ';
+ b.send({type:'ops',seq:12,epoch:restored.epoch,ops:[{t:'set',id:text.id,key:'text',baseText,value:prefix+baseText}]});
+ returning.send({type:'ops',seq:13,epoch:restored.epoch,ops:[{t:'set',id:text.id,key:'text',baseText,value:baseText+suffix}]});
+ const merged=prefix+baseText+suffix;
+ await afterStaleDrag.take('ops',m=>m.ops.some(op=>op.value===merged));
+ const acks=await Promise.all([b.take('ack',m=>m.seq===12),returning.take('ack',m=>m.seq===13)]);
+ assert(acks.some(m=>m.text[0].value===merged));
+ console.log('PASS concurrent text patches merge at the room and acknowledge the canonical result');
+ const session='59c93b34-6d98-4eb6-8f06-1e71aefc28cc', author=await client(session), authorInit=await author.take('init');
+ const edited='OPEN: '+merged, afterPeer=edited+'!';
+ const pendingEdit={type:'ops',seq:1,epoch:authorInit.epoch,ops:[{t:'set',id:text.id,key:'text',baseText:merged,value:edited}]};
+ author.send(pendingEdit);
+ await b.take('ops',m=>m.ops.some(op=>op.value===edited));author.ws.close();
+ await b.take('leave',m=>m.id===authorInit.you.id);
+ b.send({type:'ops',seq:14,epoch:restored.epoch,ops:[{t:'set',id:text.id,key:'text',baseText:edited,value:afterPeer}]});
+ await b.take('ack',m=>m.seq===14);
+ const resumed=await client(session);assert.equal((await resumed.take('init')).ackSeq,1);resumed.send(pendingEdit);await resumed.take('ack',m=>m.seq===1);
+ const persisted=await client(),persistedInit=await persisted.take('init');
+ assert.equal(persistedInit.nodes.find(n=>n.id===text.id).text,afterPeer);
+ console.log('PASS reconnect retries a committed text edit without duplicating it after a peer edit');
+ console.log('Sync integration: 19 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}

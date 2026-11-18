@@ -18,14 +18,14 @@ it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty can
 });
 it('keeps overlapping sibling frames as siblings but allows fully contained drops', () => {
     const { store, tool } = setup(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0);
-    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true;
+    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true; tool.start = { x: 120, y: 40 };
     tool.onPointerUp({ x: 125, y: 50 }); expect(store.doc.get(a.id)?.parent).toBe(null);
-    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.onPointerUp({ x: 125, y: 50 });
+    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.start = { x: 120, y: 40 }; tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(b.id);
 });
 it('never reparents into another dragged frame or its descendants', () => {
     const { store, tool } = setup(), a = makeNode('frame', 50, 0), b = { ...makeNode('frame', 0, 0), w: 300, h: 300 }, child = { ...makeNode('frame', 0, 0), parent: b.id, w: 250, h: 250 };
-    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true;
+    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true; tool.start = { x: 120, y: 40 };
     tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(null); expect(store.doc.get(b.id)?.parent).toBe(null);
     expect(store.doc.get(child.id)?.parent).toBe(b.id);
@@ -69,6 +69,18 @@ it('toggles copies mid-drag, ignores stray moves, and undoes the final original 
     tool.modifier(false); expect(store.doc.size).toBe(1); expect([...store.selection]).toEqual([a.id]);
     tool.onPointerUp({ x: 90, y: 110 }); expect(store.doc.get(a.id)?.x).toBe(60);
     store.history(); expect(store.doc.get(a.id)?.x).toBe(20);
+});
+it('cancels an alt-drag when its preview is deleted by a peer', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+    tool.onPointerMove({ x: 90, y: 110 }, pointer(true));
+    const copy = [...store.selection][0];
+    expect(copy).not.toBe(a.id);
+    store.remote([{ t: 'delete', id: copy }]);
+    tool.onPointerUp({ x: 90, y: 110 });
+    expect(tool.copies).toBeUndefined();
+    expect(store.group).toBeNull();
+    expect([...store.doc.keys()]).toEqual([a.id]);
 });
 it('drops an auto-layout duplicate in the last slot and removes it in one undo step', () => {
     const { store, tool } = setup();
@@ -199,4 +211,28 @@ it('keeps the rotate affordance and rotation drag when Alt is held instead of du
     tool.onPointerDown(start, pointer(true)); tool.onPointerMove(end, pointer(true)); tool.onPointerUp(end);
     expect(store.doc.size).toBe(1); expect(store.doc.get(node.id)?.rotation).toBeCloseTo(90); expect(store.undoStack).toHaveLength(1);
     store.history(); expect(store.doc.get(node.id)?.rotation).toBe(0);
+});
+
+it('keeps the peer’s X when the right-middle handle changes only width', () => {
+    const { store, tool } = setup(), n = makeNode('rect', 30, 40), drag = { buttons: 1 } as PointerEvent;
+    store.init([n]); store.selection.add(n.id);
+    tool.onPointerDown({ x: 130, y: 90 }, drag); tool.onPointerMove({ x: 145, y: 90 }, drag);
+    store.remote([{ t: 'set', id: n.id, key: 'x', value: 40 }]);
+    tool.onPointerMove({ x: 165, y: 90 }, drag); tool.onPointerUp({ x: 165, y: 90 });
+    expect(store.doc.get(n.id)).toMatchObject({ x: 40, y: 40, w: 135, h: 100 });
+    store.history(); expect(store.doc.get(n.id)).toMatchObject({ x: 40, w: 100 });
+});
+it('cancels a remote-deleted drag and clears both snap overlays', () => {
+    const { store, tool } = setup(), n = makeNode('rect', 30, 40), neighbor = makeNode('rect', 180, 40);
+    const snap = tool.ctx.snap = { guides: [], measure: [], rulers: false, grid: false, lines: [] };
+    store.init([n, neighbor]);
+    const drag = { buttons: 1 } as PointerEvent;
+    tool.onPointerDown({ x: 72, y: 80 }, drag);
+    tool.onPointerMove({ x: 77, y: 80 }, drag);
+    expect(snap.guides.length).toBeGreaterThan(0); expect(snap.measure.length).toBeGreaterThan(0);
+    store.remote([{ t: 'delete', id: n.id }]);
+    expect(tool.start).toBeUndefined(); expect(store.group).toBeNull();
+    tool.onPointerUp({ x: 77, y: 80 }); tool.onPointerMove({ x: 80, y: 80 }, { buttons: 0 } as PointerEvent);
+    expect(snap.guides).toEqual([]); expect(snap.measure).toEqual([]);
+    expect(store.selection.has(n.id)).toBe(false);
 });

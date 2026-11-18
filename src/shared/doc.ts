@@ -1,3 +1,4 @@
+import { mergeText } from './text-edit';
 import { corner, validPoints, type PathPoint } from './path';
 export type Paint = { type: 'solid'; color: string; opacity: number; visible: boolean } | { type: 'linear' | 'radial'; stops: { pos: number; color: string; opacity: number }[]; from: { x: number; y: number }; to: { x: number; y: number }; opacity: number; visible: boolean } | { type: 'image'; asset: string; fit: 'fill' | 'fit' | 'tile'; w: number; h: number; opacity: number; visible: boolean };
 export type Effect = { type: 'drop-shadow' | 'inner-shadow'; x: number; y: number; blur: number; spread: number; color: string; opacity: number; visible: boolean } | { type: 'layer-blur' | 'background-blur'; radius: number; visible: boolean };
@@ -125,6 +126,7 @@ export type Op = {
     id: string;
     key: Key;
     value: Node[Key];
+    baseText?: string;
 } | {
     t: 'delete';
     id: string;
@@ -184,7 +186,10 @@ export function applyOp(doc: Doc, op: Op): void {
         if (op.value !== null && !['frame', 'group'].includes(doc.get(op.value as string)?.type ?? ''))
             return;
     }
-    const next = { ...n, [op.key]: op.value };
+    const value = op.key === 'text' && isTextNode(n) && typeof op.baseText === 'string'
+        && typeof op.value === 'string' && op.baseText.length <= maxTextLength && op.value.length <= maxTextLength
+        ? mergeText(op.baseText, op.value, n.text) : op.value;
+    const next = { ...n, [op.key]: value };
     if (validLink(next.link) && validNode(next))
         doc.set(n.id, normalizeNode(next));
 }

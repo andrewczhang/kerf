@@ -17,4 +17,4 @@ export type FeatureServerMsg =
     | { type: 'comments'; comments: Comment[] }
     | { type: 'versions'; versions: Version[] }
     | { type: 'version-preview'; id: string; nodes: Node[] }
-    | { type: 'restored'; ops: Op[] };
+    | { type: 'restored'; ops: Op[]; epoch?: number; nodes?: Node[] };
