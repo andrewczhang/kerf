@@ -6,6 +6,12 @@ vi.mock('../src/client/text-layout', () => ({ fontFamilies: { sans: 'sans-serif'
 afterEach(() => vi.unstubAllGlobals());
 const hash = 'a'.repeat(64), uri = 'data:image/png;base64,AQID', images = new Map([[hash, uri]]), image: Paint = { type: 'image', asset: hash, w: 40, h: 20, fit: 'fill', opacity: .6, visible: true }, solid: Paint = { type: 'solid', color: '#123456', opacity: 1, visible: true }, inner: Effect = { type: 'inner-shadow', x: 4, y: -2, blur: 8, spread: 3, color: '#abcdef', opacity: .4, visible: true }, backdrop: Effect = { type: 'background-blur', radius: 6, visible: true };
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
+it.each(['inside', 'outside'] as const)('preserves %s-stroked star holes in drop/inner silhouettes and backdrop clips', strokeAlign => {
+    const below = makeNode('rect', 0, 0), star = { ...makeNode('path', 0, 0), index: between(below.index), closed: true, points: [corner(.5, 0), corner(.8, 1), corner(0, .4), corner(1, .4), corner(.2, 1)], stroke: '#123456', strokeWidth: 2, strokeAlign, fills: [solid], effects: [{ ...inner, type: 'drop-shadow' as const }, inner, backdrop] }, svg = exportSVG(docOf(below, star), [below.id, star.id]);
+    const silhouettes = [...svg.matchAll(/<path\b[^>]*fill="#000000"[^>]*\/>/g)]; expect(silhouettes.length).toBeGreaterThanOrEqual(3); for (const [shape] of silhouettes) expect(shape).toContain('fill-rule="evenodd"');
+    const clips = [...svg.matchAll(/<clipPath\b[^>]*><path\b[^>]*\/>/g)]; expect(clips.length).toBeGreaterThan(0); for (const [shape] of clips) expect(shape).toContain('clip-rule="evenodd"');
+    expect(svg).toContain('fill="#123456" fill-opacity="1" fill-rule="evenodd"');
+});
 it('leaves ancestor frame shell layer blur to its outer composite', () => {
     const frame = { ...makeNode('frame', 0, 0), name: 'Blurred frame', fills: [solid], effects: [{ type: 'layer-blur' as const, radius: 4, visible: true }] }, child = { ...makeNode('rect', 10, 10), parent: frame.id, effects: [backdrop] }, svg = exportSVG(docOf(frame, child), [frame.id]);
     const shells = [...svg.matchAll(/<g id="([^"]+)" data-name="Blurred frame"([^>]*)>(.*?)<\/g>/g)];
