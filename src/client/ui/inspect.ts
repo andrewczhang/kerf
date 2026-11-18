@@ -47,13 +47,11 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
     store.commit = (...args) => { if (!enabled) commit(...args); };
     store.addEventListener('change', render);
     window.addEventListener('keydown', e => {
-        if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]')) return;
+        if ((e.target as HTMLElement).closest('button,input,textarea,select,[contenteditable=true]') || document.querySelector('.present-overlay')) return;
         if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyD') { e.preventDefault(); e.stopImmediatePropagation(); toggle(); return; }
-        if (enabled && e.code !== 'Space' && e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) {
-            if (e.key === 'Escape') { store.selection.clear(); store.changed(); }
-            e.preventDefault(); e.stopImmediatePropagation();
-        }
-        if (enabled && (e.ctrlKey || e.metaKey) && ['z', 'g', 'x', 'v', 'd'].includes(e.key.toLowerCase())) { e.preventDefault(); e.stopImmediatePropagation(); }
+        const editingKey = ['Delete', 'Backspace', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+            || (e.ctrlKey || e.metaKey) && ['z', 'g', 'x', 'v', 'd'].includes(e.key.toLowerCase());
+        if (enabled && editingKey) { e.preventDefault(); e.stopImmediatePropagation(); }
     }, true);
     for (const type of ['pointerdown', 'pointermove', 'pointerup', 'dblclick'] as const) canvas.addEventListener(type, e => {
         if (!enabled || e instanceof PointerEvent && (e.button === 1 || e.buttons === 4)) return;
