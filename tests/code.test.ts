@@ -18,6 +18,28 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it.each(['rect', 'ellipse'] as const)('refuses frame-to-%s conversion around new collaborator children', type => {
+        for (const parent of ['frame', 'nested']) {
+            const doc = fixture(), baseline = codeScopeIds(doc, 'frame');
+            const parsed = tree(toReact(doc, 'frame'));
+            delete parsed.attrs['data-type'];
+            parsed.children = [];
+            if (type === 'ellipse') parsed.style.borderRadius = '50%';
+            const remote = { ...makeNode('rect', 7, 8), id: 'remote', parent };
+            doc.set(remote.id, remote);
+            const before = [...doc.values()];
+            expect(() => diffCode(doc, 'frame', parsed, baseline)).toThrow('new collaborator objects');
+            expect([...doc.values()]).toEqual(before);
+            expect(doc.get('remote')).toEqual(remote);
+        }
+    });
+    it('preserves new descendants when deleting their entire exported frame', () => {
+        const doc = fixture(), baseline = codeScopeIds(doc, 'frame');
+        const remote = { ...makeNode('rect', 7, 8), id: 'remote', parent: 'nested' };
+        doc.set(remote.id, remote);
+        for (const op of diffCode(doc, 'frame', tree('<></>'), baseline)) applyOp(doc, op);
+        expect([...doc.values()]).toEqual([{ ...remote, parent: null, x: 39, y: 22 }]);
+    });
     it('round-trips small opacity values emitted in exponent notation', () => {
         const doc = fixture(); doc.get('rect')!.opacity = 0.0000001;
         const code = toReact(doc, 'frame');

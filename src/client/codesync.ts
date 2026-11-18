@@ -35,7 +35,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
     const root = rootId ? doc.get(rootId) : undefined;
     if (rootId && !root) throw new CodeDiffError('the edited frame was deleted', tree.line, tree.col);
     const scope = codeScopeIds(doc, rootId);
-    const seen = new Set<string>(), ops: Op[] = [];
+    const seen = new Set<string>(), convertedFrames = new Set<string>(), ops: Op[] = [];
     const visit = (elements: CodeElement[], parent: string | null, top = false) => {
         const siblings = flatten(elements);
         let previous: string | null = null;
@@ -53,6 +53,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
             const old = id ? doc.get(id) : undefined;
             const nested = flatten(element.children);
             const type = style.borderRadius === '50%' ? 'ellipse' : nested.length || attrs['data-type'] === 'frame' ? 'frame' : 'rect';
+            if (old?.type === 'frame' && type !== 'frame') convertedFrames.add(old.id);
             if (type === 'ellipse' && nested.length) fail('ellipses cannot contain children');
             const number = (key: string, fallback: number) => {
                 const value = style[key] ?? fallback;
@@ -92,7 +93,13 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
     const missing = new Set([...scope].filter(id => (baselineIds ?? scope).has(id) && !seen.has(id)));
     for (const id of scope) {
         const node = doc.get(id)!;
-        if (missing.has(id) || seen.has(id) || !missing.has(node.parent ?? '')) continue;
+        if (missing.has(id) || seen.has(id)) continue;
+        let ancestor = node.parent;
+        while (ancestor) {
+            if (convertedFrames.has(ancestor)) throw new CodeDiffError('A frame contains new collaborator objects; refresh the code before changing its type', tree.line, tree.col);
+            ancestor = doc.get(ancestor)?.parent ?? null;
+        }
+        if (!missing.has(node.parent ?? '')) continue;
         let parent = node.parent;
         while (parent && missing.has(parent)) parent = doc.get(parent)?.parent ?? null;
         const position = world(doc, node), origin = parent ? world(doc, doc.get(parent)!) : { x: 0, y: 0 };
