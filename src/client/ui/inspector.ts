@@ -1,4 +1,6 @@
 import type { Store } from '../store';
+import type { Sync } from '../sync';
+import { styleControl, styleLibrary } from './styles';
 import { arrowheads, isOpenPath, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
@@ -37,7 +39,7 @@ export function refreshFocusedInspector(content: HTMLElement, nodes: Node[], act
     return true;
 }
 
-export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
+export function inspector(el: HTMLElement, store: Store, viewport: Viewport, sync?: Sync) {
     el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
@@ -95,6 +97,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             if (!mains.length) { const p = document.createElement('p'); p.className = 'component-note'; p.textContent = 'Select a frame or objects to create a component.'; list.append(p); }
             const shortcuts = section('Shortcuts');
             shortcuts.innerHTML += '<div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div>';
+            if (sync) styleLibrary(content, store, sync);
             return;
         }
         const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
@@ -142,7 +145,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             strokeEnd: named(arrowheads),
         };
         const strokeValues = nodes.map(strokeOptions);
-        const fields = (title: string, keys: Key[], stroke = false) => { const s = section(title); if (stroke) s.className = 'stroke-options'; const grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid); for (const key of keys) {
+        const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const stroke = target === true, s = section(title); if (stroke) s.className = 'stroke-options'; const grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid); if (sync && target && target !== true && styleControl(s, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key)); for (const key of keys) {
             const label = document.createElement('label');
             label.className = 'field';
             const overridden = nodes.some(n => { const { instance, target } = splitVirtual(n.id); return Object.hasOwn(store.doc.get(instance)?.overrides?.[target] ?? {}, key); });
@@ -165,7 +168,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                     const chosen = options.find(([value]) => String(value) === select.value);
                     if (!chosen) return;
                     store.begin();
-                    for (const node of nodes) write(node, key, chosen[0]);
+                    for (const node of nodes) { write(node, key, chosen[0]); if (['fontFamily', 'fontWeight'].includes(key)) write(node, 'textStyle', null); }
                     store.end();
                     select.blur();
                     render();
@@ -189,9 +192,9 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                     input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
                     if (color === undefined) return;
                     swatch.value = color ?? '#000000';
-                    for (const n of nodes) write(n, key, color);
+                    for (const n of nodes) { write(n, key, color); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); }
                 };
-                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) write(n, key, swatch.value); };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) { write(n, key, swatch.value); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); } };
                 input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => expand(store.doc).get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
@@ -207,7 +210,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             let base = store.doc;
             input.onfocus = () => { if (!input.readOnly) { base = new Map(store.doc); store.begin(); } };
             input.oninput = () => { if (input.readOnly || !input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                write(n, key, value);
+                write(n, key, value); if (key === 'fontSize') write(n, 'textStyle', null);
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
@@ -236,18 +239,19 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             };
         }
         if (nodes.every(isTextNode)) {
-            fields('Layout', nodes.every(n => n.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
-            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
+            fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
+            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
-            fillsSection(content, store, nodes);
+            fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
             if (!virtual) autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            fillsSection(content, store, nodes);
-            fields('Stroke', ['stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
                 const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
                 if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');
@@ -287,6 +291,8 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
         content.append(exports);
     };
     store.addEventListener('change', render);
+    sync?.addEventListener('styles-change', render);
+    el.addEventListener('focusout', () => setTimeout(render, 0));
     render();
 }
 

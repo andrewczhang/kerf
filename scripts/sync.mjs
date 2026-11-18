@@ -55,5 +55,12 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  a.send({type:'version-preview',id:version.id});assert.equal((await a.take('version-preview')).nodes.find(n=>n.id===node.id).x,140);
  a.send({type:'version-restore',id:version.id});const restored=await b.take('restored');assert(restored.ops.some(o=>o.t==='set'&&o.key==='x'&&o.value===140));await a.take('restored');
  const e=await client();assert.equal((await e.take('init')).nodes.find(n=>n.id===node.id).x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 14 checks passed');
+ const style={id:'accent',kind:'color',name:'Accent',color:'#112233'};
+ a.send({type:'style-upsert',style});await a.take('styles');await b.take('styles');await a.take('ops');await b.take('ops');
+ b.send({type:'ops',seq:20,ops:[{t:'set',id:node.id,key:'fillStyle',value:style.id},{t:'set',id:node.id,key:'fill',value:style.color}]});await b.take('ack');await a.take('ops');
+ a.send({type:'style-upsert',style:{...style,color:'#abcdef'}});
+ for(const peer of [a,b,c,d,e]) { await peer.take('styles',m=>m.styles[0]?.color==='#abcdef');const update=await peer.take('ops',m=>m.ops.some(o=>o.key==='fill'&&o.value==='#abcdef'));assert(update.ops.some(o=>o.key==='fills')); }
+ const late=await client(),li=await late.take('init');assert.equal(li.styles[0].color,'#abcdef');assert.equal(li.nodes.find(n=>n.id===node.id).fill,'#abcdef');
+ a.send({type:'style-delete',id:style.id});await late.take('styles',m=>m.styles.length===0);assert((await late.take('ops')).ops.some(o=>o.key==='fillStyle'&&o.value===null));console.log('PASS authoritative shared style propagation, late join and detach');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 15 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}

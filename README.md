@@ -15,6 +15,7 @@ npm start
 Open http://localhost:8787. The root creates a random file URL; share that URL to collaborate. Local Durable Object data lives in `.wrangler/state`. `npm run dev` starts only the Vite client; use Wrangler for multiplayer.
 
 ## Controls
+- Shared styles: deselect to create and edit local color/text styles; use the inspector style picker to link layers, or Detach to keep their current values.
 
 - **V** select, **R** rectangle, **O** ellipse, **F** frame, **H** hand
 - Drag to create; click creates a 100 × 100 shape. Shift constrains proportions.

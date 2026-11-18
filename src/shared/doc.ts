@@ -43,6 +43,9 @@ interface StrokeProperties {
 
 export interface Node extends Partial<TextProperties & StrokeProperties> {
     grids?: LayoutGrid[];
+    fillStyle?: string | null;
+    strokeStyle?: string | null;
+    textStyle?: string | null;
     link?: string | null;
     id: string;
     type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group';
@@ -199,9 +202,9 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
-    if (textKeys.some(key => key === op.key) && n.type !== 'text')
+    if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
     if (op.key === 'type' && (n.type === 'text' || op.value === 'text'))
         return;
@@ -268,7 +271,7 @@ function validProperty(key: string, value: unknown): boolean {
     if (Object.hasOwn(layoutEnums, key)) return value === undefined || layoutEnums[key as keyof typeof layoutEnums].includes(value as string);
     if (['gap', 'padTop', 'padRight', 'padBottom', 'padLeft'].includes(key)) return value === undefined || finite(value) && value >= 0;
     if (key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
-    if (key === 'link') return validLink(value);
+    if (['link', 'fillStyle', 'strokeStyle', 'textStyle'].includes(key)) return validLink(value);
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
     if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(value as string);
     if (key === 'points') return validPoints(value);
@@ -292,7 +295,7 @@ function validProperty(key: string, value: unknown): boolean {
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
-export function validNode(n: Node): boolean { return !!n && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { return !!n && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))

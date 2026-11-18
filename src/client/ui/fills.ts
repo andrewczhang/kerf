@@ -10,12 +10,13 @@ import { world } from '../geometry';
 import { inputElement } from './values';
 const expanded = new WeakMap<Store, number>(), selectedStop = new WeakMap<Store, number>();
 export function interpolatedStop(stops: Extract<Paint, { stops: unknown }>['stops'], pos: number) { const sorted = [...stops].sort((a, b) => a.pos - b.pos), a = [...sorted].reverse().find(s => s.pos <= pos) ?? sorted[0], b = sorted.find(s => s.pos >= pos) ?? sorted.at(-1)!, t = a.pos === b.pos ? 0 : (pos - a.pos) / (b.pos - a.pos); const channel = (color: string, i: number) => parseInt(color.slice(i, i + 2), 16); return { pos, color: '#' + [1, 3, 5].map(i => Math.round(channel(a.color, i) * (1 - t) + channel(b.color, i) * t).toString(16).padStart(2, '0')).join(''), opacity: a.opacity * (1 - t) + b.opacity * t }; }
-export function fillsSection(parent: HTMLElement, store: Store, nodes: Node[]) {
+export function fillsSection(parent: HTMLElement, store: Store, nodes: Node[], styles?: (section: HTMLElement) => boolean) {
     const section = document.createElement('section'); section.className = 'paint-section'; parent.append(section);
     const render = () => {
         section.replaceChildren(); const first = expand(store.doc).get(nodes[0].id); if (!first) return; const paints = copyFills(first), active = expanded.get(store);
         const apply = (next: Paint[]) => { for (const n of nodes) if (expand(store.doc).has(n.id)) writeFills(store, n.id, structuredClone(next)); }, act = (edit: () => void) => { transaction(store, edit); render(); }, update = (i: number, p: Paint) => { Object.assign(paints[i], p); apply(paints); };
         const heading = document.createElement('div'); heading.className = 'paint-heading'; heading.append('Fill', button('+', () => act(() => { if (paints.length < 12) { expanded.set(store, paints.length); apply([...paints, { type: 'solid', color: '#ff4f00', opacity: 1, visible: true }]); } }))); section.append(heading);
+        if (styles?.(section)) { editingPaint.delete(store); return; }
         if (nodes.some(n => JSON.stringify(nodeFills(expand(store.doc).get(n.id)!)) !== JSON.stringify(paints))) { editingPaint.delete(store); const mixed = document.createElement('div'); mixed.className = 'paint-mixed'; mixed.append('Mixed', button('Replace all', () => act(() => apply(paints)))); section.append(mixed); return; }
         editingPaint.delete(store);
         for (let i = paints.length - 1; i >= 0; i--) {
