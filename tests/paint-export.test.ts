@@ -27,3 +27,8 @@ it('waits for image loading and propagates errors instead of silently exporting 
     const n: Node = { ...makeNode('rect', 0, 0), fills: [{ type: 'image', asset: 'a'.repeat(64), w: 20, h: 20, fit: 'fill', opacity: 1, visible: true }] }; vi.stubGlobal('location', { pathname: '/f/test-file' }); vi.mocked(loadAsset).mockRejectedValue(new Error('Asset unavailable'));
     await expect(exportPNG(docOf(n), [n.id], 2)).rejects.toThrow('Asset unavailable'); expect(loadAsset).toHaveBeenCalledWith('test-file', 'a'.repeat(64));
 });
+it('uses only visible SVG content alpha for empty and stroke-only shadows', () => {
+    const n: Node = { ...makeNode('rect', 0, 0), fills: [], effects: [{ type: 'drop-shadow', x: 0, y: 4, blur: 4, spread: 0, color: '#000000', opacity: 1, visible: true }] };
+    const empty = exportSVG(docOf(n), [n.id]); expect(empty).not.toContain('<rect '); expect(empty).toContain('in="SourceAlpha"');
+    const stroked = { ...n, stroke: '#123456' }, svg = exportSVG(docOf(stroked), [n.id]); expect(svg.match(/<rect /g)).toHaveLength(1); expect(svg).toContain('fill="none" stroke="#123456"');
+});
