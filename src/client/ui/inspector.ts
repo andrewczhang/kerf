@@ -1,5 +1,6 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
+import { downloadSelection } from '../export';
 import { formatNumber, parseColor } from './values';
 
 function inputElement(label: string) {
@@ -15,7 +16,8 @@ export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
-        if (el.contains(document.activeElement)) return;
+        if (el.contains(document.activeElement) && document.activeElement?.matches('input'))
+            return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
@@ -109,6 +111,20 @@ export function inspector(el: HTMLElement, store: Store) {
         fields('Layout', ['x', 'y', 'w', 'h']);
         fields('Appearance', ['radius', 'opacity']);
         fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+        const exports = document.createElement('section');
+        exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
+        for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {
+            const button = document.createElement('button');
+            button.textContent = label;
+            button.onclick = () => {
+                exports.querySelector('.export-error')!.textContent = '';
+                void downloadSelection(store.doc, store.selection, format, scale).catch(() => {
+                    exports.querySelector('.export-error')!.textContent = 'Export failed. Please try again.';
+                });
+            };
+            exports.querySelector('.export-buttons')!.append(button);
+        }
+        content.append(exports);
     };
     store.addEventListener('change', render);
     render();
