@@ -1,4 +1,4 @@
-import { applyOp, descendants, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, normalizeNode, normalizeRotation, type Doc, type Op, type Key } from '../shared/doc';
 import { MAX_OPS } from '../shared/protocol';
 type Change = {
     before: Op;
@@ -33,7 +33,7 @@ export class Store extends EventTarget {
         this.undoStack.push(merged);
         this.redoStack = [];
     } this.group = null; }
-    commit(ops: Op[], record = true) { const changes: Change[] = []; for (const op of ops) {
+    commit(ops: Op[], record = true) { ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op); const changes: Change[] = []; for (const op of ops) {
         const n = op.t === 'create' ? undefined : this.doc.get(op.id);
         if (op.t === 'create')
             changes.push({ before: { t: 'delete', id: op.node.id }, after: op });

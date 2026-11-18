@@ -17,9 +17,22 @@ export type Mat = [
     number
 ];
 export function transform(m: Mat, p: Point): Point { return { x: m[0] * p.x + m[2] * p.y + m[4], y: m[1] * p.x + m[3] * p.y + m[5] }; }
+export const identity: Mat = [1, 0, 0, 1, 0, 0];
+export function multiply(a: Mat, b: Mat): Mat { return [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]]; }
+export function inverse(m: Mat): Mat { const d = m[0] * m[3] - m[1] * m[2]; return [m[3] / d, -m[1] / d, -m[2] / d, m[0] / d, (m[2] * m[5] - m[3] * m[4]) / d, (m[1] * m[4] - m[0] * m[5]) / d]; }
+export function localMatrix(n: Node, size: Pick<Rect, 'w' | 'h'> = n): Mat { const a = (n.type === 'group' ? 0 : n.rotation ?? 0) * Math.PI / 180, c = Math.abs(Math.cos(a)) < 1e-12 ? 0 : Math.cos(a), s = Math.abs(Math.sin(a)) < 1e-12 ? 0 : Math.sin(a), x = size.w / 2, y = size.h / 2; return [c, s, -s, c, n.x + x - c * x + s * y, n.y + y - s * x - c * y]; }
+export function worldMatrix(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Mat { const chain: Node[] = [], seen = new Set<string>(); let node: Node | undefined = n; while (node && !seen.has(node.id)) { chain.unshift(node); seen.add(node.id); node = node.parent ? doc.get(node.parent) : undefined; } return chain.reduce((m, node) => multiply(m, localMatrix(node, sizeOf(node))), identity); }
+export function parentMatrix(doc: Doc, n: Node, sizeOf?: SizeOf): Mat { const p = n.parent ? doc.get(n.parent) : undefined; return p ? worldMatrix(doc, p, sizeOf) : identity; }
+export function matrixAngle(m: Mat): number { return Math.atan2(m[1], m[0]) * 180 / Math.PI; }
+export function center(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Point { const { w, h } = sizeOf(n); return transform(worldMatrix(doc, n, sizeOf), { x: w / 2, y: h / 2 }); }
+export function corners(r: Rect): Point[] { return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }]; }
+export function transformedBounds(m: Mat, r: Rect): Rect { return bounds(corners(r).map(p => ({ ...transform(m, p), w: 0, h: 0 }))); }
+export function worldCorners(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Point[] { const { w, h } = sizeOf(n), m = worldMatrix(doc, n, sizeOf); return corners({ x: 0, y: 0, w, h }).map(p => transform(m, p)); }
+export function aabb(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { return bounds(worldCorners(doc, n, sizeOf).map(p => ({ ...p, w: 0, h: 0 }))); }
+export function nodeHandles(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Point[] { const { w, h } = sizeOf(n), m = worldMatrix(doc, n, sizeOf); return handles({ x: 0, y: 0, w, h }).map(p => transform(m, p)); }
 export function contains(r: Rect, p: Point) { return p.x >= r.x && p.y >= r.y && p.x <= r.x + r.w && p.y <= r.y + r.h; }
 export function intersects(a: Rect, b: Rect) { return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y; }
-type SizeOf = (node: Node) => Pick<Rect, 'w' | 'h'>;
+export type SizeOf = (node: Node) => Pick<Rect, 'w' | 'h'>;
 export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x = n.x, y = n.y, p = n.parent; const seen = new Set([n.id]); while (p && !seen.has(p)) {
     seen.add(p);
     const a = doc.get(p);
@@ -31,18 +44,18 @@ export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x 
 } const { w, h } = sizeOf(n); return { x, y, w, h }; }
 export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf, tol = 4): Node | undefined { for (const n of children(doc, parent).reverse()) {
     if (n.hidden || n.locked) continue;
-    const r = world(doc, n, sizeOf);
+    const { w, h } = sizeOf ? sizeOf(n) : n, r = { x: 0, y: 0, w, h }, local = transform(inverse(worldMatrix(doc, n, sizeOf)), p);
     if (n.type === 'path') {
-        if (n.points && hitPath(toAbs(n.points, r), !!n.closed, p, Math.max(tol, n.strokeWidth / 2)))
+        if (n.points && hitPath(toAbs(n.points, r), !!n.closed, local, Math.max(tol, n.strokeWidth / 2)))
             return n;
         continue;
     }
-    if (!contains(r, p))
+    if (!contains(r, local))
         continue;
     const child = hit(doc, p, n.id, sizeOf, tol);
     if (child)
         return child;
-    if (n.type !== 'ellipse' || ((p.x - r.x - r.w / 2) / (r.w / 2)) ** 2 + ((p.y - r.y - r.h / 2) / (r.h / 2)) ** 2 <= 1)
+    if (n.type !== 'ellipse' || ((local.x - r.w / 2) / (r.w / 2)) ** 2 + ((local.y - r.h / 2) / (r.h / 2)) ** 2 <= 1)
         return n;
 } }
 export function bounds(rs: Rect[]): Rect { if (!rs.length)

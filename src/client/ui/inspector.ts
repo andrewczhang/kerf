@@ -1,8 +1,10 @@
 import type { Store } from '../store';
 import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
 import { downloadSelection } from '../export';
-import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
+import { normalizeGroups } from '../../shared/layers';
+import { sizeOf, worldMatrix } from '../geometry';
+import { inverse, parentMatrix, transform } from '../../shared/geometry';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -35,9 +37,10 @@ export function inspector(el: HTMLElement, store: Store) {
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
-            const caption = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width' } as Record<string, string>)[key] ?? key.toUpperCase();
+            const caption = ({ rotation: '°', strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width' } as Record<string, string>)[key] ?? key.toUpperCase();
             span.textContent = caption;
-            const mixed = nodes.some(n => n[key] !== nodes[0][key]);
+            const valueOf = (n: Node) => key === 'rotation' ? n.rotation ?? 0 : n[key];
+            const mixed = nodes.some(n => valueOf(n) !== valueOf(nodes[0]));
             const options = choices[key];
             if (options) {
                 const select = document.createElement('select');
@@ -60,7 +63,8 @@ export function inspector(el: HTMLElement, store: Store) {
                 continue;
             }
             const input = document.createElement('input');
-            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
+            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
+            if (key === 'rotation') input.disabled = nodes.every(n => n.type === 'group');
             input.placeholder = mixed ? 'Mixed' : '';
             if (key === 'fill' || key === 'stroke') {
                 input.type = 'color';
@@ -71,12 +75,12 @@ export function inspector(el: HTMLElement, store: Store) {
                 input.step = key === 'opacity' ? '.05' : '1';
                 if (key === 'fontSize') input.max = String(maxFontSize);
                 if (key === 'fontSize' || key === 'w') input.min = '1';
-                input.value = mixed ? '' : String(Math.round(Number(nodes[0][key]) * 100) / 100);
+                input.value = mixed ? '' : String(Math.round(Number(valueOf(nodes[0])) * 100) / 100);
             }
             input.onfocus = () => store.begin();
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
-                store.set(n.id, { [key]: value }); };
-            input.onblur = () => { store.end(); render(); };
+                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value }); };
+            input.onblur = () => { store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); render(); };
             label.append(span, input);
             grid.append(label);
         } content.append(section); };
@@ -86,20 +90,20 @@ export function inspector(el: HTMLElement, store: Store) {
             const box = section.querySelector('input')!;
             box.checked = !!n.closed;
             box.onchange = () => {
-                const parent = n.parent ? store.doc.get(n.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
-                const f = fit(toAbs(n.points ?? [], world(store.doc, n)), box.checked, origin);
+                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 });
+                const c = transform(inverse(parentMatrix(store.doc, n)), transform(worldMatrix(store.doc, n), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
                 box.blur();
-                store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
+                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
             };
             content.append(section);
         }
         if (nodes.every(isTextNode)) {
-            fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
+            fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w', 'rotation'] : ['x', 'y', 'rotation']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
             fields('Appearance', ['fill', 'opacity']);
         }
         else {
-            fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
+            fields('Layout', nodes.some(isTextNode) ? ['x', 'y', 'rotation'] : ['x', 'y', 'w', 'h', 'rotation']);
             fields('Appearance', ['radius', 'opacity']);
             fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
         }

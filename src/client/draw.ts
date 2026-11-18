@@ -1,20 +1,23 @@
 import { children, isTextNode, type Doc, type Node } from '../shared/doc';
-import { world } from './geometry';
+import { world, worldMatrix } from './geometry';
+import { inverse, multiply, type Mat } from '../shared/geometry';
 import { font, measureTextNode } from './text-layout';
 import { toAbs, trace } from '../shared/path';
 
-export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string }) {
+export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string }, applied?: Mat) {
     if (n.hidden)
         return;
     if (n.type === 'group') {
         for (const child of children(doc, n.id))
-            drawNode(c, doc, child, opts);
+            drawNode(c, doc, child, opts, applied);
         return;
     }
     if (opts.skip === n.id)
         return;
-    const r = world(doc, n);
+    const r = world(doc, n), m = worldMatrix(doc, n), matrix: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
     c.save();
+    const relative = applied ? multiply(inverse(applied), matrix) : matrix;
+    if (relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10)) c.transform(...relative);
     c.globalAlpha *= n.opacity;
     if (isTextNode(n)) {
         const { lines, leading, baseline, offset } = measureTextNode(n);
@@ -53,14 +56,16 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
         c.stroke();
     }
     if (n.type === 'frame') {
+        c.save();
         c.clip();
         for (const child of children(doc, n.id))
-            drawNode(c, doc, child, opts);
+            drawNode(c, doc, child, opts, matrix);
+        c.restore();
     }
-    c.restore();
     if (n.type === 'frame' && opts.labels) {
         c.fillStyle = '#77766f';
         c.font = `${11 / opts.zoom}px system-ui`;
         c.fillText(n.name, r.x, r.y - 8 / opts.zoom);
     }
+    c.restore();
 }

@@ -1,6 +1,6 @@
 import { children, isTextNode, type Doc, type Node } from '../shared/doc';
-import { bounds } from '../shared/geometry';
-import { world } from './geometry';
+import { bounds, transformedBounds } from '../shared/geometry';
+import { world, worldMatrix } from './geometry';
 import { drawNode } from './draw';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
@@ -27,10 +27,10 @@ export function exportBounds(doc: Doc, roots: Node[]) {
         const r = world(doc, n);
         if (isTextNode(n)) {
             const ink = textPaintBounds(n);
-            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+            return transformedBounds(worldMatrix(doc, n), ink);
         }
         const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
-        return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+        return transformedBounds(worldMatrix(doc, n), { x: -pad, y: -pad, w: r.w + pad * 2, h: r.h + pad * 2 });
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
@@ -70,23 +70,25 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
             return '';
         if (n.type === 'group')
             return children(doc, n.id).map(child => render(child, alpha)).join('');
-        const r = world(doc, n), opacity = alpha * n.opacity;
+        const r = world(doc, n), opacity = alpha * n.opacity, m = worldMatrix(doc, n);
+        const correction = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
+        const transform = correction.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10) ? ` transform="matrix(${correction.join(' ')})"` : '';
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
-            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
+        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;
         let id: string;
         do { id = `clip-${clip++}`; } while (doc.has(id));
-        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`;
+        return `${primitive}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`;
     };
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${roots.map(n => render(n, 1)).join('')}</svg>`;
 }

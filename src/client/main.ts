@@ -77,7 +77,7 @@ function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.changed();
 }
 else
-    active.onPointerMove(viewport.world(p), e); presence.update(viewport.world(p)); }
+    active.onPointerMove(viewport.world(p), e); if (!pan) canvas.style.cursor = active.cursor; presence.update(viewport.world(p)); }
 canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
     return; canvas.focus(); canvas.setPointerCapture(e.pointerId); const p = local(e); if (space || e.button === 1 || active.id === 'hand') {
     pan = { ...p, vx: viewport.x, vy: viewport.y };
