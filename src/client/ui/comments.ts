@@ -4,11 +4,12 @@ import type { Comment } from '../../shared/comments';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
 import { registry } from '../tools/tool';
-export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, choose: (id: string) => void) {
-    const wrap = canvas.parentElement!, pins = document.createElement('div'), pop = document.createElement('div');
+import type { Doc, Node } from '../../shared/doc';
+export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, screen: (p: Point) => Point, visible: (c: Comment) => boolean = () => true) {
+    const pins = document.createElement('div'), pop = document.createElement('div');
     pop.className = 'comment-pop'; pop.hidden = true; wrap.append(pins, pop);
     let open: string | null = null, draft: { x: number; y: number; node?: string } | null = null, showResolved = false;
-    const position = (c: { x: number; y: number; node?: string }) => { const n = c.node && ctx.store.doc.get(c.node); return ctx.viewport.screen(n ? transform(worldMatrix(ctx.store.doc, n), c) : c); };
+    const position = (c: { x: number; y: number; node?: string }) => screen(commentPoint(doc(), c));
     function close() { open = null; draft = null; pop.hidden = true; }
     function placePop(p: Point) {
         pop.style.maxHeight = Math.max(0, wrap.clientHeight - 16) + 'px';
@@ -20,7 +21,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         pins.replaceChildren();
         const roots = sync.comments.filter(c => c.thread === null);
         for (const [i, c] of roots.entries()) {
-            if (c.resolved && !showResolved) continue;
+            if (c.resolved && !showResolved || !visible(c)) continue;
             const p = position(c), b = document.createElement('button'); b.className = 'comment-pin'; b.textContent = String(i + 1); b.style.background = c.color; b.style.left = p.x + 'px'; b.style.top = p.y + 'px'; b.title = c.text;
             b.onclick = () => { open = c.id; draft = null; thread(); }; pins.append(b);
         }
@@ -30,7 +31,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     function thread() {
         pop.replaceChildren(); pop.hidden = false;
         const root = sync.comments.find(c => c.id === open);
-        if (!root && !draft || root?.resolved && !showResolved) { close(); return; }
+        if (!root && !draft || root && (!visible(root) || root.resolved && !showResolved)) { close(); return; }
         const head = document.createElement('h2'); head.textContent = draft ? 'New comment' : root?.resolved ? 'Resolved thread' : 'Comment thread'; pop.append(head);
         const replies = document.createElement('div'); replies.className = 'comment-replies'; pop.append(replies);
         if (root) for (const c of sync.comments.filter(c => c.id === root.id || c.thread === root.id)) {
@@ -53,16 +54,34 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         if (root && sync.role === 'edit') { button(root.resolved ? 'Reopen' : 'Resolve', () => { sync.send({ type: 'comment-edit', id: root.id, resolved: !root.resolved }); close(); }); button('Delete', () => { sync.send({ type: 'comment-delete', id: root.id }); close(); }); }
         button('Close', close); render(); input.focus();
     }
+    const refresh = () => { render(); if (!pop.hidden && !draft) { const value = pop.querySelector('textarea')?.value ?? ''; thread(); const input = pop.querySelector('textarea'); if (input) input.value = value; } };
+    sync.addEventListener('comments-change', refresh);
+    sync.addEventListener('change', render);
+    return {
+        render, close,
+        isOpen: () => !pop.hidden,
+        start(p: Point, n?: Node) { draft = commentAnchor(doc(), p, n); open = null; thread(); },
+        resolved(value: boolean) { showResolved = value; render(); },
+        dispose() { sync.removeEventListener('comments-change', refresh); sync.removeEventListener('change', render); pins.remove(); pop.remove(); }
+    };
+}
+export function commentPoint(doc: Doc, c: { x: number; y: number; node?: string }): Point {
+    const n = c.node && doc.get(c.node);
+    return n ? transform(worldMatrix(doc, n), c) : { x: c.x, y: c.y };
+}
+export function commentAnchor(doc: Doc, p: Point, n?: Node) {
+    const local = n ? transform(inverse(worldMatrix(doc, n)), p) : p;
+    return { ...local, ...(n ? { node: n.id } : {}) };
+}
+export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, choose: (id: string) => void) {
+    const surface = commentSurface(sync, canvas.parentElement!, () => ctx.store.doc, p => ctx.viewport.screen(p));
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
-        const n = hit(ctx.store.doc, p), local = n ? transform(inverse(worldMatrix(ctx.store.doc, n)), p) : p;
-        draft = { ...local, ...(n ? { node: n.id } : {}) }; open = null; thread();
+        surface.start(p, hit(ctx.store.doc, p));
     }, onPointerMove() {}, onPointerUp() {} });
     const b = document.createElement('button'); b.className = 'feature-button'; b.dataset.tool = 'comment'; b.title = 'Comment (C)'; b.textContent = 'Comment'; b.onclick = () => choose('comment');
-    const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.onchange = () => { showResolved = check.checked; render(); }; label.append(check, ' Show resolved');
+    const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.onchange = () => surface.resolved(check.checked); label.append(check, ' Show resolved');
     document.querySelector('header')!.append(b, label);
-    sync.addEventListener('change', render);
-    sync.addEventListener('comments-change', () => { if (!pop.hidden && !draft) { const value = pop.querySelector('textarea')?.value ?? ''; thread(); const input = pop.querySelector('textarea'); if (input) input.value = value; } });
-    ctx.store.addEventListener('change', render);
-    const observer = new MutationObserver(render); observer.observe(document.querySelector('#zoom-value')!, { childList: true });
-    new ResizeObserver(render).observe(canvas);
+    ctx.store.addEventListener('change', surface.render);
+    const observer = new MutationObserver(surface.render); observer.observe(document.querySelector('#zoom-value')!, { childList: true });
+    new ResizeObserver(surface.render).observe(canvas);
 }

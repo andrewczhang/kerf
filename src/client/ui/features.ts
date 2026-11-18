@@ -6,6 +6,7 @@ import { comments } from './comments';
 import type { Renderer } from '../renderer';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
+import { handlePresentShortcut } from './presentation';
 export function features(renderer: Renderer, sync: Sync, ctx: Context, choose: (id: string) => void) {
     const header = document.querySelector('header')!;
     window.addEventListener('keydown', e => {
@@ -15,7 +16,8 @@ export function features(renderer: Renderer, sync: Sync, ctx: Context, choose: (
         }
     });
     const add = (text: string, fn: () => void) => { const b = document.createElement('button'); b.className = 'feature-button'; b.textContent = text; b.onclick = fn; header.append(b); };
-    add('Present', () => present(ctx.store)); add('History', historyPanel(sync, renderer));
+    const launch = () => present(ctx.store, sync, { preview: renderer.preview, name: renderer.previewName });
+    add('Present · Shift+P', launch); add('History', historyPanel(sync, renderer));
     const toggleShortcuts = shortcutsPanel(header);
     add('?', () => toggleShortcuts());
     const help = header.lastElementChild as HTMLElement;
@@ -27,7 +29,7 @@ export function features(renderer: Renderer, sync: Sync, ctx: Context, choose: (
     let opened = false;
     sync.addEventListener('change', () => {
         const frame = new URLSearchParams(location.search).get('present');
-        if (!opened && sync.role === 'view' && sync.you && frame) { opened = true; present(ctx.store, frame); }
+        if (!opened && sync.role === 'view' && sync.you && frame) { opened = true; present(ctx.store, sync, { initial: frame }); }
     });
-    window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select') || e.ctrlKey || e.metaKey) return; if (e.key.toLowerCase() === 'p') { e.preventDefault(); present(ctx.store); } if (e.key.toLowerCase() === 'c') choose('comment'); });
+    window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]') || e.ctrlKey || e.metaKey) return; if (handlePresentShortcut(e, launch)) return; if (e.key.toLowerCase() === 'c') choose('comment'); });
 }

@@ -1,14 +1,15 @@
 import type { Sync } from '../sync';
 import type { Renderer } from '../renderer';
+import { isPresentShortcut } from './presentation';
 export function historyPanel(sync: Sync, renderer: Renderer) {
     const panel = document.createElement('div'); panel.className = 'feature-panel'; panel.hidden = true;
     const banner = document.createElement('div'); banner.className = 'preview-banner'; banner.hidden = true;
     document.body.append(panel, banner);
     const inspector = document.querySelector<HTMLElement>('.inspector')!, layers = document.querySelector<HTMLElement>('.layers'), unavailable = document.createElement('section');
     unavailable.className = 'preview-inspector'; unavailable.textContent = 'Inspector unavailable while previewing'; unavailable.hidden = true; inspector.append(unavailable);
-    function previewInspector(active: boolean) { inspector.classList.toggle('previewing', active); inspector.inert = active; if (layers) layers.inert = active; unavailable.hidden = !active; }
+    function previewInspector(active: boolean) { inspector.classList.toggle('previewing', active); inspector.inert = active; if (layers) { layers.inert = active; layers.classList.toggle('previewing', active); } unavailable.hidden = !active; }
     let previewId = '', requested = '';
-    function current() { previewId = ''; requested = ''; renderer.preview = null; renderer.canvas.style.pointerEvents = ''; previewInspector(false); banner.hidden = true; renderer.invalidate(); render(); renderer.canvas.focus(); }
+    function current() { previewId = ''; requested = ''; renderer.preview = null; renderer.previewName = ''; renderer.canvas.style.pointerEvents = ''; previewInspector(false); banner.hidden = true; renderer.invalidate(); render(); renderer.canvas.focus(); }
     function render() {
         const value = panel.querySelector('input')?.value ?? '', focused = document.activeElement === panel.querySelector('input');
         panel.replaceChildren();
@@ -30,6 +31,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
     sync.addEventListener('preview', event => {
         const m = (event as CustomEvent).detail; if (m.id !== requested || panel.hidden) return;
         previewId = m.id; renderer.preview = new Map(m.nodes.map((n: import('../../shared/doc').Node) => [n.id, n]));
+        renderer.previewName = sync.versions.find(v => v.id === m.id)?.name ?? 'version';
         renderer.canvas.style.pointerEvents = 'none'; previewInspector(true); renderer.invalidate();
         banner.replaceChildren(); const text = document.createElement('span'); text.textContent = 'Viewing ' + (sync.versions.find(v => v.id === m.id)?.name ?? 'version');
         const restore = document.createElement('button'); restore.className = 'feature-button'; restore.textContent = 'Restore'; restore.onclick = () => { if (confirm('Restore this version for everyone? Current work will be saved first.')) sync.send({ type: 'version-restore', id: previewId }); };
@@ -40,6 +42,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
     sync.addEventListener('change', () => { if (!panel.contains(document.activeElement)) render(); }); sync.addEventListener('restored', current);
     sync.addEventListener('versions-change', render);
     window.addEventListener('keydown', e => {
+        if (document.querySelector('.present-overlay') || isPresentShortcut(e)) return;
         if (!renderer.preview || (e.target as HTMLElement).matches('input,textarea')) return;
         if (e.key === 'Tab') return;
         if (banner.contains(e.target as HTMLElement) && ['Enter', ' '].includes(e.key)) { e.stopImmediatePropagation(); return; }
