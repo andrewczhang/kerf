@@ -52,7 +52,19 @@ it('pads glyph masks by transformed effect extent and retains offscreen glyph po
     vi.stubGlobal('document', { createElement: () => canvas });
     const target = { canvas: { width: 200, height: 100 }, getTransform: () => ({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }) } as unknown as CanvasRenderingContext2D;
     const mask = textMask(target, n, n);
-    expect(mask.pad).toBe(180); expect(canvas.width).toBe(560); expect(canvas.height).toBe(460); expect(c.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 190, 200); expect(c.fillText).toHaveBeenCalledWith('Painted', -100, 44);
+    expect(canvas.width * canvas.height).toBeLessThanOrEqual(40_000); expect(mask.x).toBeLessThan(0); expect(c.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 10 - mask.x, 20 - mask.y); expect(c.fillText).toHaveBeenCalledWith('Painted', -100, 44);
+});
+it.each([0, 100, 10_000])('caps high-zoom glyph mask allocation with effect extent %s', blur => {
+    const n = { ...makeNode('text', 0, 0), effects: [{ ...shadow, type: 'inner-shadow' as const, x: 100, y: 100, blur, spread: 100 }] }, canvas = { width: 0, height: 0, getContext: () => ({ setTransform: vi.fn(), fillText: vi.fn() }) };
+    vi.stubGlobal('document', { createElement: () => canvas });
+    const target = { canvas: { width: 2000, height: 1200 }, getTransform: () => ({ a: 16, b: 0, c: 0, d: 16, e: 0, f: 0 }) } as unknown as CanvasRenderingContext2D;
+    textMask(target, n, n); expect(canvas.width * canvas.height).toBeLessThanOrEqual(4_000_000); expect(canvas.width).toBeGreaterThan(0); expect(canvas.height).toBeGreaterThan(0);
+});
+it('caps masks even when the visible glyph region alone exceeds the pixel budget', () => {
+    const n = makeNode('text', 0, 0), c = { setTransform: vi.fn(), fillText: vi.fn() }, canvas = { width: 0, height: 0, getContext: () => c };
+    vi.stubGlobal('document', { createElement: () => canvas });
+    const target = { canvas: { width: 10_000, height: 10_000 }, getTransform: () => ({ a: 128, b: 0, c: 0, d: 128, e: 0, f: 0 }) } as unknown as CanvasRenderingContext2D;
+    const mask = textMask(target, n, n); expect(canvas.width * canvas.height).toBeLessThanOrEqual(4_000_000); expect(mask.w).toBeGreaterThan(canvas.width); expect(mask.h).toBeGreaterThan(canvas.height);
 });
 it('exports painted paths and text with filters and retains text effect overflow', () => {
     const n = path(), svg = exportSVG(docOf(n), [n.id]); expect(svg).toContain('<path d="M20 30C'); expect(svg).toContain('gradientUnits="userSpaceOnUse"'); expect(svg).toContain('<feGaussianBlur');
