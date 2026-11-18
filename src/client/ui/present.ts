@@ -1,6 +1,6 @@
 import { children, descendants } from '../../shared/doc';
-import { contains, type Point } from '../../shared/geometry';
-import { hit, world } from '../geometry';
+import { contains, inverse, transform, type Point } from '../../shared/geometry';
+import { aabb, hit, worldMatrix } from '../geometry';
 import { drawNode } from '../draw';
 import type { Store } from '../store';
 export function present(store: Store) {
@@ -17,18 +17,19 @@ export function present(store: Store) {
         let frame = id ? store.doc.get(id) : undefined;
         if (!frame) { frame = frames()[0]; id = frame?.id; }
         if (!frame) { label.textContent = 'No top-level frames'; return; }
-        zoom = Math.max(.01, Math.min((r.width - 100) / frame.w, (r.height - 80) / frame.h));
-        ox = (r.width - frame.w * zoom) / 2 - frame.x * zoom; oy = (r.height - frame.h * zoom) / 2 - frame.y * zoom;
+        const box = aabb(store.doc, frame);
+        zoom = Math.max(.01, Math.min((r.width - 100) / box.w, (r.height - 80) / box.h));
+        ox = (r.width - box.w * zoom) / 2 - box.x * zoom; oy = (r.height - box.h * zoom) / 2 - box.y * zoom;
         c.translate(ox, oy); c.scale(zoom, zoom); drawNode(c, store.doc, frame, { zoom, scale: zoom * d, labels: false, invalidate: draw });
         if (flash) for (const n of [frame, ...descendants(store.doc, frame.id)]) if (n.link) {
-            const b = world(store.doc, n); c.fillStyle = '#ff4f0033'; c.fillRect(b.x, b.y, b.w, b.h); c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / zoom; c.strokeRect(b.x, b.y, b.w, b.h);
+            c.save(); c.transform(...worldMatrix(store.doc, n)); c.fillStyle = '#ff4f0033'; c.fillRect(0, 0, n.w, n.h); c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / zoom; c.strokeRect(0, 0, n.w, n.h); c.restore();
         }
         label.textContent = `${frame.name}  /  ${frames().findIndex(n => n.id === id) + 1} of ${frames().length}`;
     }
     function hotspot(e: MouseEvent) {
         const r = canvas.getBoundingClientRect(), p: Point = { x: (e.clientX - r.left - ox) / zoom, y: (e.clientY - r.top - oy) / zoom };
         const frame = id ? store.doc.get(id) : undefined;
-        if (!frame || !contains(world(store.doc, frame), p)) return;
+        if (!frame || !contains({ x: 0, y: 0, w: frame.w, h: frame.h }, transform(inverse(worldMatrix(store.doc, frame)), p))) return;
         let n = hit(store.doc, p, undefined, frame.id) ?? frame;
         while (n) { if (n.link && frames().some(f => f.id === n.link)) return n.link; if (!n.parent) break; n = store.doc.get(n.parent)!; }
     }

@@ -1,5 +1,5 @@
 import { inspectCSS, measurements } from '../../shared/inspect';
-import { hit, world } from '../geometry';
+import { aabb, hit, world } from '../geometry';
 import type { Renderer } from '../renderer';
 import type { Context } from '../tools/tool';
 import './inspect.css';
@@ -83,7 +83,7 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
         if (!enabled) return;
         const node = hovered && store.doc.get(hovered);
         if (!node) return;
-        const b = world(store.doc, node), p = viewport.screen(b);
+        const b = aabb(store.doc, node), p = viewport.screen(b);
         c.save(); c.strokeStyle = '#d92d20'; c.fillStyle = '#d92d20'; c.lineWidth = 1; c.font = '12px monospace';
         const crisp = (n: number) => Math.round(n) + .5;
         c.strokeRect(crisp(p.x), crisp(p.y), Math.round(b.w * viewport.zoom), Math.round(b.h * viewport.zoom));
@@ -94,7 +94,7 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
         };
         const selected = store.selection.size === 1 && store.doc.get([...store.selection][0]);
         if (!selected) label(`${Math.round(b.w)} × ${Math.round(b.h)}`, p.x + b.w * viewport.zoom / 2, p.y - 8);
-        else if (selected.id !== node.id) for (const m of measurements(world(store.doc, selected), b)) {
+        else if (selected.id !== node.id) for (const m of measurements(aabb(store.doc, selected), b)) {
             const a = viewport.screen(m.from), z = viewport.screen(m.to), horizontal = a.y === z.y;
             c.beginPath(); c.moveTo(crisp(a.x), crisp(a.y)); c.lineTo(crisp(z.x), crisp(z.y));
             for (const q of [a, z]) { c.moveTo(crisp(q.x - (horizontal ? 0 : 4)), crisp(q.y - (horizontal ? 4 : 0))); c.lineTo(crisp(q.x + (horizontal ? 0 : 4)), crisp(q.y + (horizontal ? 4 : 0))); }

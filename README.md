@@ -26,6 +26,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Layers lists the live document tree: click to select, double-click names to rename, use the eye/lock buttons, and drag rows to reorder or nest in frames/groups.
 - Ctrl/Cmd+G groups selection; Ctrl/Cmd+Shift+G ungroups. Click a grouped shape to select its group, double-click to select inside. Hidden/locked layers are excluded from canvas interaction.
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.
+- Drag just outside a selection corner to rotate; Shift snaps to 15°. Single-object resize follows its rotated axes. The inspector's ° field edits each selected object's local angle; frames rotate their children, while groups keep a zero angle and rotate their contents.
 - Drag shapes into or out of a frame to reparent them without changing world position.
 - **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
 - The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.

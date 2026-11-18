@@ -3,6 +3,14 @@ import { applyOp, makeNode, validNode, type Doc, type Op } from '../src/shared/d
 import { detachOps, resolveStyleOps, styleOps, validStyle, type Style } from '../src/shared/styles';
 const color: Style = { id: 'orange', kind: 'color', name: 'Accent', color: '#123456' };
 describe('shared styles', () => {
+    it('preserves normalized rotation while linked color and text styles update', () => {
+        const doc: Doc = new Map(), textStyle: Style = { id: 'title', kind: 'text', name: 'Title', fontFamily: 'serif', fontSize: 48, fontWeight: 700 }, n = { ...makeNode('text', 0, 0), rotation: 390, fillStyle: color.id, textStyle: textStyle.id };
+        applyOp(doc, { t: 'create', node: n });
+        [...styleOps(doc, color), ...styleOps(doc, textStyle)].forEach(op => applyOp(doc, op));
+        expect(doc.get(n.id)).toMatchObject({ rotation: 30, fill: color.color, fillStyle: color.id, textStyle: textStyle.id, fontSize: 48 });
+        applyOp(doc, { t: 'set', id: n.id, key: 'rotation', value: -390 }); applyOp(doc, { t: 'set', id: n.id, key: 'rotation', value: Infinity });
+        expect(doc.get(n.id)).toMatchObject({ rotation: -30, fillStyle: color.id, textStyle: textStyle.id });
+    });
     it('resolves restored links using the latest style, only on relinked nodes', () => {
         const n = { ...makeNode('rect', 0, 0), fillStyle: color.id, strokeStyle: color.id };
         const text = { ...makeNode('text', 0, 0), textStyle: 'title' };
