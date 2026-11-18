@@ -1,6 +1,6 @@
 import { applyOp, descendants, isTextNode, normalizeNode, layoutDefaults, type Doc, type Op, type Key } from '../shared/doc';
 import { applyLayout, type MeasureText } from '../shared/layout';
-import { detachOps, resizeFollowOps, isVirtual, splitVirtual } from '../shared/components';
+import { detachOps, expand, resizeFollowOps, isVirtual, splitVirtual } from '../shared/components';
 import { MAX_OPS } from '../shared/protocol';
 function pendingKey(op: Op): string | undefined { return op.t === 'set' ? op.id + ':' + op.key : op.t === 'override' ? op.id + ':o:' + op.target + ':' + op.key : undefined; }
 function sameValue(a: unknown, b: unknown): boolean {
@@ -52,9 +52,11 @@ export class Store extends EventTarget {
         });
         if (record) {
             const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
+            let resolved: Doc | undefined;
             ops = ops.flatMap(op => {
-                if (op.t !== 'set') return [op];
-                const n = this.doc.get(op.id);
+                if (op.t !== 'set' && op.t !== 'override') return [op];
+                if (op.t === 'override' && (op.target || op.clear || op.value !== 'fixed' || !['sizeW', 'sizeH'].includes(op.key) || !this.doc.get(op.id)?.instanceOf)) return [op];
+                const n = op.t === 'override' ? (resolved ??= expand(this.doc)).get(op.id) : this.doc.get(op.id);
                 if (!n) return [op];
                 const geometry: Op[] = [];
                 const freeze = (key: 'w' | 'h', value: number) => {

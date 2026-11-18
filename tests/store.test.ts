@@ -6,6 +6,29 @@ import { componentOps, detachOps, expand, instanceNode } from '../src/shared/com
 import { applyOp } from '../src/shared/doc';
 import { groupOps, ungroupOps } from '../src/shared/layers';
 import { MAX_OPS } from '../src/shared/protocol';
+it('freezes the rendered instance size when inherited Hug sizing becomes a Fixed override', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id, w: 80, h: 30 }, instance = instanceNode(main, 200, 0);
+    s.init([main, child, instance]);
+    expect(s.doc.get(instance.id)).toMatchObject({ w: 100, h: 100 });
+    expect(expand(s.doc).get(instance.id)).toMatchObject({ w: 80, h: 30 });
+    s.set(instance.id, { sizeW: 'fixed', sizeH: 'fixed' });
+    expect(s.doc.get(instance.id)).toMatchObject({ w: 80, h: 30 });
+    expect(expand(s.doc).get(instance.id)).toMatchObject({ w: 80, h: 30, sizeW: 'fixed', sizeH: 'fixed' });
+    expect(s.undoStack).toHaveLength(1);
+    s.history(); expect(expand(s.doc).get(instance.id)).toMatchObject({ w: 80, h: 30, sizeW: 'hug', sizeH: 'hug' });
+    s.history(true); expect(expand(s.doc).get(instance.id)).toMatchObject({ w: 80, h: 30, sizeW: 'fixed', sizeH: 'fixed' });
+});
+it('preserves explicit dimensions and ignores invalid sizing overrides while freezing instances', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id, w: 80 }, instance = instanceNode(main, 200, 0);
+    s.init([main, child, instance]);
+    s.commit([{ t: 'override', id: instance.id, target: '', key: 'sizeW', value: 'fixed' }, { t: 'set', id: instance.id, key: 'w', value: 140 }]);
+    expect(expand(s.doc).get(instance.id)?.w).toBe(140);
+    const before = s.doc.get(main.id), count = s.undoStack.length;
+    s.commit([{ t: 'override', id: main.id, target: '', key: 'sizeW', value: 'fixed' }]);
+    expect(s.doc.get(main.id)).toBe(before); expect(s.undoStack).toHaveLength(count);
+});
 it('inherits paints and resolves layout and virtual effect edits as overrides', () => {
     const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, gap: 5 };
     const a = { ...makeNode('rect', 0, 0, 'A'), parent: main.id, w: 10 }, b = { ...makeNode('rect', 0, 0, 'B'), parent: main.id, w: 20 };
