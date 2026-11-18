@@ -25,7 +25,25 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
     c.restore();
     if (n.type === 'frame' && opts.labels) {
         c.fillStyle = '#77766f';
+        c.strokeStyle = '#77766f';
+        if (n.instanceOf && !doc.has(n.instanceOf)) {
+            c.lineWidth = 1 / opts.zoom;
+            c.setLineDash([4 / opts.zoom, 3 / opts.zoom]);
+            c.strokeRect(r.x, r.y, r.w, r.h);
+            c.setLineDash([]);
+        }
+        if (n.component || n.instanceOf) {
+            c.save();
+            c.translate(r.x, r.y - 13 / opts.zoom);
+            c.scale(1 / opts.zoom, 1 / opts.zoom);
+            c.lineWidth = 1;
+            for (const [x, y] of [[5, 0], [0, 5], [10, 5], [5, 10]]) {
+                c.beginPath(); c.moveTo(x, y - 3); c.lineTo(x + 3, y); c.lineTo(x, y + 3); c.lineTo(x - 3, y); c.closePath();
+                if (n.instanceOf) c.stroke(); else c.fill();
+            }
+            c.restore();
+        }
         c.font = `${11 / opts.zoom}px system-ui`;
-        c.fillText(n.name, r.x, r.y - 8 / opts.zoom);
+        c.fillText(n.name, r.x + (n.component || n.instanceOf ? 19 / opts.zoom : 0), r.y - 8 / opts.zoom);
     }
 }

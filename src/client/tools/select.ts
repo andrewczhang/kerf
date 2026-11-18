@@ -1,4 +1,5 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
+import { detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
 import type { Context, Tool } from './tool';
 export class Select implements Tool {
@@ -11,14 +12,17 @@ export class Select implements Tool {
     moved = false;
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
+    pick(p: Point, deep = false) { const { store } = this.ctx; const n = hit(expand(store.doc), p); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
+    deepSelect(p: Point) { const { store } = this.ctx; const n = this.pick(p, true); if (n) { store.selection.clear(); store.selection.add(n.id); store.changed(); } }
     onPointerDown(p: Point, e: PointerEvent) {
         const { store, viewport } = this.ctx;
+        if (e.ctrlKey || e.metaKey) { this.deepSelect(p); return; }
         this.start = p;
         this.moved = false;
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
         this.handle = this.box ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
-        const n = hit(store.doc, p);
+        const n = this.pick(p);
         if (this.handle < 0) {
             if (n) {
                 if (e.shiftKey) {
@@ -45,7 +49,7 @@ export class Select implements Tool {
     onPointerMove(p: Point, e: PointerEvent) {
         const { store, viewport } = this.ctx;
         if (!this.start) {
-            this.ctx.hover = hit(store.doc, p)?.id;
+            this.ctx.hover = this.pick(p, e.ctrlKey || e.metaKey)?.id;
             this.ctx.invalidate();
             return;
         }
@@ -92,7 +96,7 @@ export class Select implements Tool {
                 ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
         store.commit(ops);
     }
-    onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (!this.start) return; const { store } = this.ctx; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(n.id);
@@ -103,7 +107,7 @@ export class Select implements Tool {
             const n = store.doc.get(id)!;
             const r = world(store.doc, n);
             const blocked = new Set([id, ...descendants(store.doc, id).map(n => n.id)]);
-            const frames = [...store.doc.values()].filter(f => f.type === 'frame' && !blocked.has(f.id) && contains(world(store.doc, f), p));
+            const frames = [...store.doc.values()].filter(f => f.type === 'frame' && !f.instanceOf && !blocked.has(f.id) && contains(world(store.doc, f), p));
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
@@ -113,8 +117,15 @@ export class Select implements Tool {
     } store.end(); this.start = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected(); if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        store.commit(nodes.map(n => ({ t: 'delete', id: n.id })));
+        const deleted = new Set(nodes.flatMap(n => [n.id, ...descendants(store.doc, n.id).map(c => c.id)]));
+        const ops: Op[] = [];
+        for (const n of store.doc.values())
+            if (n.instanceOf && deleted.has(n.instanceOf) && !deleted.has(n.id))
+                ops.push(...detachOps(store.doc, n.id));
+        ops.push(...nodes.map(n => ({ t: 'delete' as const, id: n.id })));
+        store.commit(ops);
         store.selection.clear();
+        store.changed();
     } const delta: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }; if (delta[e.key]) {
         e.preventDefault();
         const d = delta[e.key], k = e.shiftKey ? 10 : 1;
@@ -122,13 +133,18 @@ export class Select implements Tool {
         for (const n of nodes)
             store.set(n.id, { x: n.x + d.x * k, y: n.y + d.y * k });
         store.end();
-    } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         const copies = new Map<string, Node>();
-        for (const n of nodes)
+        for (const n of nodes) {
+            if (n.component) {
+                copies.set(n.id, instanceNode(n, n.x, n.y, n.parent, n.index));
+                continue;
+            }
             for (const c of [n, ...descendants(store.doc, n.id)])
                 if (!copies.has(c.id))
                     copies.set(c.id, { ...c, id: crypto.randomUUID() });
+        }
         for (const [old, n] of copies) {
             const original = store.doc.get(old)!;
             n.parent = copies.get(original.parent ?? '')?.id ?? original.parent;

@@ -23,6 +23,9 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.
 - Drag shapes into or out of a frame to reparent them without changing world position.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates.
+- Ctrl/Cmd+Alt+K makes a component; Ctrl/Cmd+D on a main component creates an instance. The inspector also lists components and creates instances.
+- Double-click or Ctrl/Cmd+click an instance to select a layer inside it. Edit appearance in the inspector to override it; virtual layers cannot be moved, resized or deleted. Escape selects the owning instance.
+- Ctrl/Cmd+Alt+B detaches an instance. Reset overrides in the inspector to follow the main again. Deleting a main detaches its surviving instances.
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.

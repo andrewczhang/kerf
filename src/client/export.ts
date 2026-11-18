@@ -1,6 +1,7 @@
 import { children, type Doc, type Node } from '../shared/doc';
 import { bounds, world } from '../shared/geometry';
 import { drawNode } from './draw';
+import { expand } from '../shared/components';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -26,6 +27,7 @@ export function exportBounds(doc: Doc, roots: Node[]) {
 }
 
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
+    doc = expand(doc);
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
@@ -45,6 +47,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
+    doc = expand(doc);
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     let clip = 0;
     const render = (n: Node, alpha: number): string => {
@@ -78,6 +81,7 @@ export function download(blob: Blob, filename: string) {
 }
 
 export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1) {
+    doc = expand(doc);
     const selection = [...ids];
     if (!exportRoots(doc, selection).length)
         return;

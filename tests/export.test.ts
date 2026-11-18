@@ -1,9 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeNode, type Doc, type Node } from '../src/shared/doc';
 import { exportBounds, exportFilename, exportPNG, exportRoots, exportSVG } from '../src/client/export';
+import { instanceNode } from '../src/shared/components';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 afterEach(() => vi.unstubAllGlobals());
+it('exports resolved instance children and virtual layer selections with overrides', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 10, 20), parent: main.id };
+    const instance = { ...instanceNode(main, 200, 0), overrides: { [child.id]: { fill: '#123456' } } };
+    const doc = docOf(main, child, instance);
+    expect(exportSVG(doc, [instance.id])).toContain('fill="#123456"');
+    const virtual = exportSVG(doc, [instance.id + '/' + child.id]);
+    expect(virtual).toContain('x="210" y="20"');
+    expect(virtual).toContain('fill="#123456"');
+    expect(virtual).not.toContain('<clipPath');
+});
 
 it('drops selected descendants and missing ids, preserving tree paint order', () => {
     const a = makeNode('frame', 0, 0, 'A'), b = makeNode('rect', 0, 0, 'B');

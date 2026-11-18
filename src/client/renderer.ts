@@ -1,4 +1,5 @@
 import { children, type Node } from '../shared/doc';
+import { expand, isVirtual } from '../shared/components';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
@@ -17,6 +18,7 @@ export class Renderer {
     } requestAnimationFrame(() => this.loop()); }
     draw() {
         const c = this.ctx, { viewport: v, store } = this.app, d = devicePixelRatio || 1;
+        const doc = expand(store.doc);
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
         c.fillStyle = '#d6d4ce';
@@ -27,21 +29,21 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true });
+        for (const n of children(doc, null))
+            drawNode(c, doc, n, { zoom: v.zoom, labels: true });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
-        const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        const selected = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
-            const n = store.doc.get(this.app.hover);
+            const n = doc.get(this.app.hover);
             if (n)
-                outline(world(store.doc, n), '#ff4f00');
+                outline(world(doc, n), '#ff4f00');
         }
         if (selected.length) {
             for (const n of selected)
-                outline(world(store.doc, n), '#ff4f00');
-            const box = bounds(selected.map(n => world(store.doc, n)));
+                outline(world(doc, n), '#ff4f00');
+            const box = bounds(selected.map(n => world(doc, n)));
             outline(box, '#ff4f00');
-            for (const p of handles(box)) {
+            for (const p of selected.some(n => isVirtual(n.id)) ? [] : handles(box)) {
                 c.fillStyle = '#fbfbf9';
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
@@ -55,9 +57,9 @@ export class Renderer {
         }
         for (const peer of this.sync.peers.values()) {
             for (const id of peer.selection) {
-                const n = store.doc.get(id);
+                const n = doc.get(id);
                 if (n)
-                    outline(world(store.doc, n), peer.color, true);
+                    outline(world(doc, n), peer.color, true);
             }
         }
         c.restore();

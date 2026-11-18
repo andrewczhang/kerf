@@ -37,6 +37,9 @@ New node types must add a drawing case in both draw.ts and exportSVG in export.t
 Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
+## Components
+Main components are frames marked `component`; instances are childless frames with `instanceOf` and per-path `overrides`. `shared/components.ts` expands instances into virtual layers (`instance/id`, nested `instance/nested/id`) for rendering, hit testing and presence. Structural properties stay on each instance; appearance follows the main unless overridden. Main size edits also resize instances still at the old size, in the same history transaction. Override writes sync as property-LWW operations keyed by instance, target and property. Detach bakes the resolved subtree into real nodes; deleting a main detaches surviving instances first. Creation and reparenting prevent component cycles and children inside instances; expansion caps nested depth at eight.
+
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.
 - Server applies in arrival order, broadcasts `{type:'ops', ops, from}` to others, acks sender `{type:'ack', seq}`.

@@ -11,6 +11,7 @@ import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
 import { downloadSelection } from './export';
+import { componentOps, detachOps, isVirtual, splitVirtual } from '../shared/components';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
@@ -42,7 +43,7 @@ for (const type of ['rect', 'ellipse', 'frame'] as const)
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
 choose('select');
-inspector(document.querySelector('aside')!, store);
+inspector(document.querySelector('aside')!, store, viewport);
 people(document.querySelector('#people')!, sync, viewport);
 const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 function move(e: PointerEvent) { const p = local(e); if (pan) {
@@ -72,6 +73,7 @@ canvas.onpointerup = e => { if (pointer) {
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
 canvas.onpointerleave = () => presence.update(null);
+canvas.ondblclick = e => { if (active.id === 'select') (active as Select).deepSelect(viewport.world({ x: e.offsetX, y: e.offsetY })); };
 canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top }; if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
 else {
@@ -94,9 +96,22 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     store.history(e.shiftKey);
     return;
 } if (e.key === 'Escape') {
+    const instances = [...store.selection].filter(isVirtual).map(id => splitVirtual(id).instance);
     store.selection.clear();
+    for (const id of instances) store.selection.add(id);
     store.changed();
     choose('select');
+    return;
+} if ((e.ctrlKey || e.metaKey) && e.altKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'k' || key === 'b') {
+        e.preventDefault();
+        if (key === 'k') {
+            try { const { ops, id } = componentOps.create(store.doc, [...store.selection]); store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
+        }
+        else store.commit([...store.selection].flatMap(id => detachOps(store.doc, id)));
+        return;
+    }
 } const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', h: 'hand' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
     choose(keys[e.key.toLowerCase()]);
 else
