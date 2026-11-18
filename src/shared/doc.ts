@@ -57,6 +57,15 @@ export function between(a: string | null = null, b: string | null = null): strin
     }
 }
 export function children(doc: Doc, parent: string | null) { return [...doc.values()].filter(n => n.parent === parent).sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id)); }
+export function childIndex(doc: Doc): Map<string | null, Node[]> {
+    const index = new Map<string | null, Node[]>();
+    for (const n of doc.values()) {
+        const siblings = index.get(n.parent) ?? [];
+        siblings.push(n); index.set(n.parent, siblings);
+    }
+    for (const siblings of index.values()) siblings.sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
+    return index;
+}
 export function descendants(doc: Doc, id: string): Node[] { return children(doc, id).flatMap(n => [n, ...descendants(doc, n.id)]); }
 export function applyOp(doc: Doc, op: Op): void {
     if (!op || !['create', 'set', 'delete', 'override'].includes(op.t))

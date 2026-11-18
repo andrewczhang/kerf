@@ -1,12 +1,12 @@
-import { children, type Doc, type Node } from '../shared/doc';
+import { childIndex, type Doc, type Node } from '../shared/doc';
 import { bounds, world } from '../shared/geometry';
 import { drawNode } from './draw';
 import { expand } from '../shared/components';
 
-export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
+export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(doc)): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
     const walk = (parent: string | null, ancestorSelected: boolean) => {
-        for (const n of children(doc, parent)) {
+        for (const n of tree.get(parent) ?? []) {
             const included = selected.has(n.id);
             if (included && !ancestorSelected)
                 roots.push(n);
@@ -28,7 +28,7 @@ export function exportBounds(doc: Doc, roots: Node[]) {
 
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
     doc = expand(doc);
-    const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
+    const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
     const canvas = document.createElement('canvas');
@@ -40,7 +40,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     c.scale(scale, scale);
     c.translate(-r.x, -r.y);
     for (const n of roots)
-        drawNode(c, doc, n, { zoom: scale, labels: false });
+        drawNode(c, doc, n, { zoom: scale, labels: false, tree });
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
@@ -49,7 +49,7 @@ const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value
 
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     doc = expand(doc);
-    const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
+    const tree = childIndex(doc), roots = exportRoots(doc, ids, tree), r = exportBounds(doc, roots);
     let clip = 0;
     const render = (n: Node, alpha: number): string => {
         const raw = world(doc, n), r = { x: number(raw.x), y: number(raw.y), w: number(raw.w), h: number(raw.h) }, opacity = alpha * number(n.opacity);
@@ -62,7 +62,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
             return primitive;
         let id: string;
         do { id = `clip-${clip++}`; } while (doc.has(id));
-        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`;
+        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${(tree.get(n.id) ?? []).map(child => render(child, opacity)).join('')}</g>`;
     };
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${roots.map(n => render(n, 1)).join('')}</svg>`;
 }

@@ -1,4 +1,4 @@
-import { children, type Node } from '../shared/doc';
+import { childIndex, type Node } from '../shared/doc';
 import { expand, isVirtual } from '../shared/components';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
@@ -19,6 +19,7 @@ export class Renderer {
     draw() {
         const c = this.ctx, { viewport: v, store } = this.app, d = devicePixelRatio || 1;
         const doc = expand(store.doc);
+        const tree = childIndex(doc);
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
         c.fillStyle = '#d6d4ce';
@@ -29,8 +30,8 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        for (const n of children(doc, null))
-            drawNode(c, doc, n, { zoom: v.zoom, labels: true });
+        for (const n of tree.get(null) ?? [])
+            drawNode(c, doc, n, { zoom: v.zoom, labels: true, tree });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const selected = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {

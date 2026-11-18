@@ -1,10 +1,11 @@
-import { between, children, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
+import { between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
 function props(values: object | undefined): Partial<Node> { return Object.fromEntries(Object.entries(values ?? {}).filter(([key]) => overridable(key))); }
 export function expand(doc: Doc): Doc {
     const out: Doc = new Map(doc);
+    const tree = childIndex(doc);
     const resolve = (n: Node, seen: Set<string>): Node[] => {
         const main = n.instanceOf ? doc.get(n.instanceOf) : undefined;
         if (!main || seen.has(main.id) || seen.size >= 8)
@@ -13,7 +14,7 @@ export function expand(doc: Doc): Doc {
         const root = { ...n, ...props(main), ...props(n.overrides?.['']), name: n.name };
         const result = [root];
         const walkMain = (parent: string, resolvedParent: string) => {
-            for (const child of children(doc, parent)) {
+            for (const child of tree.get(parent) ?? []) {
                 if (child.instanceOf) {
                     for (const value of resolve(child, path)) {
                         const suffix = value.id === child.id ? '' : value.id.slice(child.id.length);
@@ -31,7 +32,7 @@ export function expand(doc: Doc): Doc {
         return result;
     };
     for (const n of doc.values())
-        if (n.instanceOf)
+        if (n.instanceOf && !isVirtual(n.id))
             for (const value of resolve(n, new Set()))
                 out.set(value.id, value);
     return out;
@@ -60,8 +61,8 @@ export function detachOps(doc: Doc, instanceId: string): Op[] {
     if (!doc.get(instanceId)?.instanceOf)
         return [];
     const expanded = expand(doc), root = expanded.get(instanceId)!;
-    const nodes: Node[] = [];
-    const walk = (n: Node) => { nodes.push(n); for (const c of children(expanded, n.id)) walk(c); };
+    const nodes: Node[] = [], tree = childIndex(expanded);
+    const walk = (n: Node) => { nodes.push(n); for (const c of tree.get(n.id) ?? []) walk(c); };
     walk(root);
     const ids = new Map(nodes.map(n => [n.id, n.id === instanceId ? instanceId : crypto.randomUUID()]));
     return [{ t: 'delete', id: instanceId }, ...nodes.map(n => {

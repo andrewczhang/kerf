@@ -1,7 +1,8 @@
-import { children, type Doc, type Node } from '../shared/doc';
+import { childIndex, type Doc, type Node } from '../shared/doc';
 import { world } from '../shared/geometry';
 
-export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean }) {
+export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; tree?: Map<string | null, Node[]> }) {
+    if (!opts.tree) opts = { ...opts, tree: childIndex(doc) };
     const r = world(doc, n);
     c.save();
     c.globalAlpha *= n.opacity;
@@ -19,7 +20,7 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
     }
     if (n.type === 'frame') {
         c.clip();
-        for (const child of children(doc, n.id))
+        for (const child of opts.tree!.get(n.id) ?? [])
             drawNode(c, doc, child, opts);
     }
     c.restore();
