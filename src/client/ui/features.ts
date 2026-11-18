@@ -17,5 +17,5 @@ export function features(renderer: Renderer, sync: Sync, ctx: Context, choose: (
     add('Present', () => present(ctx.store)); add('History', historyPanel(sync, renderer));
     const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.onchange = () => { renderer.showLinks = check.checked; renderer.invalidate(); }; label.append(check, ' Show links'); header.append(label);
     comments(sync, ctx, renderer.canvas, choose);
-    window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select') || e.ctrlKey || e.metaKey) return; if (e.key.toLowerCase() === 'p') { e.preventDefault(); present(ctx.store); } if (e.key.toLowerCase() === 'c') choose('comment'); });
+    window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select') || e.ctrlKey || e.metaKey) return; if (e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); present(ctx.store); } if (e.key.toLowerCase() === 'c') choose('comment'); });
 }

@@ -9,6 +9,7 @@ import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
+import { applyBoolean, booleanOps, canCombine } from '../boolean';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
 import { inverse, parentMatrix, transform } from '../../shared/geometry';
@@ -173,11 +174,23 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
             box.checked = !!n.closed;
             box.onchange = () => {
-                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 });
+                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 }, (n.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: n.w, h: n.h })));
                 const c = transform(inverse(parentMatrix(store.doc, n)), transform(worldMatrix(store.doc, n), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
                 box.blur();
-                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
+                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked }); store.end();
             };
+            content.append(section);
+        }
+        if (canCombine(store)) {
+            const section = document.createElement('section'), mod = /Mac/.test(navigator.platform) ? '⌘⌥' : 'Ctrl+Alt+';
+            section.innerHTML = '<div class="section-label">Boolean</div><div class="boolean-buttons"></div>';
+            for (const [op, label, key] of booleanOps) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.title = `${label} (${mod}${key})`;
+                button.onclick = () => { button.blur(); applyBoolean(store, op); };
+                section.querySelector('.boolean-buttons')!.append(button);
+            }
             content.append(section);
         }
         if (nodes.every(isTextNode)) {
