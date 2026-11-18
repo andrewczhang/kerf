@@ -5,7 +5,7 @@ import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';
 import { registry } from '../tools/tool';
 import type { Doc, Node } from '../../shared/doc';
-export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, screen: (p: Point) => Point, visible: (c: Comment) => boolean = () => true, page: () => string | undefined = () => undefined) {
+export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, screen: (p: Point) => Point, visible: (c: Comment) => boolean = () => true, page: () => string | undefined = () => undefined, fullDoc: () => Doc = doc) {
     const pins = document.createElement('div'), pop = document.createElement('div');
     pop.className = 'comment-pop'; pop.hidden = true; wrap.append(pins, pop);
     let open: string | null = null, draft: { x: number; y: number; node?: string } | null = null, showResolved = false;
@@ -19,7 +19,7 @@ export function commentSurface(sync: Sync, wrap: HTMLElement, doc: () => Doc, sc
     }
     function render() {
         pins.replaceChildren();
-        const roots = sync.comments.filter(c => c.thread === null && commentOnPage(doc(), c, page()) && visible(c));
+        const roots = sync.comments.filter(c => c.thread === null && commentOnPage(fullDoc(), c, page()) && visible(c));
         if (open && !roots.some(c => c.id === open) || draft?.node && !doc().has(draft.node)) close();
         for (const [i, c] of roots.entries()) {
             if (c.resolved && !showResolved || !visible(c)) continue;
@@ -75,7 +75,7 @@ export function commentAnchor(doc: Doc, p: Point, n?: Node) {
     return { ...local, ...(n ? { node: n.id } : {}) };
 }
 export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, choose: (id: string) => void) {
-    const surface = commentSurface(sync, canvas.parentElement!, () => ctx.store.pageDoc, p => ctx.viewport.screen(p), undefined, () => ctx.store.currentPage);
+    const surface = commentSurface(sync, canvas.parentElement!, () => ctx.store.pageDoc, p => ctx.viewport.screen(p), undefined, () => ctx.store.currentPage, () => ctx.store.doc);
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
         surface.start(p, hit(ctx.store.pageDoc, p));
     }, onPointerMove() {}, onPointerUp() {} });

@@ -12,7 +12,7 @@ export function present(store: Store, sync: Sync, options: { initial?: string; p
     if (options.initial && !options.preview) activatePresentationFrame(store, options.initial);
     const source = presentationSource(store, options.preview ?? null, options.name ?? 'version');
     const doc = () => options.preview ? source.fullDoc : store.doc;
-    let previewPage = pages(source.doc)[0]?.id;
+    let previewPage: string | undefined = pages(source.doc)[0]?.id;
     const currentPage = () => options.preview ? previewPage : store.currentPage;
     const overlay = document.createElement('div'); overlay.className = 'present-overlay';
     overlay.innerHTML = '<div class="present-stage"><canvas aria-label="Presentation"></canvas></div><div class="present-footer"><span></span><small></small><span>← → Navigate · Backspace Back</span><button class="present-comment" title="Comment (C)" aria-pressed="false">Comment · C</button><button class="present-exit">Exit · Esc</button></div>';
