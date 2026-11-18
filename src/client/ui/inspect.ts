@@ -102,4 +102,5 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
         }
         c.restore();
     };
+    return () => enabled;
 }
