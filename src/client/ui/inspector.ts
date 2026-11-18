@@ -304,7 +304,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             effectsSection(content, store, nodes);
         }
         if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
-        if (nodes.every(n => { const p = n.parent ? store.doc.get(n.parent) : undefined; return p?.type === 'frame' && !isAutoLayout(p); }))
+        if (nodes.every(n => { const p = n.parent ? doc.get(n.parent) : undefined; return p?.type === 'frame' && !isAutoLayout(p); }))
             content.append(constraints(store, nodes, render));
         if (nodes.length === 1) {
             const section = document.createElement('section');
@@ -328,6 +328,8 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
 const hLabels: Record<typeof horizontalConstraints[number], string> = { left: 'Left', right: 'Right', both: 'Left & right', center: 'Center', scale: 'Scale' };
 const vLabels: Record<typeof verticalConstraints[number], string> = { top: 'Top', bottom: 'Bottom', both: 'Top & bottom', center: 'Center', scale: 'Scale' };
 function constraints(store: Store, nodes: Node[], render: () => void): HTMLElement {
+    const resolved = expand(store.doc);
+    nodes = nodes.map(n => resolved.get(n.id) ?? n);
     const section = document.createElement('section');
     section.className = 'constraints';
     const h = nodes.map(n => n.constraintH ?? 'left'), v = nodes.map(n => n.constraintV ?? 'top');

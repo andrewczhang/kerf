@@ -1,5 +1,6 @@
 import { applyOp, between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
 import { applyLayout } from './layout';
+import { constraintOps } from './constraints';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
@@ -30,6 +31,13 @@ export function expand(doc: Doc): Doc {
             }
         };
         walkMain(main.id, n.id);
+        if (root.layout !== 'horizontal' && root.layout !== 'vertical' && (root.w !== main.w || root.h !== main.h)) {
+            const base: Doc = new Map(result.map(n => [n.id, n]));
+            base.set(root.id, { ...root, w: main.w, h: main.h });
+            for (const op of constraintOps(base, root.id, root))
+                if (op.t === 'set') base.set(op.id, { ...base.get(op.id)!, [op.key]: op.value });
+            return result.map(n => n.id === root.id ? root : base.get(n.id)!);
+        }
         return result;
     };
     for (const n of doc.values())

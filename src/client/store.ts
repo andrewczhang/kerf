@@ -79,7 +79,7 @@ export class Store extends EventTarget {
         if (this.pagesEnabled && this.currentPage) ops = ops.map(op => op.t === 'create' && op.node.type !== 'page' && op.node.parent === null ? { ...op, node: { ...op.node, parent: this.currentPage! } } : op.t === 'set' && op.key === 'parent' && op.value === null && this.doc.get(op.id)?.type !== 'page' ? { ...op, value: this.currentPage! } : op);
         ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         ops = ops.map(op => {
-            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
+            if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', 'constraintH', 'constraintV', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
             const { instance, target } = splitVirtual(op.id);
             return { t: 'override', id: instance, target, key: op.key, value: op.value };
         });
