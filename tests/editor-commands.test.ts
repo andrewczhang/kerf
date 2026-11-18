@@ -11,13 +11,25 @@ afterEach(() => { commands.clear(); registry.clear(); vi.unstubAllGlobals(); });
 describe('editor palette commands', () => {
     it('excludes pointer-only gradient markers while keeping clickable panel actions', () => {
         const markerClick = vi.fn(), actionClick = vi.fn();
-        const marker = { getClientRects: () => [{}], closest: (selector: string) => selector.includes('.stop-strip') ? {} : null, dataset: {}, getAttribute: () => 'Gradient stop 1', click: markerClick };
+        const marker = { getClientRects: () => [{}], closest: (selector: string) => selector.includes('.stop-strip') ? {} : null, matches: () => false, dataset: {}, getAttribute: () => 'Gradient stop 1', click: markerClick };
         const action = { ...marker, closest: () => null, getAttribute: () => 'Reverse', click: actionClick };
         vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: (selector: string) => selector.startsWith('header button') ? [marker, action] : [] });
         editorCommands({ store: {}, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn()); prepare.current();
         expect([...commands.values()].some(c => c.title === 'Gradient stop 1')).toBe(false);
         [...commands.values()].find(c => c.title === 'Reverse')!.run();
         expect(actionClick).toHaveBeenCalledOnce(); expect(markerClick).not.toHaveBeenCalled();
+    });
+    it.each(['preview', 'inspect'])('keeps read-only panel actions available during %s', mode => {
+        const copy = vi.fn(), mutate = vi.fn();
+        const button = { getClientRects: () => [{}], closest: (selector: string) => selector === 'aside' ? {} : null, dataset: {} };
+        const copyButton = { ...button, matches: () => true, getAttribute: () => 'Copy CSS', click: copy };
+        const editButton = { ...button, matches: () => false, getAttribute: () => 'Hide paint', click: mutate };
+        vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: (selector: string) => selector.startsWith('header button') ? [copyButton, editButton] : [] });
+        editorCommands({ store: {}, viewport: {} } as unknown as Context, { preview: mode === 'preview' ? new Map() : null, canvas: {} } as unknown as Renderer, vi.fn(), () => mode === 'inspect'); prepare.current();
+        const readOnly = [...commands.values()].find(c => c.title === 'Copy CSS')!;
+        const editing = [...commands.values()].find(c => c.title === 'Hide paint')!;
+        expect(readOnly.enabled?.()).toBe(true); readOnly.run(); expect(copy).toHaveBeenCalledOnce();
+        expect(editing.enabled?.()).toBe(false); editing.run(); expect(mutate).not.toHaveBeenCalled();
     });
     it.each(['preview', 'inspect'])('blocks mutations during %s and restores them on return to editing', mode => {
         vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });

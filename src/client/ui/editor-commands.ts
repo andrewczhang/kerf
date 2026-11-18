@@ -34,7 +34,8 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
             if (!button.getClientRects().length || button.disabled || button.closest('[inert], .stop-strip') || button.dataset.tool || button.id === 'command-hint') return;
             const title = button.getAttribute('aria-label') || button.title || button.textContent?.trim();
             if (!title || seen.has(title)) return; seen.add(title);
-            removeDynamic.push(add('button-' + i, title, button.closest('aside') ? 'Panels' : button.closest('.comment-pop') ? 'Comments' : 'Actions', () => { if (!button.closest('[inert]')) button.click(); }));
+            const group = button.matches('.inspect-copy, .export-buttons button, .layer-disclosure') ? 'View' : button.closest('aside') ? 'Panels' : button.closest('.comment-pop') ? 'Comments' : 'Actions';
+            removeDynamic.push(add('button-' + i, title, group, () => { if (!button.closest('[inert]')) button.click(); }));
         });
         document.querySelectorAll<HTMLInputElement>('header input[type=checkbox]').forEach((input, i) => removeDynamic.push(add('check-' + i, 'Toggle ' + input.parentElement!.textContent!.trim(), 'View', () => input.click())));
     });
