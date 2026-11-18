@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeNode, type Doc, type Node } from '../src/shared/doc';
+import { corner } from '../src/shared/path';
 import { exportBounds, exportFilename, exportPNG, exportRoots, exportSVG } from '../src/client/export';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
@@ -108,4 +109,63 @@ it('exports closed paths as filled cubic path data and open paths unfilled', () 
     expect(svg).toContain('fill="#ff4f00"');
     const line = { ...shape, closed: false };
     expect(exportSVG(docOf(line), [line.id])).toContain('fill="none"');
+});
+
+it('clips inside strokes and masks outside strokes without cropping aligned ink', () => {
+    const rect: Node = { ...makeNode('rect', 10, 20), stroke: '#123456', strokeWidth: 6, strokeAlign: 'inside', strokeDash: 7, strokeGap: 3, strokeJoin: 'miter', strokeMiterLimit: 2, strokeCap: 'square' };
+    const inside = exportSVG(docOf(rect), [rect.id]);
+    expect(inside).toContain('viewBox="10 20 100 100"');
+    expect(inside).toContain('<clipPath id="clip-0">');
+    expect(inside).toContain('fill="none" stroke="#123456" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="2" stroke-dasharray="7 3" clip-path="url(#clip-0)"');
+    const group = makeNode('group', 10, 20);
+    const outside: Node = { ...rect, x: 0, y: 0, parent: group.id, strokeAlign: 'outside', strokeGap: 0 };
+    const svg = exportSVG(docOf(group, outside), [group.id]);
+    expect(svg).toContain('viewBox="4 14 112 112"');
+    expect(svg).toContain('<mask id="clip-0" maskUnits="userSpaceOnUse"');
+    expect(svg).toContain('fill="black" fill-rule="evenodd"');
+    expect(svg).toContain('mask="url(#clip-0)"');
+    expect(svg).not.toContain('stroke-dasharray');
+});
+
+it('draws open path arrowheads along endpoint tangents and includes their ink in export bounds', () => {
+    const line: Node = { ...makeNode('path', 0, 0), h: 1, strokeAlign: 'outside', strokeStart: 'bar', strokeEnd: 'triangle', strokeWidth: 5, strokeCap: 'butt', strokeJoin: 'bevel', points: [{ ...corner(0, 0), ox: .5 }, { ...corner(1, 0), ix: 1, iy: -10 }] };
+    const svg = exportSVG(docOf(line), [line.id]);
+    expect(svg).toContain('viewBox="-3 -18 111 29"');
+    expect(svg).toContain('stroke-width="5" stroke-linecap="butt" stroke-linejoin="bevel"');
+    expect(svg).toContain('<polyline points="0,8 0,-8"');
+    expect(svg).toContain('<polygon points="92,-17.5 100,0 108,-17.5"');
+    expect(svg).not.toContain('<mask');
+    const closed = { ...line, closed: true };
+    expect(exportSVG(docOf(closed), [line.id])).not.toMatch(/<(polyline|polygon)/);
+});
+
+it('passes aligned stroke, dash, cap, join and miter settings through the PNG drawing path', async () => {
+    const node: Node = { ...makeNode('rect', 10, 20), stroke: '#123456', strokeWidth: 4, strokeAlign: 'outside', strokeDash: 8, strokeGap: 5, strokeCap: 'round', strokeJoin: 'miter', strokeMiterLimit: 2 };
+    const c = { scale: vi.fn(), translate: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), roundRect: vi.fn(), rect: vi.fn(), fill: vi.fn(), clip: vi.fn(), stroke: vi.fn(), setLineDash: vi.fn(), globalAlpha: 1 };
+    const blob = new Blob(), canvas = { width: 0, height: 0, getContext: () => c, toBlob: (callback: BlobCallback) => callback(blob) };
+    vi.stubGlobal('document', { createElement: () => canvas });
+    await expect(exportPNG(docOf(node), [node.id], 2)).resolves.toBe(blob);
+    expect([canvas.width, canvas.height]).toEqual([216, 216]);
+    expect(c.rect).toHaveBeenCalledWith(5, 15, 110, 110);
+    expect(c.clip).toHaveBeenCalledWith('evenodd');
+    expect(c.setLineDash).toHaveBeenCalledWith([8, 5]);
+    expect(c).toMatchObject({ lineWidth: 8, lineCap: 'round', lineJoin: 'miter', miterLimit: 2 });
+    expect(c.stroke).toHaveBeenCalledOnce();
+});
+
+it('keeps advanced strokes when the node has an explicit fill stack', async () => {
+    const node: Node = { ...makeNode('rect', 10, 20), fills: [], stroke: '#123456', strokeWidth: 4, strokeAlign: 'inside', strokeDash: 8, strokeGap: 5 };
+    const c = { scale: vi.fn(), translate: vi.fn(), save: vi.fn(), restore: vi.fn(), clip: vi.fn(), fill: vi.fn(), stroke: vi.fn(), setLineDash: vi.fn(), globalAlpha: 1 };
+    class Shape { roundRect = vi.fn(); }
+    vi.stubGlobal('Path2D', Shape);
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => c, toBlob: (callback: BlobCallback) => callback(new Blob()) }) });
+    const doc = docOf(node);
+    await exportPNG(doc, [node.id], 1);
+    expect(c.fill).not.toHaveBeenCalled();
+    expect(c.clip).toHaveBeenCalledWith(expect.any(Shape), 'evenodd');
+    expect(c.setLineDash).toHaveBeenCalledWith([8, 5]);
+    expect(c.stroke).toHaveBeenCalledWith(expect.any(Shape));
+    const svg = exportSVG(doc, [node.id]);
+    expect(svg).toContain('stroke-width="8"');
+    expect(svg).toContain('stroke-dasharray="8 5" clip-path="url(#paint-0)"');
 });
