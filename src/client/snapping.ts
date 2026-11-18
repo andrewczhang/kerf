@@ -7,9 +7,13 @@ import { nearestDistances, resizeSnap, snapRect, type Edges, type Guide, type Di
 import type { Context } from './tools/tool';
 export interface SnapState { guides: Guide[]; measure: Distance[]; rulers: boolean; grid: boolean; lines: RulerGuide[]; layoutGrids?: boolean }
 export function selectionBox(ctx: Context) { const rs = [...ctx.store.selection].flatMap(id => { const n = ctx.store.doc.get(id); return n ? [world(ctx.store.doc, n)] : []; }); return rs.length ? bounds(rs) : undefined; }
-export function targets(ctx: Context) {
+function excludedSelection(ctx: Context) {
     const excluded = new Set(ctx.store.selection);
     for (const id of ctx.store.selection) for (const n of descendants(ctx.store.doc, id)) excluded.add(n.id);
+    return excluded;
+}
+export function targets(ctx: Context) {
+    const excluded = excludedSelection(ctx);
     return [...ctx.store.doc.values()].filter(n => {
         if (excluded.has(n.id) || n.opacity === 0) return false;
         const r = world(ctx.store.doc, n), seen = new Set([n.id]);
@@ -28,8 +32,9 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
     if (!ctx.snap || e.ctrlKey || e.metaKey) { clearSnap(ctx); return r; }
     const ts = targets(ctx), state = ctx.snap;
     const lines = [...state.lines];
+    const excluded = excludedSelection(ctx);
     if (state.layoutGrids !== false) for (const n of ctx.store.doc.values()) {
-        if (n.type !== 'frame' || ctx.store.selection.has(n.id) || blocked(ctx.store.doc, n, false)) continue;
+        if (n.type !== 'frame' || excluded.has(n.id) || blocked(ctx.store.doc, n, false)) continue;
         const frame = world(ctx.store.doc, n);
         if (r.x < frame.x || r.y < frame.y || r.x > frame.x + frame.w || r.y > frame.y + frame.h) continue;
         for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g, ctx.viewport.zoom));

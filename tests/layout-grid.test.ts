@@ -75,3 +75,16 @@ it('uses containing visible frame grids and respects hidden grids and snap modif
     store.set(frame.id, { grids: [{ ...grid, visible: false }] }); expect(snapped(ctx, moving, event).x).toBe(122);
     expect(snapped(ctx, { ...moving, y: -200 }, event).x).toBe(122);
 });
+it('excludes grids on selected frames and descendants of selected groups', () => {
+    const store = new Store(), group = makeNode('group', 0, 0);
+    const frame = { ...makeNode('frame', 100, 50), ...rect, parent: group.id, grids: [grid] };
+    store.init([group, frame]);
+    const ctx = { store, viewport: { zoom: 1 }, invalidate() {}, snap: { guides: [], measure: [], rulers: false, grid: false, lines: [] } } as unknown as Context;
+    const moving = { x: 122, y: 80, w: 30, h: 20 };
+    expect(snapped(ctx, moving, {} as PointerEvent).x).toBe(124);
+    for (const id of [frame.id, group.id]) {
+        store.selection = new Set([id]);
+        expect(snapped(ctx, moving, {} as PointerEvent).x).toBe(122);
+        expect(ctx.snap!.guides).toEqual([]);
+    }
+});
