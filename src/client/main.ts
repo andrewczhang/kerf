@@ -56,7 +56,7 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { textEditor.close(); active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
+function choose(id: string) { if (textEditor.close() === false) return; active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));

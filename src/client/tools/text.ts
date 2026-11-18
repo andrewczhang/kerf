@@ -10,6 +10,13 @@ export class TextEditor {
 
     constructor(private ctx: Context, private canvas: HTMLCanvasElement) {
         ctx.store.addEventListener('change', this.update);
+        canvas.addEventListener('pointerdown', e => {
+            if (this.input && this.input.value.length > maxTextLength) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                this.input.focus();
+            }
+        }, true);
     }
 
     open(node: TextNode, creating = false) {
@@ -60,7 +67,6 @@ export class TextEditor {
         if (!this.input)
             return;
         if (this.input.value.length > maxTextLength) {
-            this.ctx.store.end();
             this.input.focus();
             return false;
         }
