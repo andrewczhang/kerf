@@ -102,7 +102,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component'].includes(op.key))
+    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides'].includes(op.key))
         return;
     if (op.key === 'parent') {
         let p = op.value as string | null;

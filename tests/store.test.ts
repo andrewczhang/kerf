@@ -66,3 +66,12 @@ it('ignores invalid overrides and empty transactions without recording or sendin
     s.commit([]); s.commit([{ t: 'override', id: n.id, target: '', key: 'fill', value: '#112233' }]);
     expect(s.undoStack).toHaveLength(0); expect(s.pending.size).toBe(0);
 });
+it('undoes and redoes nested detach override path remapping in the same transaction', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 0, 0), parent: main.id };
+    const outer = { ...makeNode('frame', 0, 0), component: true }, nested = instanceNode(main, 0, 0, outer.id);
+    const target = nested.id + '/' + child.id, parent = { ...instanceNode(outer, 200, 0), overrides: { [target]: { fill: '#123456' } } };
+    s.init([main, child, outer, nested, parent]); s.commit(detachOps(s.doc, nested.id));
+    expect(Object.keys(s.doc.get(parent.id)!.overrides!)).not.toContain(target);
+    s.history(); expect(s.doc.get(parent.id)?.overrides).toEqual(parent.overrides);
+    s.history(true); expect(Object.keys(s.doc.get(parent.id)!.overrides!)).not.toContain(target);
+});

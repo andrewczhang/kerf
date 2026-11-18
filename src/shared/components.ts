@@ -65,10 +65,23 @@ export function detachOps(doc: Doc, instanceId: string): Op[] {
     const walk = (n: Node) => { nodes.push(n); for (const c of tree.get(n.id) ?? []) walk(c); };
     walk(root);
     const ids = new Map(nodes.map(n => [n.id, n.id === instanceId ? instanceId : crypto.randomUUID()]));
-    return [{ t: 'delete', id: instanceId }, ...nodes.map(n => {
+    const ops: Op[] = [{ t: 'delete', id: instanceId }, ...nodes.map(n => {
         const { instanceOf, overrides, component, ...values } = n;
         return { t: 'create' as const, node: { ...values, id: ids.get(n.id)!, parent: ids.get(n.parent!) ?? n.parent } };
     })];
+    for (const n of doc.values()) {
+        if (!n.instanceOf || n.id === instanceId || !n.overrides) continue;
+        let changed = false;
+        const overrides = Object.fromEntries(Object.entries(n.overrides).map(([target, values]) => {
+            const parts = target.split('/'), i = parts.indexOf(instanceId);
+            const mapped = i < 0 ? undefined : ids.get(parts.slice(i).join('/'));
+            if (!mapped || mapped === instanceId || !expanded.has(n.id + '/' + target)) return [target, values];
+            changed = true;
+            return [[...parts.slice(0, i), mapped].join('/'), values];
+        }));
+        if (changed) ops.push({ t: 'set', id: n.id, key: 'overrides', value: overrides });
+    }
+    return ops;
 }
 export function resizeFollowOps(doc: Doc, mainId: string, key: 'w' | 'h', oldValue: number, newValue: number): Op[] {
     return [...doc.values()].filter(n => n.instanceOf === mainId && n[key] === oldValue).map(n => ({ t: 'set', id: n.id, key, value: newValue }));

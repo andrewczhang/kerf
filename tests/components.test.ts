@@ -131,6 +131,21 @@ describe('expansion', () => {
     });
 });
 describe('component helpers', () => {
+    it('remaps enclosing overrides when a nested instance is detached', () => {
+        const { doc, main, child } = setup();
+        const outer = { ...main, id: 'A' }, nested = { ...instanceNode(main, 0, 0, 'A'), id: 'J' };
+        const parent = { ...instanceNode(outer, 0, 0), id: 'P', overrides: { 'J/x': { fill: '#123456' }, J: { opacity: 0.5 } } };
+        const outerMain = { ...main, id: 'B' }, middle = { ...instanceNode(outer, 0, 0, 'B'), id: 'N' };
+        const far = { ...instanceNode(outerMain, 0, 0), id: 'Q', overrides: { 'N/J/x': { fill: '#abcdef' } } };
+        for (const n of [outer, nested, parent, outerMain, middle, far]) doc.set(n.id, n);
+        apply(doc, detachOps(doc, nested.id));
+        const baked = [...doc.values()].find(n => n.parent === 'J' && n.type === child.type)!;
+        expect(doc.get('P')?.overrides).toEqual({ [baked.id]: { fill: '#123456' }, J: { opacity: 0.5 } });
+        expect(expand(doc).get('P/' + baked.id)?.fill).toBe('#123456');
+        expect(doc.get('Q')?.overrides).toEqual({ ['N/' + baked.id]: { fill: '#abcdef' } });
+        expect(expand(doc).get('Q/N/' + baked.id)?.fill).toBe('#abcdef');
+        expect(doc.get('J')?.instanceOf).toBeUndefined();
+    });
     it('splits virtual paths', () => {
         expect(isVirtual('I/J/x')).toBe(true);
         expect(isVirtual('I')).toBe(false);
