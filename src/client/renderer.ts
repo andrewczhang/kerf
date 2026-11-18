@@ -4,6 +4,7 @@ import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { isAutoLayout, layoutInsertions } from './autolayout';
+import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
@@ -37,7 +38,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
+            drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate });
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = store.doc.get(n.link);
@@ -82,6 +83,7 @@ export class Renderer {
             c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / v.zoom;
             c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
         }
+        if (!this.preview) drawGradientHandles(c, this.app);
         this.app.active?.draw?.(c, v.zoom);
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';

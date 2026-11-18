@@ -1,5 +1,6 @@
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import WebSocket from 'ws';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
@@ -13,6 +14,8 @@ let log='';server?.stdout.on('data',d=>log+=d);server?.stderr.on('data',d=>log+=
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function client(){const ws=new WebSocket(wsBase+`/f/${id}/ws`),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
 try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readinessError='';for(let i=0;i<(server?160:1);i++){try{const r=await fetch(base+'/f/'+id);if(r.ok){ready=true;break;}readinessError=`HTTP ${r.status} ${r.statusText}`;}catch(e){readinessError=e.message;}if(server)await delay(100);}assert(ready,`${base} is not ready: ${readinessError}\n${log}`);
+ const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
+ assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
  const a=await client(),ai=await a.take('init'),b=await client();await b.take('init');
  const node={id:'rectangle',type:'rect',parent:null,index:'U',name:'Rectangle',x:10,y:20,w:100,h:80,fill:'#ff4f00',stroke:null,strokeWidth:1,radius:0,opacity:1};a.send({type:'ops',seq:1,ops:[{t:'create',node}]});assert.deepEqual((await b.take('ops')).ops[0].node,node);await a.take('ack');console.log('PASS client B receives rectangle creation');
  a.send({type:'ops',seq:2,ops:[{t:'set',id:node.id,key:'x',value:140}]});assert.equal((await b.take('ops')).ops[0].value,140);await a.take('ack');console.log('PASS client B receives live move');
@@ -41,5 +44,5 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  a.send({type:'version-preview',id:version.id});assert.equal((await a.take('version-preview')).nodes.find(n=>n.id===node.id).x,140);
  a.send({type:'version-restore',id:version.id});const restored=await b.take('restored');assert(restored.ops.some(o=>o.t==='set'&&o.key==='x'&&o.value===140));await a.take('restored');
  const e=await client();assert.equal((await e.take('init')).nodes.find(n=>n.id===node.id).x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 11 checks passed');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 12 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}

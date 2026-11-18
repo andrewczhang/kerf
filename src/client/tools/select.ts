@@ -3,6 +3,7 @@ import { bounds, contains, handles, intersects, type Point, type Rect } from '..
 import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
 import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
+import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
 import { snapped, clearSnap } from '../snapping';
 export class Select implements Tool {
@@ -17,6 +18,7 @@ export class Select implements Tool {
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
     onPointerDown(p: Point, e: PointerEvent) {
+        if (gradientDown(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         this.start = p;
         this.moved = false;
@@ -53,6 +55,7 @@ export class Select implements Tool {
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
+        if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
             this.ctx.hover = hit(store.doc, p, 4 / viewport.zoom)?.id;
@@ -117,7 +120,7 @@ export class Select implements Tool {
         }
         store.commit(ops);
     }
-    onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);

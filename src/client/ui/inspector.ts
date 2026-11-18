@@ -1,6 +1,8 @@
 import type { Store } from '../store';
 import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
 import { autoLayoutSection, sizingControl } from './autolayout';
+import { fillsSection } from './fills';
+import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
@@ -22,7 +24,7 @@ export function inspector(el: HTMLElement, store: Store) {
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
-        if (el.contains(document.activeElement) && document.activeElement?.matches('input,select')) {
+        if (el.contains(document.activeElement)) {
             refreshNumericFields(content, nodes, document.activeElement);
             return;
         }
@@ -114,13 +116,17 @@ export function inspector(el: HTMLElement, store: Store) {
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
-            fields('Appearance', ['fill', 'opacity']);
+            fields('Appearance', ['opacity']);
+            fillsSection(content, store, nodes);
+            effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
             autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes);
+            fields('Stroke', ['stroke', 'strokeWidth']);
+            effectsSection(content, store, nodes);
         }
         if (nodes.length === 1) {
             const section = document.createElement('section');

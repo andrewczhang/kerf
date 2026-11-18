@@ -16,6 +16,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { imageImport } from './image-import';
 import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
@@ -41,6 +42,7 @@ const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate()
 installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
+imageImport(canvas, ctx, file);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
 let active: Tool;
