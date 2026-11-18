@@ -101,8 +101,9 @@ export function strokeOptions(node: Node): StrokeProperties {
     };
 }
 export type Doc = Map<string, Node>;
-export interface LayoutGrid { type: 'columns' | 'rows' | 'grid'; count: number; size: number; gutter: number; margin: number; color: string; opacity: number; visible: boolean }
+export interface LayoutGrid { id?: string; type: 'columns' | 'rows' | 'grid'; count: number; size: number; gutter: number; margin: number; color: string; opacity: number; visible: boolean }
 function validGrid(g: LayoutGrid): boolean {
+    if (g?.id !== undefined && (typeof g.id !== 'string' || g.id.length < 1 || g.id.length > 64)) return false;
     return !!g && ['columns', 'rows', 'grid'].includes(g.type) && Number.isInteger(g.count) && g.count >= 1 && g.count <= 100 && finite(g.size) && g.size >= 2 && g.size <= 10000 && finite(g.gutter) && g.gutter >= 0 && finite(g.margin) && g.margin >= 0 && color(g.color) && unit(g.opacity) && typeof g.visible === 'boolean';
 }
 export type Key = Exclude<keyof Node, 'id'>;
