@@ -6,6 +6,7 @@ import './inspect.css';
 
 export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer: Renderer, select: () => void) {
     let enabled = false, hovered: string | undefined;
+    let space = false, panning = false;
     const { store, viewport } = ctx;
     const button = document.createElement('button');
     button.className = 'feature-button';
@@ -48,13 +49,20 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
     store.addEventListener('change', render);
     window.addEventListener('keydown', e => {
         if ((e.target as HTMLElement).closest('button,input,textarea,select,[contenteditable=true]') || document.querySelector('.present-overlay')) return;
+        if (e.code === 'Space') space = true;
         if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyD') { e.preventDefault(); e.stopImmediatePropagation(); toggle(); return; }
         const editingKey = ['Delete', 'Backspace', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
             || (e.ctrlKey || e.metaKey) && ['z', 'g', 'x', 'v', 'd'].includes(e.key.toLowerCase());
         if (enabled && editingKey) { e.preventDefault(); e.stopImmediatePropagation(); }
     }, true);
+    window.addEventListener('keyup', e => { if (e.code === 'Space') space = false; }, true);
+    window.addEventListener('blur', () => { space = false; panning = false; });
     for (const type of ['pointerdown', 'pointermove', 'pointerup', 'dblclick'] as const) canvas.addEventListener(type, e => {
-        if (!enabled || e instanceof PointerEvent && (e.button === 1 || e.buttons === 4)) return;
+        if (!enabled) return;
+        if (type === 'pointerdown') panning = space || ctx.active?.id === 'hand' || e.button === 1;
+        const panGesture = panning || space || ctx.active?.id === 'hand';
+        if (type === 'pointerup') panning = false;
+        if (panGesture) return;
         e.stopImmediatePropagation();
         const r = canvas.getBoundingClientRect();
         hovered = hit(store.doc, viewport.world({ x: e.clientX - r.left, y: e.clientY - r.top }), 4 / viewport.zoom)?.id;
