@@ -1,7 +1,7 @@
 import type { Sync } from '../sync';
 import type { Store } from '../store';
-import { isTextNode, maxFontSize, textFonts, textWeights, type Key, type Node } from '../../shared/doc';
-import { isVirtual, splitVirtual } from '../../shared/components';
+import { isTextNode, maxFontSize, nodeFills, textFonts, textWeights, type Key, type Node } from '../../shared/doc';
+import { expand, isVirtual, splitVirtual } from '../../shared/components';
 import { styleValues, validStyle, type Style } from '../../shared/styles';
 import './styles.css';
 const fonts = { sans: 'Arial, sans-serif', serif: 'Georgia, serif', mono: 'monospace' };
@@ -82,7 +82,16 @@ export function styleControl(parent: HTMLElement, store: Store, sync: Sync, node
     trigger.title = 'Apply style'; trigger.setAttribute('aria-label', linked ? 'Apply style: ' + linked.name : 'Apply style'); trigger.setAttribute('aria-expanded', 'false');
     if (linked) {
         linkedRow = document.createElement('div'); linkedRow.className = 'style-linked';
-        const detach = button('×', () => { store.begin(); for (const n of nodes) write(n, { [key]: null }); store.end(); }); detach.title = 'Detach style'; detach.setAttribute('aria-label', 'Detach style');
+        const detach = button('×', () => {
+            const resolved = expand(store.doc);
+            store.begin();
+            for (const n of nodes) {
+                const current = resolved.get(n.id) ?? n;
+                const appearance = target === 'fill' ? { fill: current.fill, fills: nodeFills(current) } : target === 'stroke' ? { stroke: current.stroke } : { fontFamily: current.fontFamily, fontSize: current.fontSize, fontWeight: current.fontWeight };
+                write(n, { ...appearance, [key]: null });
+            }
+            store.end();
+        }); detach.title = 'Detach style'; detach.setAttribute('aria-label', 'Detach style');
         linkedRow.append(trigger, detach); heading.after(linkedRow);
         if (target === 'fill') heading.querySelector('button')?.remove();
     } else { trigger.className = 'style-apply'; heading.append(trigger); }
