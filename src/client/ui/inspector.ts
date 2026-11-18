@@ -6,7 +6,7 @@ import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
-import { downloadSelection } from '../export';
+import { exportControls } from './export-controls';
 import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
 import { applyBoolean, booleanOps, canCombine } from '../boolean';
@@ -244,20 +244,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
             section.append(select); content.append(section);
         }
-        const exports = document.createElement('section');
-        exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
-        for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {
-            const button = document.createElement('button');
-            button.textContent = label;
-            button.onclick = () => {
-                exports.querySelector('.export-error')!.textContent = '';
-                void downloadSelection(store.doc, store.selection, format, scale).catch(() => {
-                    exports.querySelector('.export-error')!.textContent = 'Export failed. Please try again.';
-                });
-            };
-            exports.querySelector('.export-buttons')!.append(button);
-        }
-        content.append(exports);
+        exportControls(content, store);
     };
     store.addEventListener('change', render);
     sync.addEventListener('styles-change', render);

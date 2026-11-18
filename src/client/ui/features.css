@@ -1,7 +1,39 @@
 .feature-button { padding: 0 12px; height: 30px; border: 1px solid #d6d4ce; background: transparent; white-space: nowrap; }
+.share-controls { display: flex; align-items: center; gap: 8px; }
+.share-controls > span { white-space: nowrap; color: #77766f; }
+.share-controls input { width: 260px; }
 header .feature-button.active { background: #ff4f00; color: #fff; border-color: #ff4f00; }
 [hidden] { display: none !important; }
-header { gap: 10px; }
+header { gap: 8px; height: auto; min-height: 64px; padding: 10px 16px; flex-wrap: wrap; }
+header > * { flex-shrink: 0; }
+header .wordmark { margin-right: 8px; }
+header .file-name { overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+#people { max-width: 96px; overflow: hidden; }
+.share-controls { flex-wrap: wrap; max-width: 100%; }
+.share-controls input { max-width: 100%; }
+.more-menu { position: relative; }
+.more-menu summary { cursor: pointer; padding: 7px 4px; }
+.more-menu > div { position: absolute; right: 0; top: 100%; z-index: 12; background: #fbfbf9; border: 1px solid #d6d4ce; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.panel-toggle { display: none; }
+.export-buttons { flex-wrap: wrap; margin-top: 10px; }
+.export-custom { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.export-custom input { width: 56px; border: 1px solid #d6d4ce; padding: 6px; background: transparent; }
+.export-custom button { border: 1px solid #d6d4ce; padding: 7px 8px; }
+main { position: relative; }
+#file-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@media (max-width: 1400px) { aside.inspector { width: 224px; } aside.layers { width: 190px; } }
+@media (max-width: 1100px) {
+    header { padding: 8px 12px; }
+    header .file-name, header .bar-divider { display: none; }
+    .panel-toggle { display: block; }
+    main > aside { display: none; position: absolute; top: 0; bottom: 0; width: 248px !important; max-width: 80%; z-index: 9; }
+    main > aside.panel-open { display: flex; }
+    main > .layers { left: 0; }
+    main > .inspector { right: 0; }
+    body .feature-panel { right: 12px; top: var(--header-height); max-width: calc(100% - 24px); }
+    body .preview-banner { top: var(--header-height); max-width: calc(100% - 36px); flex-wrap: wrap; }
+    footer { padding: 0 12px; gap: 12px; }
+}
 header label { white-space: nowrap; font-size: 11px; }
 select { width: 100%; margin-top: 10px; border: 1px solid #d6d4ce; background: transparent; padding: 7px; font: inherit; }
 .feature-panel { position: absolute; right: 240px; top: 56px; bottom: 42px; width: 292px; background: #fbfbf9; border: 1px solid #d6d4ce; z-index: 6; overflow: auto; }
@@ -24,7 +56,10 @@ aside.previewing > :not(.preview-inspector) { display: none; }
 .comment-pop textarea, .feature-panel input { box-sizing: border-box; width: 100%; margin: 12px 0; padding: 9px; background: white; border: 1px solid #d6d4ce; font: inherit; resize: vertical; }
 .comment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .present-overlay { position: fixed; inset: 0; background: #3b3c39; z-index: 30; display: flex; flex-direction: column; }
-.present-overlay canvas { flex: 1 1 0; height: 0; min-height: 0; width: 100%; }
+.layers.previewing { visibility: hidden; }
+.present-stage { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; }
+.present-stage canvas { width: 100%; height: 100%; }
+.present-comment[aria-pressed=true] { color: #ff986b; }
 .present-footer { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; color: #fbfbf9; border-top: 1px solid #50514d; }
 .present-footer button { color: inherit; background: none; border: 1px solid #77766f; padding: 7px 14px; }
 header { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
