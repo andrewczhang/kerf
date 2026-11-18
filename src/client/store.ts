@@ -42,7 +42,9 @@ export class Store extends EventTarget {
         this.redoStack = [];
     } this.group = null; }
     commit(ops: Op[], record = true) { const changes: Change[] = [], queue = [...ops], sent: Op[] = [];
-    const deleting = new Set(ops.flatMap(op => op.t === 'delete' ? [op.id, ...descendants(this.doc, op.id).map(n => n.id)] : []));
+    const final = ops.some(op => op.t === 'delete') ? new Map(this.doc) : undefined;
+    if (final) for (const op of ops) applyOp(final, op);
+    const deleting = new Set(final ? [...this.doc.keys()].filter(id => !final.has(id)) : []);
     const mains = deleting;
     if (mains.size) {
         const shadow = new Map(this.doc), prefix: Op[] = [];
@@ -58,8 +60,8 @@ export class Store extends EventTarget {
         const op = queue[i];
         const id = op.t === 'create' ? op.node.id : op.id, n = this.doc.get(id);
         if (op.t === 'delete' && n) {
-            const mains = new Set([n, ...descendants(this.doc, n.id)].map(n => n.id));
-            const instance = [...this.doc.values()].find(n => n.instanceOf && mains.has(n.instanceOf) && !deleting.has(n.id));
+            const mains = new Set([n, ...descendants(this.doc, n.id)].filter(n => !final!.has(n.id)).map(n => n.id));
+            const instance = [...this.doc.values()].find(n => n.instanceOf && mains.has(n.instanceOf) && final!.has(n.id));
             if (instance) { queue.splice(i, 0, ...detachOps(this.doc, instance.id)); i--; continue; }
         }
         const removed = n && op.t === 'delete' ? [n, ...descendants(this.doc, n.id)] : [];

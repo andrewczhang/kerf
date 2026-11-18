@@ -4,8 +4,44 @@ import { makeNode } from '../src/shared/doc';
 import type { Op } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode } from '../src/shared/components';
 import { applyOp } from '../src/shared/doc';
-import { groupOps } from '../src/shared/layers';
+import { groupOps, ungroupOps } from '../src/shared/layers';
 import { MAX_OPS } from '../src/shared/protocol';
+it('keeps a surviving main linked through ungroup, undo and redo', () => {
+    const s = new Store(), group = makeNode('group', 0, 0), main = { ...makeNode('frame', 10, 10), parent: group.id, component: true };
+    const child = { ...makeNode('rect', 5, 5), parent: main.id }, instance = instanceNode(main, 200, 0, null, 'z');
+    s.init([group, main, child, instance]);
+    s.commit(ungroupOps(s.doc, group.id));
+    expect(s.doc.has(group.id)).toBe(false); expect(s.doc.get(main.id)?.parent).toBeNull();
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    expect(s.undoStack).toHaveLength(1);
+    s.remote([{ t: 'set', id: child.id, key: 'fill', value: '#123456' }]);
+    expect(expand(s.doc).get(instance.id + '/' + child.id)?.fill).toBe('#123456');
+    s.history(); expect(s.doc.get(main.id)?.parent).toBe(group.id);
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    s.history(true); expect(s.doc.get(main.id)?.parent).toBeNull();
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+});
+it('keeps a main linked when undoing and redoing group creation', () => {
+    const s = new Store(), main = { ...makeNode('frame', 10, 10), component: true }, instance = instanceNode(main, 200, 0);
+    s.init([main, instance]); s.commit(groupOps(s.doc, [main.id]));
+    const group = s.doc.get(main.id)!.parent!; expect(s.doc.get(group)?.type).toBe('group');
+    s.history(); expect(s.doc.has(group)).toBe(false); expect(s.doc.get(main.id)?.parent).toBeNull();
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    s.remote([{ t: 'set', id: main.id, key: 'fill', value: '#abcdef' }]);
+    expect(expand(s.doc).get(instance.id)?.fill).toBe('#abcdef');
+    s.history(true); expect(s.doc.get(main.id)?.parent).toBe(group);
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    expect(expand(s.doc).get(instance.id)?.fill).toBe('#abcdef');
+});
+it('detaches when a rejected move leaves the main inside a deleted ancestor', () => {
+    const s = new Store(), group = makeNode('group', 0, 0), main = { ...makeNode('frame', 10, 10), parent: group.id, component: true };
+    const instance = instanceNode(main, 200, 0), rect = makeNode('rect', 400, 0);
+    s.init([group, main, instance, rect]);
+    s.commit([{ t: 'set', id: main.id, key: 'parent', value: rect.id }, { t: 'delete', id: group.id }]);
+    expect(s.doc.has(main.id)).toBe(false); expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    s.history(); expect(s.doc.get(main.id)?.parent).toBe(group.id);
+    expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+});
 it('resolves inherited instance properties live and clears undone links for late joiners', () => {
     const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, radius: 8, opacity: .5, fill: '#123456' };
     s.init([main]); s.set(main.id, { link: 'destination' });
