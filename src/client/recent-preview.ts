@@ -20,6 +20,6 @@ export function trackRecent(store: Store, file: string) {
             recordRecent({ id: file, thumbnail: canvas.toDataURL('image/png') });
         } catch { /* A preview must never interrupt editing. */ }
     }
-    store.addEventListener('change', () => { if (!timer) timer = setTimeout(refresh, 3000); });
+    store.addEventListener('change', () => { clearTimeout(timer); timer = setTimeout(refresh, 3000); });
     window.addEventListener('pagehide', refresh);
 }

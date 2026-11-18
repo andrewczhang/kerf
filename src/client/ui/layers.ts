@@ -7,11 +7,17 @@ paths.path = '<path d="M2 13C2 2 14 14 14 3"/><rect x="1" y="12" width="2" heigh
 const icon = (name: string) => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' + paths[name] + '</svg>';
 export function layers(el: HTMLElement, ctx: Context) {
     const { store } = ctx, collapsed = new Set<string>(); let dragging = '', editing: string | undefined, lastName = '', lastTime = 0;
-    let previous = '';
-    const render = () => {
+    let previous = '', previousDoc: typeof store.doc | undefined, revision = -1;
+    const render = (force = false) => {
         if (editing && store.doc.has(editing)) return;
         const selection = [...store.selection].join(',');
-        if (selection !== previous) for (const id of store.selection) { let p = store.doc.get(id)?.parent; while (p) { collapsed.delete(p); p = store.doc.get(p)?.parent; } }
+        if (selection !== previous) for (const id of store.selection) { let p = store.doc.get(id)?.parent; while (p) { if (collapsed.delete(p)) force = true; p = store.doc.get(p)?.parent; } }
+        if (!force && previousDoc === store.doc && revision === store.treeRevision) {
+            if (selection !== previous) for (const row of el.querySelectorAll<HTMLElement>('.layer-row')) row.classList.toggle('selected', store.selection.has(row.dataset.id!));
+            previous = selection;
+            return;
+        }
+        previousDoc = store.doc; revision = store.treeRevision;
         previous = selection;
         el.replaceChildren(); const heading = document.createElement('div'); heading.className = 'layers-heading'; heading.textContent = 'Layers'; el.append(heading);
         const tree = document.createElement('div'); tree.className = 'layers-tree'; el.append(tree);
@@ -19,11 +25,11 @@ export function layers(el: HTMLElement, ctx: Context) {
             const row = document.createElement('div'); row.className = 'layer-row'; row.dataset.id = n.id; row.draggable = true; row.style.paddingLeft = 6 + depth * 14 + 'px'; row.classList.toggle('selected', store.selection.has(n.id)); row.classList.toggle('hidden', !!n.hidden);
             const container = n.type === 'frame' || n.type === 'group';
             const disclosure = document.createElement('button'); disclosure.className = 'layer-disclosure'; disclosure.innerHTML = container ? icon('disclosure') : ''; disclosure.style.transform = container && !collapsed.has(n.id) ? 'rotate(90deg)' : ''; disclosure.setAttribute('aria-label', collapsed.has(n.id) ? 'Expand' : 'Collapse');
-            disclosure.onclick = e => { e.stopPropagation(); if (collapsed.has(n.id)) collapsed.delete(n.id); else collapsed.add(n.id); render(); }; row.append(disclosure);
+            disclosure.onclick = e => { e.stopPropagation(); if (collapsed.has(n.id)) collapsed.delete(n.id); else collapsed.add(n.id); render(true); }; row.append(disclosure);
             const glyph = document.createElement('span'); glyph.className = 'layer-glyph'; glyph.innerHTML = icon(n.type); row.append(glyph);
             const name = document.createElement('span'); name.className = 'layer-name'; name.textContent = n.name; row.append(name);
             name.onclick = e => { const double = lastName === n.id && e.timeStamp - lastTime < 400; lastName = n.id; lastTime = e.timeStamp; if (!double) return; e.stopPropagation(); editing = n.id; row.draggable = false; const input = document.createElement('input'); input.value = n.name; input.setAttribute('aria-label', 'Layer name'); name.replaceWith(input); input.focus(); input.select(); let done = false;
-                const finish = (save: boolean) => { if (done) return; done = true; editing = undefined; if (save && input.value.trim()) store.set(n.id, { name: input.value.trim() }); render(); };
+                const finish = (save: boolean) => { if (done) return; done = true; editing = undefined; if (save && input.value.trim()) store.set(n.id, { name: input.value.trim() }); render(true); };
                 input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); }; input.onblur = () => finish(true);
             };
             for (const [key, glyph] of [['hidden', 'eye'], ['locked', 'lock']] as const) { const b = document.createElement('button'); b.className = 'layer-toggle'; b.classList.toggle('on', !!n[key]); b.innerHTML = icon(glyph); b.title = key === 'hidden' ? 'Toggle visibility' : 'Toggle lock'; b.setAttribute('aria-label', b.title); b.setAttribute('aria-pressed', String(!!n[key])); b.onclick = e => { e.stopPropagation(); store.set(n.id, { [key]: !n[key] }); }; row.append(b); }
@@ -37,5 +43,5 @@ export function layers(el: HTMLElement, ctx: Context) {
             tree.append(row); if (container && !collapsed.has(n.id)) visit(n.id, depth + 1);
         } }; visit(null, 0);
     };
-    store.addEventListener('change', render); render();
+    store.addEventListener('change', () => render()); render();
 }

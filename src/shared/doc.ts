@@ -1,4 +1,5 @@
 import { corner, validPoints, type PathPoint } from './path';
+import { docIndex } from './doc-index';
 export type Paint = { type: 'solid'; color: string; opacity: number; visible: boolean } | { type: 'linear' | 'radial'; stops: { pos: number; color: string; opacity: number }[]; from: { x: number; y: number }; to: { x: number; y: number }; opacity: number; visible: boolean } | { type: 'image'; asset: string; fit: 'fill' | 'fit' | 'tile'; w: number; h: number; opacity: number; visible: boolean };
 export type Effect = { type: 'drop-shadow' | 'inner-shadow'; x: number; y: number; blur: number; spread: number; color: string; opacity: number; visible: boolean } | { type: 'layer-blur' | 'background-blur'; radius: number; visible: boolean };
 export function nodeFills(n: Node): Paint[] { return n.fills ?? [{ type: 'solid', color: n.fill, opacity: 1, visible: true }]; }
@@ -146,7 +147,7 @@ export function between(a: string | null = null, b: string | null = null): strin
         }
     }
 }
-export function children(doc: Doc, parent: string | null) { return [...doc.values()].filter(n => n.parent === parent).sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id)); }
+export function children(doc: Doc, parent: string | null) { return docIndex(doc)?.children(parent) ?? [...doc.values()].filter(n => n.parent === parent).sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id)); }
 export function descendants(doc: Doc, id: string): Node[] { return children(doc, id).flatMap(n => [n, ...descendants(doc, n.id)]); }
 export function applyOp(doc: Doc, op: Op): void {
     if (!op || !['create', 'set', 'delete'].includes(op.t))

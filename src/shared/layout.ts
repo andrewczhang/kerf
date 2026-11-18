@@ -9,8 +9,10 @@ export function applyLayout(doc: Doc, measure?: MeasureText): void {
     doc = new Map([...original].map(([id, n]) => [id, { ...n }]));
     const lists = new Map<string | null, Node[]>();
     for (const n of doc.values()) {
-        if (!lists.has(n.parent)) lists.set(n.parent, children(doc, n.parent));
+        if (!lists.has(n.parent)) lists.set(n.parent, []);
+        lists.get(n.parent)!.push(n);
     }
+    for (const list of lists.values()) list.sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
     const below = (n: Node) => lists.get(n.id) ?? [];
     const measureTexts = () => {
         if (!measure) return;
