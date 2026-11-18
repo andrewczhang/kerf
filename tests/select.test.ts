@@ -1,10 +1,10 @@
 import { it, expect, vi } from 'vitest';
 import { makeNode } from '../src/shared/doc';
-import { world } from '../src/shared/geometry';
+import { transform, world } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
-import { aabb } from '../src/client/geometry';
+import { aabb, worldMatrix } from '../src/client/geometry';
 const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setup = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
@@ -35,4 +35,18 @@ it('resizes grouped auto-width text around its measured center without a persist
         check(); tool.onPointerUp(end); check(); expect(store.undoStack).toHaveLength(1);
         store.history(); expect(aabb(store.doc, store.doc.get(text.id)!)).toEqual(before); store.history(true); check();
     } finally { vi.unstubAllGlobals(); }
+});
+
+it.each([90, 30])('resizes a group inside a %s degree frame along its displayed axes', rotation => {
+    const { store, tool } = setup(), frame = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation }, g = { ...makeNode('group', 100, 100), w: 200, h: 100, parent: frame.id }, nested = { ...makeNode('group', 0, 0), w: 80, h: 100, parent: g.id }, a = { ...makeNode('rect', 0, 0), w: 80, h: 100, parent: nested.id }, b = { ...makeNode('rect', 120, 0), w: 80, h: 100, parent: g.id };
+    store.init([frame, g, nested, a, b]); store.selection.add(g.id);
+    const hs = tool.selectionHandles(), matrix = worldMatrix(store.doc, g), end = transform(matrix, { x: 300, y: 50 }), event = { timeStamp: 1000 } as PointerEvent;
+    tool.onPointerDown(hs[3], event); expect(tool.original.size).toBe(4);
+    tool.onPointerMove(transform(matrix, { x: 250, y: 50 }), event); tool.onPointerMove(end, event); tool.onPointerUp(end);
+    const result = store.doc.get(g.id)!;
+    expect(result.w).toBeCloseTo(300); expect(result.h).toBeCloseTo(100);
+    expect(store.doc.get(a.id)?.w).toBeCloseTo(120); expect(store.doc.get(a.id)?.x).toBeCloseTo(0); expect(store.doc.get(b.id)?.x).toBeCloseTo(180);
+    expect(tool.selectionHandles()[7].x).toBeCloseTo(hs[7].x); expect(tool.selectionHandles()[7].y).toBeCloseTo(hs[7].y);
+    expect(tool.selectionHandles()[3].x).toBeCloseTo(end.x); expect(tool.selectionHandles()[3].y).toBeCloseTo(end.y);
+    expect(store.undoStack).toHaveLength(1); store.history(); expect(store.doc.get(g.id)?.w).toBe(200); store.history(true); expect(store.doc.get(g.id)?.w).toBeCloseTo(300);
 });

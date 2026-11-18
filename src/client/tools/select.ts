@@ -84,7 +84,7 @@ export class Select implements Tool {
             return;
         }
         if (this.handle >= 0 && this.box) {
-            const single = this.selected().length === 1 && this.original.size === 1 ? [...this.original.values()][0] : undefined;
+            const selected = this.selected(), single = selected.length === 1 ? this.original.get(selected[0].id) : undefined;
             const m = single ? worldMatrix(this.snapshot, single) : undefined;
             if (m) { const a = transform(inverse(m), this.start), b = transform(inverse(m), p); dx = b.x - a.x; dy = b.y - a.y; }
             const b = single ? { x: 0, y: 0, w: single.w, h: single.h } : this.box;
@@ -113,7 +113,9 @@ export class Select implements Tool {
             const resized = new Map(this.snapshot);
             for (const n of this.original.values()) {
                 const r = aabb(this.snapshot, n), nw = Math.max(1, n.w * w / b.w), nh = Math.max(1, n.h * h / b.h);
-                const point = single ? transform(m!, { x: x + w / 2, y: y + h / 2 }) : { x: x + (r.x + r.w / 2 - b.x) * w / b.w, y: y + (r.y + r.h / 2 - b.y) * h / b.h };
+                const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 }, origin = single ? transform(inverse(m!), c) : c;
+                const scaled = { x: x + (origin.x - b.x) * w / b.w, y: y + (origin.y - b.y) * h / b.h };
+                const point = single ? transform(m!, scaled) : scaled;
                 const local = transform(inverse(parentMatrix(resized, n)), point);
                 const size = sizeOf({ ...n, w: nw, h: nh });
                 const values = { x: local.x - size.w / 2, y: local.y - size.h / 2, w: nw, h: nh };
