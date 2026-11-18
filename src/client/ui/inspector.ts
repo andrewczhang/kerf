@@ -1,10 +1,12 @@
 import type { Store } from '../store';
-import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, type Node, type Key } from '../../shared/doc';
+import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
+import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
+import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
@@ -132,9 +134,13 @@ export function inspector(el: HTMLElement, store: Store) {
             if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
             if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
             input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(nodes[0][key]));
-            input.onfocus = () => store.begin();
-            input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
-                store.set(n.id, { [key]: value }); };
+            let base = store.doc;
+            input.onfocus = () => { base = new Map(store.doc); store.begin(); };
+            input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
+                store.set(n.id, { [key]: value });
+                const old = base.get(n.id);
+                if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
+            } };
             input.onblur = () => { store.end(); render(); };
             label.append(span, input);
             sizingControl(label, input, key, nodes, store);
@@ -177,6 +183,8 @@ export function inspector(el: HTMLElement, store: Store) {
             effectsSection(content, store, nodes);
         }
         if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
+        if (nodes.every(n => { const p = n.parent ? store.doc.get(n.parent) : undefined; return p?.type === 'frame' && !isAutoLayout(p); }))
+            content.append(constraints(store, nodes, render));
         if (nodes.length === 1) {
             const section = document.createElement('section');
             section.innerHTML = '<div class="section-label">Prototype</div><label>On click → navigate to </label>';
@@ -205,4 +213,42 @@ export function inspector(el: HTMLElement, store: Store) {
     };
     store.addEventListener('change', render);
     render();
+}
+
+const hLabels: Record<typeof horizontalConstraints[number], string> = { left: 'Left', right: 'Right', both: 'Left & right', center: 'Center', scale: 'Scale' };
+const vLabels: Record<typeof verticalConstraints[number], string> = { top: 'Top', bottom: 'Bottom', both: 'Top & bottom', center: 'Center', scale: 'Scale' };
+function constraints(store: Store, nodes: Node[], render: () => void): HTMLElement {
+    const section = document.createElement('section');
+    section.className = 'constraints';
+    const h = nodes.map(n => n.constraintH ?? 'left'), v = nodes.map(n => n.constraintV ?? 'top');
+    const hValue = h.every(c => c === h[0]) ? h[0] : null, vValue = v.every(c => c === v[0]) ? v[0] : null;
+    const apply = (values: Partial<Node>) => { store.begin(); for (const n of nodes) store.set(n.id, values); store.end(); render(); };
+    const on = (axis: 'h' | 'v', side: string) => { const value = axis === 'h' ? hValue : vValue; return value === side || value === 'both' && side !== 'center' && side !== 'scale'; };
+    // Diagram: outer square is the frame, inner square is the layer; bars are the pins.
+    const bars: [string, 'h' | 'v', string, string][] = [
+        ['Pin left', 'h', 'left', 'M4 28H17'], ['Pin right', 'h', 'right', 'M39 28H52'], ['Pin top', 'v', 'top', 'M28 4V17'], ['Pin bottom', 'v', 'bottom', 'M28 39V52'],
+        ['Center horizontally', 'h', 'center', 'M24 28H32'], ['Center vertically', 'v', 'center', 'M28 24V32'],
+    ];
+    section.innerHTML = `<div class="section-label">Constraints</div><div class="constraint-body"><svg class="constraint-pins" viewBox="0 0 56 56" role="group" aria-label="Constraint pins"><rect x="0.5" y="0.5" width="55" height="55"/><rect class="inner" x="17.5" y="17.5" width="21" height="21"/>${bars.map(([label, axis, side, d]) => `<path class="pin${on(axis, side) ? ' on' : ''}" data-axis="${axis}" data-side="${side}" d="${d}"><title>${label}</title></path><path class="pin-hit" data-axis="${axis}" data-side="${side}" d="${d}" role="button" aria-label="${label}" aria-pressed="${on(axis, side)}"/>`).join('')}</svg><div class="constraint-fields"></div></div>`;
+    for (const hit of section.querySelectorAll<SVGPathElement>('.pin-hit')) hit.addEventListener('click', e => {
+        const axis = hit.dataset.axis as 'h' | 'v', side = hit.dataset.side!, value = axis === 'h' ? hValue : vValue;
+        const [start, end] = axis === 'h' ? ['left', 'right'] : ['top', 'bottom'];
+        let next = side;
+        if (e.shiftKey && side !== 'center' && (value === start || value === end) && value !== side) next = 'both';
+        else if (e.shiftKey && value === 'both' && side !== 'center') next = side === start ? end : start;
+        apply(axis === 'h' ? { constraintH: next as Node['constraintH'] } : { constraintV: next as Node['constraintV'] });
+    });
+    const fields = section.querySelector('.constraint-fields')!;
+    for (const [axis, caption, labels, value] of [['h', 'Horizontal', hLabels, hValue], ['v', 'Vertical', vLabels, vValue]] as const) {
+        const label = document.createElement('label'), span = document.createElement('span'), select = document.createElement('select');
+        label.className = 'field';
+        span.textContent = caption[0];
+        select.setAttribute('aria-label', caption + ' constraint');
+        if (value === null) select.append(new Option('Mixed', '', true, true));
+        for (const [key, title] of Object.entries(labels)) select.append(new Option(title, key, false, key === value));
+        select.onchange = () => { if (!select.value) return; select.blur(); apply(axis === 'h' ? { constraintH: select.value as Node['constraintH'] } : { constraintV: select.value as Node['constraintV'] }); };
+        label.append(span, select);
+        fields.append(label);
+    }
+    return section;
 }
