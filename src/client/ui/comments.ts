@@ -9,7 +9,12 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     let open: string | null = null, draft: { x: number; y: number; node?: string } | null = null, showResolved = false;
     const position = (c: { x: number; y: number; node?: string }) => { const n = c.node && ctx.store.doc.get(c.node), r = n ? world(ctx.store.doc, n) : { x: 0, y: 0 }; return ctx.viewport.screen({ x: c.x + r.x, y: c.y + r.y }); };
     function close() { open = null; draft = null; pop.hidden = true; }
-    function placePop(p: Point) { pop.style.left = Math.max(8, Math.min(p.x + 34, wrap.clientWidth - 324)) + 'px'; pop.style.top = Math.max(8, Math.min(p.y, wrap.clientHeight - pop.offsetHeight - 12)) + 'px'; }
+    function placePop(p: Point) {
+        pop.style.maxHeight = Math.max(0, wrap.clientHeight - 16) + 'px';
+        pop.style.maxWidth = Math.max(0, wrap.clientWidth - 16) + 'px';
+        pop.style.left = Math.max(8, Math.min(p.x + 34, wrap.clientWidth - pop.offsetWidth - 8)) + 'px';
+        pop.style.top = Math.max(8, Math.min(p.y, wrap.clientHeight - pop.offsetHeight - 8)) + 'px';
+    }
     function render() {
         pins.replaceChildren();
         const roots = sync.comments.filter(c => c.thread === null);
@@ -26,9 +31,10 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         const root = sync.comments.find(c => c.id === open);
         if (!root && !draft) { close(); return; }
         const head = document.createElement('h2'); head.textContent = draft ? 'New comment' : root?.resolved ? 'Resolved thread' : 'Comment thread'; pop.append(head);
+        const replies = document.createElement('div'); replies.className = 'comment-replies'; pop.append(replies);
         if (root) for (const c of sync.comments.filter(c => c.id === root.id || c.thread === root.id)) {
             const article = document.createElement('article'), meta = document.createElement('small'), body = document.createElement('p');
-            meta.textContent = `${c.author} · ${new Date(c.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; body.textContent = c.text; article.append(meta, body); pop.append(article);
+            meta.textContent = `${c.author} · ${new Date(c.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; body.textContent = c.text; article.append(meta, body); replies.append(article);
         }
         const input = document.createElement('textarea'); input.placeholder = draft ? 'Leave a comment…' : 'Reply…'; input.rows = 2; input.maxLength = 10000; input.setAttribute('aria-label', input.placeholder); pop.append(input);
         const status = document.createElement('div'); status.setAttribute('role', 'status'); pop.append(status);
