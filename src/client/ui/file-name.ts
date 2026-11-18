@@ -27,6 +27,7 @@ export function fileName(sync: Sync, canEdit: () => boolean) {
         }
         field.onkeydown = e => {
             e.stopPropagation();
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); finish(e.key === 'Enter'); label.focus(); }
         };
         field.onblur = () => finish(true);
