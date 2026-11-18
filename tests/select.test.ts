@@ -1,10 +1,11 @@
-import { it, expect } from 'vitest';
+import { it, expect, vi } from 'vitest';
 import { children, makeNode } from '../src/shared/doc';
 import { world } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
 import { duplicateNodes } from '../src/client/tools/duplicate';
+import * as autolayout from '../src/client/autolayout';
 const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setup = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
 it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty canvas', () => {
@@ -100,6 +101,29 @@ it('does not duplicate alt-clicks, subthreshold moves, empty canvas or locked no
         tool.onPointerDown({ x: 400, y: 400 }, pointer(true)); tool.onPointerMove({ x: 500, y: 500 }, pointer(true)); tool.onPointerUp({ x: 500, y: 500 });
         expect(store.doc.size).toBe(1);
     }
+});
+it.each([false, true])('closes a tied-index drop transaction (duplicate: %s)', duplicate => {
+    const { store, tool } = setup();
+    const frame = { ...makeNode('frame', 0, 0), layout: 'horizontal' as const, w: 500, h: 100, gap: 10 };
+    const nodes = ['A', 'A', 'C'].map((index, i) => ({ ...makeNode('rect', 0, 0, index), id: String(i), parent: frame.id, w: 80, h: 80 }));
+    store.init([frame, ...nodes]); store.selection.add(nodes[2].id);
+    tool.onPointerDown({ x: 220, y: 40 }, pointer(duplicate));
+    tool.onPointerMove({ x: 100, y: 40 }, pointer(duplicate));
+    expect(() => tool.onPointerUp({ x: 100, y: 40 })).not.toThrow();
+    expect(store.group).toBeNull(); expect(tool.start).toBeUndefined();
+    const moving = [...store.selection][0];
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(duplicate ? ['0', '1', moving, '2'] : ['0', '1', '2']);
+    expect(store.undoStack).toHaveLength(1); store.history();
+    expect(children(store.doc, frame.id).map(n => n.id)).toEqual(['0', '1', '2']);
+});
+it('finalizes copies and closes the transaction even if drop processing throws', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true)); tool.onPointerMove({ x: 90, y: 110 }, pointer(true));
+    const mock = vi.spyOn(autolayout, 'dragInsertion').mockImplementation(() => { throw new Error('drop failed'); });
+    try { expect(() => tool.onPointerUp({ x: 90, y: 110 })).toThrow('drop failed'); }
+    finally { mock.mockRestore(); }
+    expect(store.group).toBeNull(); expect(tool.start).toBeUndefined(); expect(tool.copies).toBeUndefined();
+    expect(store.undoStack).toHaveLength(1); store.history(); expect([...store.doc.keys()]).toEqual([a.id]);
 });
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
     const { store, tool } = setup(), a = makeNode('rect', 20, 30), b = { ...makeNode('ellipse', 200, 50), index: 'z' }; store.init([a, b]); store.selection.add(a.id); store.selection.add(b.id);

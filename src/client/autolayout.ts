@@ -58,7 +58,7 @@ export function reorderInAutoLayout(store: Store, nodes: Node[], insertion: Layo
     const items = children(store.doc, parent!.id).filter(n => !moving.has(n.id));
     const slot = Math.max(0, Math.min(items.length, insertion.slot));
     let index = items[slot - 1]?.index ?? null;
-    const next = items[slot]?.index ?? null;
+    const next = items.slice(slot).find(n => index === null || n.index > index)?.index ?? null;
     const ordered = [...nodes].sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
     const ops: Op[] = [];
     for (const n of ordered) {

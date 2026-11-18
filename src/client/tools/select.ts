@@ -159,7 +159,7 @@ export class Select implements Tool {
         }
         store.commit(ops, !this.copies);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
@@ -185,9 +185,16 @@ export class Select implements Tool {
         const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
         if (insertion && [...this.original.values()].every(n => n.parent === insertion.parent))
             reorderInAutoLayout(store, [...this.original.values()], insertion, false);
-        store.commit([...this.copies.values()].map(n => ({ t: 'create', node: store.doc.get(n.id)! })));
     }
-    layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; this.copies = undefined; store.changed(); }
+    if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc));
+    } finally {
+        try {
+            if (this.copies) store.commit([...this.copies.values()].flatMap(n => { const node = store.doc.get(n.id); return node ? [{ t: 'create' as const, node }] : []; }));
+        } finally {
+            store.end(); this.start = undefined; this.copies = undefined;
+            layoutInsertions.delete(store); clearSnap(this.ctx); store.changed();
+        }
+    } }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
