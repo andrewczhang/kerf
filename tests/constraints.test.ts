@@ -4,6 +4,7 @@ import { constrain, constraintOps } from '../src/shared/constraints';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
+import { transform, worldMatrix } from '../src/shared/geometry';
 
 const from = { w: 200, h: 100 }, to = { w: 300, h: 160 };
 const box = { ...makeNode('rect', 20, 10), w: 40, h: 20 };
@@ -63,4 +64,18 @@ it('restores children when a drag returns to the starting size, and leaves auto 
     const moved = new Map(doc);
     for (const op of constraintOps(doc, f.id, { w: 400, h: 100 })) applyOp(moved, op);
     expect(constraintOps(doc, f.id, { w: 200, h: 100 }, undefined, moved)).toContainEqual({ t: 'set', id: pin.id, key: 'x', value: 80 });
+});
+
+it.each([90, 30])('constrains children while resizing a %s degree frame inside a rotated parent', rotation => {
+    const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }), parent = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation: 20 }, f = { ...makeNode('frame', 100, 100), parent: parent.id, w: 200, h: 100, rotation }, a = { ...makeNode('rect', 150, 10), parent: f.id, w: 40, h: 20, rotation: 45, constraintH: 'right' as const, constraintV: 'center' as const };
+    store.init([parent, f, a]); store.selection.add(f.id);
+    const matrix = worldMatrix(store.doc, f), start = tool.selectionHandles()[4], end = transform(matrix, { x: 300, y: 160 }), fixed = tool.selectionHandles()[0], event = { buttons: 1, altKey: false, timeStamp: 0 } as PointerEvent;
+    const check = (x: number, y: number) => { const result = store.doc.get(a.id)!; expect(result.x).toBeCloseTo(x); expect(result.y).toBeCloseTo(y); expect(result).toMatchObject({ w: 40, h: 20, rotation: 45 }); };
+    tool.onPointerDown(start, event); tool.onPointerMove(end, event); check(250, 40);
+    tool.onPointerMove(start, event); check(150, 10);
+    tool.onPointerMove(end, event); tool.onPointerUp(end);
+    expect(store.doc.get(f.id)?.w).toBeCloseTo(300); expect(store.doc.get(f.id)?.h).toBeCloseTo(160);
+    expect(tool.selectionHandles()[0].x).toBeCloseTo(fixed.x); expect(tool.selectionHandles()[0].y).toBeCloseTo(fixed.y);
+    check(250, 40);
+    expect(store.undoStack).toHaveLength(1); store.history(); check(150, 10);
 });

@@ -20,6 +20,7 @@ export function inspectCSS(node?: Node, size = node): string {
     if (!node || !size) return '';
     const px = (n: number) => `${Math.round(n * 100) / 100}px`;
     const properties: [string, string][] = [['position', 'absolute'], ['left', px(node.x)], ['top', px(node.y)], ['width', px(size.w)], ['height', px(size.h)]];
+    if (node.rotation) properties.push(['transform', `rotate(${Math.round(node.rotation * 100) / 100}deg)`]);
     const paint = node.type !== 'group' && (node.type !== 'path' || node.closed)
         ? nodeFills(node).filter(p => p.visible).at(-1) : undefined;
     if (paint?.type === 'solid') properties.push([node.type === 'text' ? 'color' : 'background', paint.opacity === 1 ? paint.color : `rgb(${parseInt(paint.color.slice(1, 3), 16)} ${parseInt(paint.color.slice(3, 5), 16)} ${parseInt(paint.color.slice(5, 7), 16)} / ${paint.opacity})`]);

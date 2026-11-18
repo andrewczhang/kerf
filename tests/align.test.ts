@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { align, eligible, type Alignment } from '../src/shared/align';
 import { makeNode, type Node } from '../src/shared/doc';
-import { world } from '../src/shared/geometry';
+import { aabb, world, worldCorners } from '../src/shared/geometry';
 import { applyAlignment, alignmentKey } from '../src/client/align';
 import { Store } from '../src/client/store';
 
@@ -67,5 +67,15 @@ describe('alignment', () => {
         expect(alignmentKey({ ...event, ctrlKey: true }, store)).toBe(false);
         expect(alignmentKey({ ...event, shiftKey: true, code: 'KeyH' }, store)).toBe(true);
         expect(alignmentKey({ ...event, ctrlKey: true, code: 'KeyT' }, store)).toBe(true);
+    });
+    it('aligns rotated AABBs and converts world moves into a rotated parent without moving descendants twice', () => {
+        const a = { ...makeNode('rect', 100, 100), w: 100, h: 50, rotation: 90 }, target = makeNode('rect', 0, 0);
+        expect(align(docOf(a, target), [a.id, target.id], 'left')).toEqual([{ id: a.id, dx: -125, dy: 0 }]);
+        const store = new Store(), parent = { ...makeNode('frame', 0, 0), w: 600, h: 600, rotation: 90 }, group = { ...makeNode('group', 100, 100), parent: parent.id }, child = { ...makeNode('rect', 0, 0), parent: group.id };
+        store.init([parent, group, child, target]); store.selection = new Set([group.id, child.id, target.id]);
+        const before = worldCorners(store.doc, child), left = aabb(store.doc, group).x;
+        applyAlignment(store, 'left'); expect(aabb(store.doc, store.doc.get(group.id)!).x).toBeCloseTo(0);
+        for (const [i, p] of worldCorners(store.doc, store.doc.get(child.id)!).entries()) { expect(p.x).toBeCloseTo(before[i].x - left); expect(p.y).toBeCloseTo(before[i].y); }
+        expect(store.undoStack).toHaveLength(1); store.history(); expect(worldCorners(store.doc, store.doc.get(child.id)!)).toEqual(before);
     });
 });

@@ -34,7 +34,7 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const layoutOps=[{t:'set',id:frame.id,key:'layout',value:'horizontal'},{t:'set',id:frame.id,key:'gap',value:15}];
  a.send({type:'ops',seq:5,ops:layoutOps});const relayed=(await b.take('ops')).ops;assert.deepEqual(relayed,layoutOps);bStore.remote(relayed);await a.take('ack');
  assert.equal(bStore.doc.get(frame.id).layout,'horizontal');assert.equal(bStore.doc.get(frame.id).gap,15);assert.deepEqual(kids.map(n=>bStore.doc.get(n.id).x),[0,55]);
- const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography,hidden:false,locked:false});console.log('PASS late client init contains persisted rectangle and text');
+ const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography,hidden:false,locked:false,rotation:0});console.log('PASS late client init contains persisted rectangle and text');
  assert.equal(ci.nodes.find(n=>n.id===frame.id).layout,'horizontal');assert.equal(ci.nodes.find(n=>n.id===frame.id).gap,15);assert.deepEqual(kids.map(n=>ci.nodes.find(child=>child.id===n.id).x),[0,55]);console.log('PASS layout/gap relay, client B layout and persisted child positions on late join');
  const camera={type:'presence',cursor:null,selection:[],name:'Ada',viewport:{x:45,y:20,zoom:2}};
  a.send({...camera,spotlight:true});await a.take('presence',m=>m.peer.id===ai.you.id&&m.peer.spotlight);assert.deepEqual((await b.take('presence',m=>m.peer.id===ai.you.id&&m.peer.spotlight)).peer.viewport,camera.viewport);

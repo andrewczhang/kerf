@@ -1,8 +1,8 @@
 import { descendants } from '../shared/doc';
 import { gridLines } from '../shared/layout-grid';
 import { blocked } from '../shared/layers';
-import { bounds, intersects, type Rect } from '../shared/geometry';
-import { world } from './geometry';
+import { bounds, intersects, transform, type Rect } from '../shared/geometry';
+import { aabb as world, worldMatrix } from './geometry';
 import { nearestDistances, resizeSnap, snapRect, type Edges, type Guide, type Distance, type RulerGuide } from '../shared/snap';
 import type { Context } from './tools/tool';
 export interface SnapState { guides: Guide[]; measure: Distance[]; rulers: boolean; grid: boolean; lines: RulerGuide[]; layoutGrids?: boolean }
@@ -53,7 +53,13 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
             parent = p.parent;
         }
         if (right <= left || bottom <= top || r.x < left || r.y < top || r.x > right || r.y > bottom) continue;
-        for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g, ctx.viewport.zoom).filter(l => l.axis === 'x' ? l.position >= left && l.position <= right : l.position >= top && l.position <= bottom));
+        const m = worldMatrix(ctx.store.doc, n);
+        for (const g of n.grids ?? []) if (g.visible) for (const l of gridLines({ x: 0, y: 0, w: n.w, h: n.h }, g, ctx.viewport.zoom)) {
+            const a = transform(m, l.axis === 'x' ? { x: l.position, y: 0 } : { x: 0, y: l.position });
+            const b = transform(m, l.axis === 'x' ? { x: l.position, y: n.h } : { x: n.w, y: l.position });
+            if (Math.abs(a.x - b.x) < 1e-7 && a.x >= left && a.x <= right) lines.push({ axis: 'x', position: a.x });
+            else if (Math.abs(a.y - b.y) < 1e-7 && a.y >= top && a.y <= bottom) lines.push({ axis: 'y', position: a.y });
+        }
     }
     let result: Rect;
     let spacing: Distance[] = [];
