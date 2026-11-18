@@ -36,13 +36,20 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  assert.equal(bStore.doc.get(frame.id).layout,'horizontal');assert.equal(bStore.doc.get(frame.id).gap,15);assert.deepEqual(kids.map(n=>bStore.doc.get(n.id).x),[0,55]);
  const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography,hidden:false,locked:false});console.log('PASS late client init contains persisted rectangle and text');
  assert.equal(ci.nodes.find(n=>n.id===frame.id).layout,'horizontal');assert.equal(ci.nodes.find(n=>n.id===frame.id).gap,15);assert.deepEqual(kids.map(n=>ci.nodes.find(child=>child.id===n.id).x),[0,55]);console.log('PASS layout/gap relay, client B layout and persisted child positions on late join');
+ const camera={type:'presence',cursor:null,selection:[],name:'Ada',viewport:{x:45,y:20,zoom:2}};
+ a.send({...camera,spotlight:true});await a.take('presence',m=>m.peer.id===ai.you.id&&m.peer.spotlight);assert.deepEqual((await b.take('presence',m=>m.peer.id===ai.you.id&&m.peer.spotlight)).peer.viewport,camera.viewport);
+ a.send({...camera,viewport:{...camera.viewport,x:100}});assert.equal((await b.take('presence',m=>m.peer.viewport.x===100)).peer.spotlight,true);
  const comment={id:'comment',thread:null,x:10,y:20,node:node.id,author:'Ignored',color:'#ffffff',text:'Check spacing',at:0};
  a.send({type:'comment-add',comment});const cm=await b.take('comments');assert.equal(cm.comments[0].text,comment.text);assert.equal(cm.comments[0].author,'Ada');console.log('PASS comment broadcast and server author');
  const d=await client(),di=await d.take('init');assert.equal(di.comments[0].node,node.id);console.log('PASS late join receives pinned comments');
+ assert.equal(di.peers.find(p=>p.id===ai.you.id).spotlight,true);
+ b.send({...camera,name:'Sam',spotlight:true});await a.take('presence',m=>m.peer.id===ai.you.id&&m.peer.spotlight===false);
+ assert.equal((await a.take('presence',m=>m.peer.spotlight===true)).peer.name,'Sam');
+ b.send({...camera,name:'Sam',spotlight:false});await a.take('presence',m=>m.peer.name==='Sam'&&m.peer.spotlight===false);console.log('PASS spotlight activation, viewport updates, late join, handoff and stop');
  a.send({type:'version-save',name:'Checkpoint'});const versions=await b.take('versions',m=>m.versions.some(v=>v.name==='Checkpoint'));const version=versions.versions.find(v=>v.name==='Checkpoint');
  a.send({type:'ops',seq:6,ops:[{t:'set',id:node.id,key:'x',value:999}]});await a.take('ack');await b.take('ops');
  a.send({type:'version-preview',id:version.id});assert.equal((await a.take('version-preview')).nodes.find(n=>n.id===node.id).x,140);
  a.send({type:'version-restore',id:version.id});const restored=await b.take('restored');assert(restored.ops.some(o=>o.t==='set'&&o.key==='x'&&o.value===140));await a.take('restored');
  const e=await client();assert.equal((await e.take('init')).nodes.find(n=>n.id===node.id).x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 12 checks passed');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 13 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}
