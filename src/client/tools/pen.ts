@@ -59,7 +59,13 @@ export class Pen implements Tool {
         if (!this.drawing) return;
         this.drawing = false;
         const n = this.path();
-        if (n && n.points!.length < 2) { this.ctx.store.commit([{ t: 'delete', id: n.id }]); this.ctx.store.selection.clear(); }
+        if (n && n.points!.length < 2) {
+            const store = this.ctx.store, own = (c: { after: { t: string; id?: string; node?: Node } }) => (c.after.node?.id ?? c.after.id) === n.id;
+            if (store.group) store.group = store.group.filter(c => !own(c));
+            while (store.undoStack.at(-1)?.every(own)) store.undoStack.pop();
+            store.commit([{ t: 'delete', id: n.id }], false);
+            store.selection.clear();
+        }
         this.ctx.store.changed();
     }
 
