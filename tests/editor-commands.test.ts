@@ -4,11 +4,28 @@ import { editorCommands } from '../src/client/ui/editor-commands';
 import { registry } from '../src/client/tools/tool';
 import type { Context } from '../src/client/tools/tool';
 import type { Renderer } from '../src/client/renderer';
+import { Store } from '../src/client/store';
+import { makeNode } from '../src/shared/doc';
 
 const { prepare } = vi.hoisted(() => ({ prepare: { current: () => {} } }));
 vi.mock('../src/client/ui/palette', async importOriginal => ({ ...await importOriginal<typeof import('../src/client/ui/palette')>(), installPalette: (_: unknown, fn: () => void) => { prepare.current = fn; return () => {}; } }));
 afterEach(() => { commands.clear(); registry.clear(); vi.unstubAllGlobals(); });
 describe('editor palette commands', () => {
+    it('creates components and detaches instances through registered commands', () => {
+        vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });
+        const store = new Store(), rect = makeNode('rect', 0, 0);
+        store.init([rect]);
+        editorCommands({ store, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn());
+        expect(commands.get('create-component')!.enabled!()).toBe(false);
+        expect(commands.get('detach-instance')!.enabled!()).toBe(false);
+        store.selection.add(rect.id); commands.get('create-component')!.run();
+        const main = store.doc.get([...store.selection][0])!;
+        expect(main.component).toBe(true);
+        const instance = { ...makeNode('frame', 200, 0), instanceOf: main.id };
+        store.commit([{ t: 'create', node: instance }]); store.selection = new Set([instance.id]);
+        expect(commands.get('detach-instance')!.enabled!()).toBe(true);
+        commands.get('detach-instance')!.run(); expect(store.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    });
     it('excludes pointer-only gradient markers while keeping clickable panel actions', () => {
         const markerClick = vi.fn(), actionClick = vi.fn();
         const marker = { getClientRects: () => [{}], closest: (selector: string) => selector.includes('.stop-strip') ? {} : null, matches: () => false, dataset: {}, getAttribute: () => 'Gradient stop 1', click: markerClick };

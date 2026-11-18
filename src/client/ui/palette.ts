@@ -59,7 +59,7 @@ export function installPalette(canvas: HTMLCanvasElement, prepare = () => {}) {
     input.oninput = () => { selected = 0; render(); };
     overlay.onpointerdown = e => { if (e.target === overlay) close(); };
     window.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); e.stopImmediatePropagation(); if (overlay.hidden) open(); else close(); return; }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); e.stopImmediatePropagation(); if (overlay.hidden) open(); else close(); return; }
         if (overlay.hidden) return;
         e.stopImmediatePropagation();
         if (e.key === 'Escape') { e.preventDefault(); close(); }

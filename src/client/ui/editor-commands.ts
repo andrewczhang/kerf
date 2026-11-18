@@ -3,6 +3,8 @@ import { downloadSelection, exportBounds, exportRoots } from '../export';
 import { newFile } from '../recent-files';
 import { installPalette, registerCommand } from './palette';
 import type { Renderer } from '../renderer';
+import { componentOps, detachOps } from '../../shared/components';
+import { sizeOf } from '../geometry';
 export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: string) => void, isInspecting = () => false) {
     const { store, viewport } = ctx;
     const add = (id: string, title: string, group: string, run: () => void | Promise<void>, shortcut?: string, enabled?: () => boolean) => {
@@ -12,6 +14,12 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
     const keys: Record<string, string> = { select: 'V', frame: 'F', rect: 'R', ellipse: 'O', text: 'T', pen: 'P', hand: 'H', comment: 'C' };
     add('undo', 'Undo', 'Edit', () => store.history(false), 'Ctrl/⌘ Z');
     add('redo', 'Redo', 'Edit', () => store.history(true), 'Ctrl/⌘ ⇧ Z');
+    add('create-component', 'Create component', 'Layers', () => {
+        const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf);
+        if (!ops.length) return;
+        store.commit(ops); store.selection = new Set([id]); store.changed();
+    }, 'Ctrl/⌘ Alt K', () => { try { return componentOps.create(store.doc, [...store.selection], sizeOf).ops.length > 0; } catch { return false; } });
+    add('detach-instance', 'Detach instance', 'Layers', () => store.commit(detachOps(store.doc, [...store.selection])), 'Ctrl/⌘ Alt B', () => [...store.selection].some(id => !!store.doc.get(id)?.instanceOf));
     for (const format of ['png', 'svg'] as const) add('export-' + format, 'Export selection ' + format.toUpperCase(), 'Export', () => downloadSelection(store.doc, store.selection, format, format === 'png' ? 2 : 1), undefined, () => exportRoots(store.doc, store.selection).length > 0);
     add('home', 'All files', 'Navigate', () => location.assign('/'));
     add('new', 'New file', 'Navigate', newFile);
