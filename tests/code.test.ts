@@ -18,14 +18,27 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
-    it.each(['rect', 'ellipse', 'text', 'path'] as const)('rejects children under an existing %s with a located error', type => {
+    it.each(['ellipse', 'text', 'path'] as const)('rejects children under a parsed %s with a located error', type => {
         const node = makeNode(type, 0, 0), doc = new Map([[node.id, node]]);
         const parsed = tree(`<>\n  <div data-kerf="${node.id}"><div /></div>\n</>`);
+        if (type === 'ellipse') parsed.children[0].style.borderRadius = '50%';
         expect(() => diffCode(doc, null, parsed)).toThrow(CodeDiffError);
         try { diffCode(doc, null, parsed); } catch (error) {
             expect(error).toMatchObject({ message: 'only frames and groups can contain children', line: 2, col: 3 });
         }
         expect([...doc.values()]).toEqual([node]);
+        expect(diffCode(doc, null, tree(toReact(doc, null)))).toEqual([]);
+    });
+    it.each(['children', 'type', 'both'])('allows rect-to-frame conversion through %s', mode => {
+        const node = makeNode('rect', 10, 20), doc = new Map([[node.id, node]]);
+        const parsed = tree(toReact(doc, null)), element = parsed.children[0];
+        if (mode !== 'children') element.attrs['data-type'] = 'frame';
+        if (mode !== 'type') element.children.push(tree('<div />'));
+        const ops = diffCode(doc, null, parsed);
+        expect(ops).toContainEqual({ t: 'set', id: node.id, key: 'type', value: 'frame' });
+        expect(ops.filter(op => op.t === 'create')).toHaveLength(mode === 'type' ? 0 : 1);
+        for (const op of ops) applyOp(doc, op);
+        expect([...doc.values()].filter(n => n.parent === node.id)).toHaveLength(mode === 'type' ? 0 : 1);
         expect(diffCode(doc, null, tree(toReact(doc, null)))).toEqual([]);
     });
     it('round-trips unstroked paths without restoring their creation default stroke', () => {
