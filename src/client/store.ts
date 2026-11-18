@@ -123,6 +123,13 @@ export class Store extends EventTarget {
     for (let i = 0; i < queue.length; i++) {
         const op = queue[i];
         const id = op.t === 'create' ? op.node.id : op.id, n = this.doc.get(id);
+        if (op.t === 'override' && op.key === 'closed') {
+            const shadow = new Map(this.doc); applyOp(shadow, op);
+            const target = expand(shadow).get(op.id + (op.target ? '/' + op.target : ''));
+            if (target?.type === 'path' && !target.closed && target.mask) {
+                queue.splice(i, 0, { t: 'override', id: op.id, target: op.target, key: 'mask', value: false }); i--; continue;
+            }
+        }
         if (op.t === 'delete' && n) {
             const mains = new Set([n, ...descendants(this.doc, n.id)].filter(n => !final!.has(n.id)).map(n => n.id));
             const instance = [...this.doc.values()].find(n => n.instanceOf && mains.has(n.instanceOf) && final!.has(n.id));
