@@ -21,6 +21,7 @@ src/client/
     tool.ts       Tool interface {id, cursor, onPointerDown/Move/Up, onKey?}; registry so pen/text can be added as new files
     select.ts     click select, shift toggle, marquee, drag move (multi), 8-handle resize (shift = keep aspect, alt = from center), arrow nudge (shift x10), delete, duplicate (ctrl+d), dragging into/out of frames reparents
     shape.ts      rect / ellipse / frame creation by drag (shift = square), click creates default 100x100
+    pen.ts        P: click corner, drag bezier handles (alt breaks, shift 45°), click first anchor to close, Enter/Esc to finish; on a selected path (double-click or Enter) drag anchors/handles, click a segment to insert, double-click an anchor to toggle smooth, Delete removes the anchor, click an end anchor to keep drawing
   ui/
     toolbar.ts    tool buttons + shortcuts V R O F, H for hand
     inspector.ts  right panel: X Y W H, rotation not needed, fill color, stroke, corner radius, opacity; multi-select shows mixed
@@ -34,7 +35,7 @@ Later features (pen/vector paths, text, layers panel, export) each land as a new
 New node types must add a drawing case in both draw.ts and exportSVG in export.ts.
 
 ## Document model
-Node = { id, type: 'frame'|'rect'|'ellipse', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }.
+Node = { id, type: 'frame'|'rect'|'ellipse'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
 ## Components

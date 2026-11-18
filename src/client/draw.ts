@@ -1,6 +1,7 @@
 import { childIndex, isTextNode, type Doc, type Node } from '../shared/doc';
 import { world } from './geometry';
 import { font, measureTextNode } from './text-layout';
+import { toAbs, trace } from '../shared/path';
 
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string; tree?: Map<string | null, Node[]> }) {
     if (opts.skip === n.id) return;
@@ -18,6 +19,21 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: {
         return;
     }
     c.beginPath();
+    if (n.type === 'path') {
+        trace(c, toAbs(n.points ?? [], r), !!n.closed);
+        if (n.closed) {
+            c.fillStyle = n.fill;
+            c.fill();
+        }
+        if (n.stroke && n.strokeWidth > 0) {
+            c.lineWidth = n.strokeWidth;
+            c.lineJoin = c.lineCap = 'round';
+            c.strokeStyle = n.stroke;
+            c.stroke();
+        }
+        c.restore();
+        return;
+    }
     if (n.type === 'ellipse')
         c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
     else

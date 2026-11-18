@@ -1,4 +1,5 @@
 import { children, type Doc, type Node } from './doc';
+import { hitPath, toAbs } from './path';
 export interface Point {
     x: number;
     y: number;
@@ -28,11 +29,16 @@ export function world(doc: Doc, n: Node, sizeOf: SizeOf = n => n): Rect { let x 
     y += a.y;
     p = a.parent;
 } const { w, h } = sizeOf(n); return { x, y, w, h }; }
-export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf): Node | undefined { for (const n of children(doc, parent).reverse()) {
+export function hit(doc: Doc, p: Point, parent: string | null = null, sizeOf?: SizeOf, tol = 4): Node | undefined { for (const n of children(doc, parent).reverse()) {
     const r = world(doc, n, sizeOf);
+    if (n.type === 'path') {
+        if (n.points && hitPath(toAbs(n.points, r), !!n.closed, p, Math.max(tol, n.strokeWidth / 2)))
+            return n;
+        continue;
+    }
     if (!contains(r, p))
         continue;
-    const child = hit(doc, p, n.id, sizeOf);
+    const child = hit(doc, p, n.id, sizeOf, tol);
     if (child)
         return child;
     if (n.type !== 'ellipse' || ((p.x - r.x - r.w / 2) / (r.w / 2)) ** 2 + ((p.y - r.y - r.h / 2) / (r.h / 2)) ** 2 <= 1)

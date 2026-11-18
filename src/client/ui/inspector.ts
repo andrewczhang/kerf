@@ -1,6 +1,7 @@
 import type { Store } from '../store';
 import { downloadSelection } from '../export';
-import { sizeOf } from '../geometry';
+import { sizeOf, world } from '../geometry';
+import { fit, toAbs } from '../../shared/path';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
@@ -46,11 +47,11 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             for (const main of mains) button(list, main.name, () => insert(main, true));
             if (!mains.length) { const p = document.createElement('p'); p.className = 'component-note'; p.textContent = 'Select a frame or objects to create a component.'; list.append(p); }
             const shortcuts = section('Shortcuts');
-            shortcuts.innerHTML += '<div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div>';
+            shortcuts.innerHTML += '<div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div>';
             return;
         }
         const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
-        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[first.type]);
+        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[first.type]);
         const write = (n: Node, key: Key, value: unknown) => {
             const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
             if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'name'].includes(key))
@@ -116,6 +117,23 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
                 label.append(span, input); grid.append(label);
             }
         };
+        if (nodes.length === 1 && first.type === 'path') {
+            const s = section('Vector');
+            s.innerHTML += `<label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${first.points?.length ?? 0} points</span>${virtual ? '' : '<p class="path-hint">Double-click or Enter to edit points</p>'}`;
+            const box = s.querySelector('input')!;
+            box.checked = !!first.closed;
+            box.onchange = () => {
+                box.blur();
+                store.begin();
+                if (virtual) write(first, 'closed', box.checked);
+                else {
+                    const parent = first.parent ? store.doc.get(first.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
+                    const f = fit(toAbs(first.points ?? [], world(store.doc, first)), box.checked, origin);
+                    store.set(first.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked });
+                }
+                store.end();
+            };
+        }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(n => n.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);

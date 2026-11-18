@@ -13,7 +13,7 @@ export class Select implements Tool {
     moved = false;
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
-    pick(p: Point, deep = false) { const { store } = this.ctx; const n = hit(expand(store.doc), p); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
+    pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(expand(store.doc), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
     deepSelect(p: Point) { const { store } = this.ctx; const n = this.pick(p, true); if (n) { store.selection.clear(); store.selection.add(n.id); store.changed(); } }
     onPointerDown(p: Point, e: PointerEvent) {
         const { store, viewport } = this.ctx;

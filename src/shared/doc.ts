@@ -1,3 +1,4 @@
+import { corner, validPoints, type PathPoint } from './path';
 export const textFonts = ['sans', 'serif', 'mono'] as const;
 export const textWeights = [400, 700] as const;
 export const textAlignments = ['left', 'center', 'right'] as const;
@@ -16,7 +17,7 @@ interface TextProperties {
 
 export interface Node extends Partial<TextProperties> {
     id: string;
-    type: 'frame' | 'rect' | 'ellipse' | 'text';
+    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path';
     parent: string | null;
     index: string;
     name: string;
@@ -32,6 +33,10 @@ export interface Node extends Partial<TextProperties> {
     component?: boolean;
     instanceOf?: string;
     overrides?: Record<string, Partial<Record<Key, unknown>>>;
+    /** path only: anchors normalized to the node box */
+    points?: PathPoint[];
+    /** path only */
+    closed?: boolean;
 }
 export type TextNode = Node & TextProperties & { type: 'text' };
 export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
@@ -121,7 +126,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', ...textKeys].includes(op.key))
+    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -182,7 +187,9 @@ function validOverrides(value: unknown): boolean {
 }
 function validProperty(key: string, value: unknown): boolean {
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
-    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text'].includes(value as string);
+    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path'].includes(value as string);
+    if (key === 'points') return validPoints(value);
+    if (key === 'closed') return typeof value === 'boolean';
     if (key === 'text') return typeof value === 'string' && value.length <= maxTextLength;
     if (key === 'fontFamily') return textFonts.includes(value as typeof textFonts[number]);
     if (key === 'fontWeight') return textWeights.includes(value as typeof textWeights[number]);
@@ -200,12 +207,14 @@ function validProperty(key: string, value: unknown): boolean {
     if (key === 'opacity') return value >= 0 && value <= 1;
     return key === 'x' || key === 'y' || value >= 0;
 }
-export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
-    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
         return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
+    if (type === 'path')
+        return { ...node, stroke: '#272822', strokeWidth: 2, points: [corner(0, 0)], closed: false };
     return node;
 }

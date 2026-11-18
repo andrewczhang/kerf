@@ -2,9 +2,24 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { applyOp, makeNode, type Doc, type Node } from '../src/shared/doc';
 import { exportBounds, exportFilename, exportPNG, exportRoots, exportSVG } from '../src/client/export';
 import { instanceNode } from '../src/shared/components';
+import { corner } from '../src/shared/path';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 afterEach(() => vi.unstubAllGlobals());
+it('exports validated path overrides within component instances', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const path = { ...makeNode('path', 0, 0), parent: main.id };
+    const instance = instanceNode(main, 200, 0), doc = docOf(main, path, instance);
+    const points = [corner(0, 0), corner(1, 1)];
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'points', value: points });
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'points', value: [corner(NaN, 0)] });
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'closed', value: 'true' });
+    expect(doc.get(instance.id)?.overrides?.[path.id]).toEqual({ points });
+    const svg = exportSVG(doc, [instance.id]);
+    expect(svg).toContain('<path');
+    expect(svg).toContain('d="M200 0C200 0 300 100 300 100"');
+    expect(svg).toContain('fill="none"');
+});
 it('exports validated text overrides inside component instances', () => {
     const measureText = (line: string) => ({ width: line.length * 10, fontBoundingBoxAscent: 18, fontBoundingBoxDescent: 6 });
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText }) }) });
@@ -123,4 +138,13 @@ it('renders transparent scaled PNGs without frame labels and reports encoding fa
     canvas.toBlob.mockImplementation(callback => callback(null));
     await expect(exportPNG(doc, [node.id], 1)).rejects.toThrow('PNG export failed');
     await expect(exportPNG(doc, [node.id], 0)).rejects.toThrow('positive export scale');
+});
+
+it('exports closed paths as filled cubic path data and open paths unfilled', () => {
+    const shape = { ...makeNode('path', 10, 20), id: 'shape', w: 100, h: 50, closed: true, points: [{ x: 0, y: 0, ix: 0, iy: 0, ox: .5, oy: 0 }, { x: 1, y: 1, ix: 1, iy: .5, ox: 1, oy: 1 }] };
+    const svg = exportSVG(docOf(shape), [shape.id]);
+    expect(svg).toContain('<path id="shape" data-name="Path" d="M10 20C60 20 110 45 110 70C110 70 10 20 10 20Z"');
+    expect(svg).toContain('fill="#ff4f00"');
+    const line = { ...shape, closed: false };
+    expect(exportSVG(docOf(line), [line.id])).toContain('fill="none"');
 });

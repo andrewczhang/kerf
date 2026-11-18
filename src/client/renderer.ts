@@ -5,6 +5,7 @@ import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { drawNode } from './draw';
+import { toAbs, trace } from '../shared/path';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -34,15 +35,19 @@ export class Renderer {
         for (const n of tree.get(null) ?? [])
             drawNode(c, doc, n, { zoom: v.zoom, labels: true, tree, skip: this.app.editingText });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
+        const curve = (n: Node, color: string) => { if (n.type !== 'path')
+            return; c.beginPath(); trace(c, toAbs(n.points ?? [], world(doc, n)), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = doc.get(this.app.hover);
             if (n && n.id !== this.app.editingText)
-                outline(world(doc, n), '#ff4f00');
+                n.type === 'path' ? curve(n, '#ff4f00') : outline(world(doc, n), '#ff4f00');
         }
-        if (selected.length && !this.app.editingText) {
-            for (const n of selected)
+        if (selected.length && !this.app.editingText && !this.app.active?.ownsSelection) {
+            for (const n of selected) {
                 outline(world(doc, n), '#ff4f00');
+                curve(n, '#ff4f00');
+            }
             const box = bounds(selected.map(n => world(doc, n)));
             outline(box, '#ff4f00');
             for (const p of selected.some(n => isVirtual(n.id) || n.type === 'text') ? [] : handles(box)) {
@@ -51,6 +56,7 @@ export class Renderer {
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
         }
+        this.app.active?.draw?.(c, v.zoom);
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';
             const r = this.app.marquee;
