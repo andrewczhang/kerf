@@ -1,10 +1,16 @@
 import { componentName, toHTML, toReact } from '../../shared/codegen';
 import { parseJSX, type CodeError } from '../../shared/jsxparse';
 import { bounds, world } from '../../shared/geometry';
-import { children } from '../../shared/doc';
+import { children, type Doc } from '../../shared/doc';
+import { expand, isVirtual } from '../../shared/components';
 import { codeRoot, codeScopeIds, commitCode, CodeDiffError, diffCode } from '../codesync';
 import { download } from '../export';
 import type { Store } from '../store';
+
+export function codePanelScope(doc: Doc, selection: Iterable<string>) {
+    const resolved = expand(doc), rootId = codeRoot(resolved, selection), ids = codeScopeIds(resolved, rootId);
+    return { doc: resolved, rootId, ids, readOnly: [...ids].some(id => isVirtual(id) || !!resolved.get(id)?.instanceOf) };
+}
 
 function highlight(target: HTMLElement, code: string) {
     target.replaceChildren();
@@ -48,26 +54,30 @@ export function codepanel(el: HTMLElement, store: Store) {
             if (line === error?.line) row.className = 'error-line';
             gutter.append(row);
         }
-        errorLabel.textContent = error ? `Line ${error.line}, col ${error.col}: ${error.error}` : '';
+        errorLabel.textContent = error ? `Line ${error.line}, col ${error.col}: ${error.error}` : input.readOnly ? 'Instance code is read-only. Edit the main component or use the inspector for overrides.' : '';
         input.setAttribute('aria-invalid', String(!!error));
     };
     const scroll = () => { pre.scrollTop = input.scrollTop; pre.scrollLeft = input.scrollLeft; gutter.style.transform = `translateY(${-input.scrollTop}px)`; };
     const showPreview = () => {
         if (preview.hidden) return;
-        iframe.srcdoc = toHTML(store.doc, rootId);
-        const root = rootId ? store.doc.get(rootId) : undefined;
-        const r = root ? { x: 0, y: 0, w: root.w, h: root.h } : bounds(children(store.doc, null).map(n => world(store.doc, n)));
+        const doc = expand(store.doc);
+        iframe.srcdoc = toHTML(doc, rootId);
+        const root = rootId ? doc.get(rootId) : undefined;
+        const r = root ? { x: 0, y: 0, w: root.w, h: root.h } : bounds(children(doc, null).map(n => world(doc, n)));
         const w = Math.max(1, r.x + r.w), h = Math.max(1, r.y + r.h);
         const scale = Math.min((preview.clientWidth - 32) / w, (preview.clientHeight - 32) / h, 1);
         iframe.style.width = w + 'px'; iframe.style.height = h + 'px';
         iframe.style.transform = `scale(${Math.max(.01, scale)})`;
     };
     const regenerate = () => {
-        if (!active || applying || dirty && document.activeElement === input) return;
-        rootId = codeRoot(store.doc, store.selection);
+        if (!active || applying) return;
+        const scope = codePanelScope(store.doc, store.selection);
+        if (dirty && document.activeElement === input && scope.rootId === rootId && scope.readOnly === input.readOnly) return;
+        rootId = scope.rootId;
+        input.readOnly = scope.readOnly;
         const start = input.selectionStart, end = input.selectionEnd, top = input.scrollTop, left = input.scrollLeft;
-        input.value = toReact(store.doc, rootId);
-        baselineIds = codeScopeIds(store.doc, rootId);
+        input.value = toReact(scope.doc, rootId);
+        baselineIds = scope.ids;
         input.setSelectionRange(start, end);
         input.scrollTop = top; input.scrollLeft = left;
         dirty = false; error = null;
@@ -76,6 +86,8 @@ export function codepanel(el: HTMLElement, store: Store) {
     const apply = () => {
         clearTimeout(timer);
         if (!dirty) return;
+        const scope = codePanelScope(store.doc, store.selection);
+        if (input.readOnly || scope.readOnly || scope.rootId !== rootId) { dirty = false; regenerate(); return; }
         const tree = parseJSX(input.value);
         if ('error' in tree) { error = tree; paint(); return; }
         try {
@@ -91,6 +103,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         }
     };
     const edited = () => {
+        if (input.readOnly) { dirty = false; regenerate(); return; }
         dirty = true; error = null; paint(); scroll();
         clearTimeout(timer); timer = window.setTimeout(apply, 250);
     };
@@ -98,6 +111,7 @@ export function codepanel(el: HTMLElement, store: Store) {
     input.onscroll = scroll;
     input.onblur = () => { apply(); if (!error) regenerate(); };
     input.onkeydown = event => {
+        if (input.readOnly) return;
         if (event.key === 'Tab') { event.preventDefault(); input.setRangeText('  ', input.selectionStart, input.selectionEnd, 'end'); edited(); }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !dirty) {
             event.preventDefault(); store.history(event.shiftKey);
@@ -108,7 +122,7 @@ export function codepanel(el: HTMLElement, store: Store) {
         void navigator.clipboard.writeText(input.value).catch(() => { errorLabel.textContent = 'Clipboard unavailable'; });
     };
     button('jsx').onclick = () => download(new Blob([input.value], { type: 'text/jsx' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.jsx');
-    button('html').onclick = () => download(new Blob([toHTML(store.doc, rootId)], { type: 'text/html' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
+    button('html').onclick = () => download(new Blob([toHTML(expand(store.doc), rootId)], { type: 'text/html' }), componentName(rootId ? store.doc.get(rootId)?.name ?? 'Canvas' : 'Canvas') + '.html');
     button('preview').onclick = () => {
         preview.hidden = !preview.hidden;
         button('preview').setAttribute('aria-pressed', String(!preview.hidden));
