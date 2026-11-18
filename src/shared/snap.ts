@@ -65,7 +65,8 @@ export function resizeSnap(r: Rect, targets: Rect[], threshold: number, edges: E
     let w = Math.max(1, r.w + (edges.x === 0 ? -s.dx : edges.x === 1 ? s.dx : 0) * factor);
     let h = Math.max(1, r.h + (edges.y === 0 ? -s.dy : edges.y === 1 ? s.dy : 0) * factor);
     if (constraints.aspect) {
-        const scale = Math.abs(w / r.w - 1) >= Math.abs(h / r.h - 1) ? w / r.w : h / r.h;
+        const desired = Math.abs(w / r.w - 1) >= Math.abs(h / r.h - 1) ? w / r.w : h / r.h;
+        const scale = Math.max(desired, 1 / r.w, 1 / r.h);
         w = r.w * scale; h = r.h * scale;
     }
     const rect = { x: r.x + (constraints.center ? (r.w - w) / 2 : edges.x === 0 ? r.w - w : 0), y: r.y + (constraints.center ? (r.h - h) / 2 : edges.y === 0 ? r.h - h : 0), w, h };

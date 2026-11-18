@@ -29,6 +29,15 @@ it('preserves centered and proportional resize constraints', () => {
     expect(s.rect).toEqual({ x: -2, y: -1, w: 26, h: 26 });
     expect(s.guides).toHaveLength(1);
 });
+it('keeps both proportional dimensions valid at the minimum size', () => {
+    for (const center of [false, true]) {
+        const wide = { x: 0, y: 0, w: 100, h: 1 };
+        const s = resizeSnap(wide, [], 6, { x: 1 }, false, [{ axis: 'x', position: 96 }], { aspect: true, center });
+        expect(s.rect).toEqual(wide); expect(s.guides).toEqual([]);
+        const tall = { x: 0, y: 0, w: 1, h: 100 };
+        expect(resizeSnap(tall, [], 6, { y: 1 }, false, [{ axis: 'y', position: 96 }], { aspect: true, center }).rect).toEqual(tall);
+    }
+});
 it('handles negative coordinates and disabled axes', () => {
     expect(snapRect({ ...r, x: -5 }, [], -1, true).dx).toBe(-3);
     expect(resizeSnap(r, [{ ...r, y: 4 }], 6, { x: 1 }).rect.y).toBe(2);
