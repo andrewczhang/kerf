@@ -10,6 +10,7 @@ import { Shape } from './tools/shape';
 import { TextEditor, TextTool } from './tools/text';
 import { isTextNode } from '../shared/doc';
 import { hit } from './geometry';
+import { clearTextLayouts, measureTextNode } from './text-layout';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
@@ -20,7 +21,13 @@ if (location.pathname === '/')
 const file = location.pathname.split('/')[2] || 'untitled';
 document.querySelector('#app')!.innerHTML = '<header></header><main><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
-const canvas = document.querySelector('canvas')!, store = new Store();
+const canvas = document.querySelector('canvas')!, store = new Store(measureTextNode);
+const fontsChanged = () => {
+    clearTextLayouts();
+    if ([...store.doc.values()].some(isTextNode)) store.relayout();
+};
+void document.fonts.ready.then(fontsChanged);
+document.fonts.addEventListener('loadingdone', fontsChanged);
 let renderer: Renderer;
 let textEditor: TextEditor;
 const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });

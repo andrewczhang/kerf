@@ -6,6 +6,7 @@ export function sizingControl(label: HTMLElement, input: HTMLInputElement, key: 
     const parentAuto = (n: Node) => isAutoLayout(store.doc.get(n.parent ?? ''));
     if (key === 'x' || key === 'y') input.disabled = nodes.some(parentAuto);
     if (key !== 'w' && key !== 'h') return;
+    if (key === 'h' && nodes.some(n => n.type === 'text')) { input.disabled = true; return; }
     const size = key === 'w' ? 'sizeW' : 'sizeH';
     input.disabled = nodes.some(n => (n[size] ?? 'fixed') !== 'fixed');
     const select = document.createElement('select');

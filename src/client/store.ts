@@ -1,10 +1,12 @@
 import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
-import { applyLayout } from '../shared/layout';
+import { applyLayout, type MeasureText } from '../shared/layout';
 type Change = {
     before: Op;
     after: Op;
 };
 export class Store extends EventTarget {
+    constructor(public measureText?: MeasureText) { super(); }
+    relayout() { applyLayout(this.doc, this.measureText); this.changed(); }
     doc: Doc = new Map();
     selection = new Set<string>();
     pending = new Map<number, Op[]>();
@@ -45,7 +47,7 @@ export class Store extends EventTarget {
         }
         applyOp(this.doc, op);
     } const geometry = record ? [...this.doc.values()].map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
-    applyLayout(this.doc);
+    applyLayout(this.doc, this.measureText);
     for (const before of geometry) {
         const after = this.doc.get(before.id)!;
         for (const key of ['x', 'y', 'w', 'h'] as const)
@@ -67,10 +69,10 @@ export class Store extends EventTarget {
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)
         if (op.t !== 'set' || !keys.has(op.id + ':' + op.key))
-            applyOp(this.doc, op); applyLayout(this.doc); this.changed(); }
+            applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
     init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, n])); for (const ops of this.pending.values())
         for (const op of ops)
-            applyOp(this.doc, op); applyLayout(this.doc); this.changed(); }
+            applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
     history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = [], accepted: Change[] = []; const shadow = new Map(this.doc); for (const c of source) {
         const expected = redo ? c.before : c.after, next = redo ? c.after : c.before;

@@ -1,4 +1,4 @@
-import { between, children, descendants, makeNode, type Doc, type Node, type Op } from '../shared/doc';
+import { between, children, descendants, isTextNode, makeNode, type Doc, type Node, type Op } from '../shared/doc';
 import { bounds, contains, intersects, world, type Point } from '../shared/geometry';
 import type { Store } from './store';
 
@@ -82,6 +82,8 @@ export function addAutoLayout(store: Store, frame: Node): void {
 }
 
 export function wrapInAutoLayout(store: Store, nodes: Node[]): Node | undefined {
+    const sizeOf = (n: Node) => isTextNode(n) && store.measureText ? store.measureText(n) : n;
+    const measuredWorld = (n: Node) => world(store.doc, n, sizeOf);
     const selected = new Set(nodes.map(n => n.id));
     const items = nodes.filter(n => {
         let p = n.parent;
@@ -92,11 +94,11 @@ export function wrapInAutoLayout(store: Store, nodes: Node[]): Node | undefined 
     let parent = items[0].parent;
     const ancestors = (n: Node) => { const ids = new Set<string | null>([null]); let p = n.parent; while (p) { ids.add(p); p = store.doc.get(p)?.parent ?? null; } return ids; };
     for (const n of items) { const ids = ancestors(n); while (parent && !ids.has(parent)) parent = store.doc.get(parent)?.parent ?? null; }
-    const box = bounds(items.map(n => world(store.doc, n)));
-    const origin = parent ? world(store.doc, store.doc.get(parent)!) : { x: 0, y: 0 };
+    const box = bounds(items.map(measuredWorld));
+    const origin = parent ? measuredWorld(store.doc.get(parent)!) : { x: 0, y: 0 };
     const first = [...items].sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id))[0];
     const frame = { ...makeNode('frame', box.x - origin.x, box.y - origin.y, first.index), parent, w: Math.max(1, box.w), h: Math.max(1, box.h) };
-    const copies = items.map(n => { const r = world(store.doc, n); return { ...n, parent: frame.id, x: r.x - box.x, y: r.y - box.y }; });
+    const copies = items.map(n => { const r = measuredWorld(n); return { ...n, w: r.w, h: r.h, parent: frame.id, x: r.x - box.x, y: r.y - box.y }; });
     const ops: Op[] = [{ t: 'create', node: frame }];
     for (const n of copies) for (const key of ['parent', 'x', 'y'] as const) ops.push({ t: 'set', id: n.id, key, value: n[key] });
     ops.push(...layoutOps(frame, copies));
