@@ -4,6 +4,13 @@ import { font, measureTextNode } from './text-layout';
 import { contoursAbs, trace } from '../shared/path';
 
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: { zoom: number; labels: boolean; skip?: string }) {
+    if (n.hidden)
+        return;
+    if (n.type === 'group') {
+        for (const child of children(doc, n.id))
+            drawNode(c, doc, child, opts);
+        return;
+    }
     if (opts.skip === n.id)
         return;
     const r = world(doc, n);

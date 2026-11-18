@@ -14,6 +14,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
 import { downloadSelection } from './export';
@@ -21,7 +22,7 @@ import { applyBoolean, booleanOps } from './boolean';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
-document.querySelector('#app')!.innerHTML = '<header></header><main><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
+document.querySelector('#app')!.innerHTML = '<header></header><main><aside class="layers"></aside><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside class="inspector"></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
 const canvas = document.querySelector('canvas')!, store = new Store();
 let renderer: Renderer;
@@ -54,7 +55,8 @@ registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
 choose('select');
-inspector(document.querySelector('aside')!, store);
+inspector(document.querySelector('.inspector')!, store);
+layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, viewport);
 features(renderer, sync, ctx, choose);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -107,7 +109,7 @@ else {
     viewport.changed();
 } }, { passive: false });
 window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
-    return; if (active.onKey?.(e))
+    return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
