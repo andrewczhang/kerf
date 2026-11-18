@@ -32,13 +32,12 @@ export class Room {
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
             const msg = JSON.parse(String(event.data)) as ClientMsg;
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= 1000) {
-                const before = JSON.stringify([...this.doc.values()]);
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
                 await this.state.storage.put('nodes', [...this.doc.values()]);
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
-                if (before !== JSON.stringify([...this.doc.values()])) await this.features.changed(peer.name);
+                if (msg.ops.length) await this.features.changed(peer.name);
             }
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
                 peer.cursor = msg.cursor;

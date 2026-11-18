@@ -19,7 +19,7 @@ select { width: 100%; margin-top: 10px; border: 1px solid #d6d4ce; background: t
 .comment-pop small { color: #77766f; }
 .comment-pop textarea, .feature-panel input { box-sizing: border-box; width: 100%; margin: 12px 0; padding: 9px; background: white; border: 1px solid #d6d4ce; font: inherit; resize: vertical; }
 .comment-actions { display: flex; gap: 8px; margin-top: 12px; }
-.present-overlay { position: fixed; inset: 0; background: #292a28; z-index: 30; display: flex; flex-direction: column; }
-.present-overlay canvas { flex: 1; min-height: 0; width: 100%; }
-.present-footer { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; color: #fbfbf9; border-top: 1px solid #50514d; }
+.present-overlay { position: fixed; inset: 0; background: #3b3c39; z-index: 30; display: flex; flex-direction: column; }
+.present-overlay canvas { flex: 1 1 0; height: 0; min-height: 0; width: 100%; }
+.present-footer { flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; color: #fbfbf9; border-top: 1px solid #50514d; }
 .present-footer button { color: inherit; background: none; border: 1px solid #77766f; padding: 7px 14px; }
