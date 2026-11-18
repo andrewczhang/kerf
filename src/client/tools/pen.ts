@@ -1,5 +1,6 @@
 import { between, children, makeNode, type Node } from '../../shared/doc';
-import { hit, world, type Point } from '../../shared/geometry';
+import type { Point } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import { MAX_POINTS, corner, fit, nearest, reverse, smooth, snap45, split, toAbs, trace, type PathPoint } from '../../shared/path';
 import type { Context, Tool } from './tool';
 

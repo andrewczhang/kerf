@@ -7,7 +7,9 @@ import { Renderer } from './renderer';
 import { Select } from './tools/select';
 import { Shape } from './tools/shape';
 import { Pen } from './tools/pen';
-import { hit } from '../shared/geometry';
+import { TextEditor, TextTool } from './tools/text';
+import { isTextNode } from '../shared/doc';
+import { hit } from './geometry';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
@@ -20,10 +22,12 @@ document.querySelector('#app')!.innerHTML = '<header></header><main><div class="
 document.querySelector('#file-id')!.textContent = 'File / ' + file;
 const canvas = document.querySelector('canvas')!, store = new Store();
 let renderer: Renderer;
-const viewport = new Viewport(() => { renderer?.invalidate(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
+let textEditor: TextEditor;
+const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
 const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
+textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
 sync.addEventListener('change', renderer.invalidate);
@@ -37,10 +41,11 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
+function choose(id: string) { textEditor.close(); active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
+registry.set('text', new TextTool(ctx, (node, creating) => { choose('select'); textEditor.open(node, creating); }));
 registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
@@ -48,6 +53,18 @@ choose('select');
 inspector(document.querySelector('aside')!, store);
 people(document.querySelector('#people')!, sync, viewport);
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+canvas.ondblclick = e => {
+    if (active.id !== 'select') return;
+    const node = hit(store.doc, viewport.world(local(e)), 4 / viewport.zoom);
+    if (isTextNode(node))
+        textEditor.open(node);
+    else if (node?.type === 'path') {
+        store.selection.clear();
+        store.selection.add(node.id);
+        choose('pen');
+        store.changed();
+    }
+};
 function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.x = pan.vx + p.x - pan.x;
     viewport.y = pan.vy + p.y - pan.y;
@@ -74,18 +91,15 @@ canvas.onpointerup = e => { if (pointer) {
     pointer = undefined;
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
-canvas.ondblclick = e => { if (active.id !== 'select')
-    return; const n = hit(store.doc, viewport.world(local(e)), null, 4 / viewport.zoom); if (n?.type !== 'path')
-    return; store.selection.clear(); store.selection.add(n.id); choose('pen'); store.changed(); };
 canvas.onpointerleave = () => presence.update(null);
-canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top }; if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
+canvas.parentElement!.addEventListener('wheel', e => { e.preventDefault(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
 else {
     viewport.x -= e.deltaX;
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
     return; if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
@@ -100,12 +114,19 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     e.preventDefault();
     store.history(e.shiftKey);
     return;
+} if (e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
+    const node = store.doc.get([...store.selection][0]);
+    if (isTextNode(node)) {
+        e.preventDefault();
+        textEditor.open(node);
+        return;
+    }
 } if (e.key === 'Escape') {
     store.selection.clear();
     store.changed();
     choose('select');
 } if (e.key === 'Enter' && active.id === 'select' && store.selection.size === 1 && store.doc.get([...store.selection][0])?.type === 'path')
-    choose('pen'); const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', h: 'hand', p: 'pen' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
+    choose('pen'); const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', t: 'text', h: 'hand', p: 'pen' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
     choose(keys[e.key.toLowerCase()]); });
 window.addEventListener('keyup', e => { if (e.code === 'Space') {
     space = false;

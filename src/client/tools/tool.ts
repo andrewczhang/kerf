@@ -13,6 +13,7 @@ export interface Context {
     };
     hover?: string;
     active?: Tool;
+    editingText?: string;
 }
 export interface Tool {
     id: string;
