@@ -2,7 +2,7 @@ import { children, isTextNode, type Doc, type Node } from '../shared/doc';
 import { bounds } from '../shared/geometry';
 import { world } from './geometry';
 import { drawNode } from './draw';
-import { fontFamilies, measureTextNode } from './text-layout';
+import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -20,7 +20,12 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
-        const r = world(doc, n), pad = n.type !== 'text' && n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        const r = world(doc, n);
+        if (isTextNode(n)) {
+            const ink = textPaintBounds(n);
+            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+        }
+        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);

@@ -54,6 +54,8 @@ it('exports wrapped text as aligned, escaped SVG text runs', () => {
     expect(svg).toContain('text-anchor="end"');
     expect(svg).toContain('<tspan x="50" y="38">&lt;&amp;</tspan><tspan x="50" y="62">long</tspan>');
     expect(svg).not.toContain('<rect');
+    const narrow = { ...node, w: 1, text: 'W' };
+    expect(exportBounds(docOf(narrow), [narrow])).toEqual({ x: 1, y: 20, w: 10, h: 24 });
 });
 
 it('handles empty and stale selections deterministically', async () => {

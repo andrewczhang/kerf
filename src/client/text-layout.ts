@@ -47,10 +47,11 @@ export function layoutText(node: TextNode, measure: (text: string) => number) {
 
 const layouts = new WeakMap<TextNode, ReturnType<typeof layoutText> & { baseline: number; offset: number }>();
 let meter: CanvasRenderingContext2D | undefined;
+const getMeter = () => meter ??= document.createElement('canvas').getContext('2d')!;
 export function measureTextNode(node: TextNode) {
     let layout = layouts.get(node);
     if (!layout) {
-        const c = meter ??= document.createElement('canvas').getContext('2d')!;
+        const c = getMeter();
         c.font = font(node);
         const box = layoutText(node, line => c.measureText(line).width);
         const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } = c.measureText('');
@@ -60,4 +61,21 @@ export function measureTextNode(node: TextNode) {
         layouts.set(node, layout);
     }
     return layout;
+}
+
+export function textPaintBounds(node: TextNode) {
+    const { lines, leading, baseline, offset, w, h } = measureTextNode(node);
+    const c = getMeter();
+    c.font = font(node);
+    c.textAlign = node.textAlign;
+    let x = 0, y = 0, right = w, bottom = h;
+    lines.forEach((line, i) => {
+        const metrics = c.measureText(line), lineY = baseline + i * leading;
+        const advanceLeft = node.textAlign === 'right' ? metrics.width : node.textAlign === 'center' ? metrics.width / 2 : 0;
+        x = Math.min(x, offset - (metrics.actualBoundingBoxLeft ?? advanceLeft));
+        right = Math.max(right, offset + (metrics.actualBoundingBoxRight ?? metrics.width - advanceLeft));
+        y = Math.min(y, lineY - (metrics.actualBoundingBoxAscent ?? 0));
+        bottom = Math.max(bottom, lineY + (metrics.actualBoundingBoxDescent ?? 0));
+    });
+    return { x, y, w: right - x, h: bottom - y };
 }
