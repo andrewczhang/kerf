@@ -68,11 +68,29 @@ function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: Path
 }
 
 type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void };
+export function clipMask(c: CanvasRenderingContext2D, doc: Doc, n: Node, applied?: Mat) {
+    const r = { x: 0, y: 0, w: n.w, h: n.h }, m = worldMatrix(doc, n), relative = applied ? multiply(inverse(applied), m) : m;
+    c.save();
+    if (relative.some((v, i) => Math.abs(v - [1, 0, 0, 1, 0, 0][i]) > 1e-10)) c.transform(...relative);
+    c.beginPath();
+    if (n.type === 'path') trace(c, toAbs(n.points ?? [], r), true);
+    else if (n.type === 'ellipse') c.ellipse(r.w / 2, r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
+    else c.roundRect(0, 0, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2));
+    c.restore(); c.clip();
+}
+export function drawChildren(c: CanvasRenderingContext2D, doc: Doc, parent: string | null, opts: DrawOptions, applied?: Mat) {
+    let clipped = false;
+    for (const n of children(doc, parent)) {
+        if (n.hidden) continue;
+        if (n.mask) { if (clipped) c.restore(); c.save(); clipMask(c, doc, n, applied); clipped = true; }
+        else drawNode(c, doc, n, opts, applied);
+    }
+    if (clipped) c.restore();
+}
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied?: Mat) {
-    if (blocked(doc, n, false) || opts.skip === n.id) return;
+    if (blocked(doc, n, false) || n.mask || opts.skip === n.id) return;
     if (n.type === 'group') {
-        for (const child of children(doc, n.id))
-            drawNode(c, doc, child, opts, applied);
+        drawChildren(c, doc, n.id, opts, applied);
         return;
     }
     const r = world(doc, n), m = worldMatrix(doc, n), matrix: Mat = [m[0], m[1], m[2], m[3], m[4] - m[0] * r.x - m[2] * r.y, m[5] - m[1] * r.x - m[3] * r.y];
@@ -113,8 +131,7 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
     if (n.type === 'frame') {
         c.save();
         c.clip();
-        for (const child of children(doc, n.id))
-            drawNode(c, doc, child, opts, matrix);
+        drawChildren(c, doc, n.id, opts, matrix);
         c.restore();
     }
     if (n.type === 'frame' && opts.labels) {
@@ -207,6 +224,6 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
         else paintStroke(target, n, r, points, shape, n.stroke);
     }
     for (const e of effects) if (e.type === 'inner-shadow') { if (text && mask) { clipShape(c => { const hole = e.spread ? textMask(target, text, r, -e.spread) : mask, inverse = snapshot(hole.canvas), b = inverse.getContext('2d')!; b.globalCompositeOperation = 'source-out'; b.fillStyle = '#000'; b.fillRect(0, 0, inverse.width, inverse.height); const shift = hole.w + hole.h + e.blur * scale * 4; c.setTransform(1, 0, 0, 1, 0, 0); c.shadowColor = rgba(e.color, e.opacity); c.shadowBlur = e.blur * scale; shadowOffset(c, e.x, e.y, shift); c.drawImage(inverse, -shift + hole.x, hole.y, hole.w, hole.h); }); continue; } target.save(); target.clip(shape); const ring = new Path2D(); const margin = Math.max(r.w, r.h) + e.blur * 4 + Math.abs(e.spread) + Math.abs(e.x) + Math.abs(e.y), shift = (target.canvas.width + target.canvas.height) / scale + margin * 4; ring.rect(r.x - margin, r.y - margin, r.w + margin * 2, r.h + margin * 2); ring.addPath(path(-e.spread)); target.fillStyle = '#000'; target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; shadowOffset(target, shift + e.x, e.y); target.translate(-shift, 0); target.fill(ring, 'evenodd'); target.restore(); }
-    if (n.type === 'frame') { target.clip(shape); for (const child of children(doc, n.id)) drawNode(target, doc, child, opts, applied); }
+    if (n.type === 'frame') { target.clip(shape); drawChildren(target, doc, n.id, opts, applied); }
     target.restore(); if (n.type === 'frame' && opts.labels) { target.fillStyle = '#77766f'; target.font = `${11 / opts.zoom}px system-ui`; target.fillText(n.name, r.x, r.y - 8 / opts.zoom); }
 }

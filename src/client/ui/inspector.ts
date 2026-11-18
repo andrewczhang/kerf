@@ -1,7 +1,7 @@
 import type { Store } from '../store';
 import type { Sync } from '../sync';
 import { styleControl, styleLibrary } from './styles';
-import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
+import { arrowheads, isOpenPath, isTextNode, maskEligible, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
@@ -54,7 +54,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             return;
         }
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Use as mask</span><kbd>Ctrl/⌘ Alt M</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
             styleLibrary(content, store, sync);
             return;
         }
@@ -71,6 +71,13 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
         content.append(head);
         alignSection(content, store);
         const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
+        if (nodes.every(maskEligible)) {
+            const section = document.createElement('section');
+            section.innerHTML = '<div class="section-label">Mask</div><label class="path-closed"><input type="checkbox" aria-label="Use as mask"> Use as mask</label>';
+            const box = section.querySelector('input')!; box.checked = nodes.every(n => n.mask); box.indeterminate = nodes.some(n => !!n.mask !== !!nodes[0].mask);
+            box.onchange = () => { store.begin(); for (const n of nodes) store.set(n.id, { mask: box.checked }); store.end(); box.blur(); };
+            content.append(section);
+        }
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
             fontWeight: [[400, 'Regular'], [700, 'Bold']],
