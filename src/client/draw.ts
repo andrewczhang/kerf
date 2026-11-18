@@ -1,4 +1,4 @@
-import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
+import { children, nodeFills, isTextNode, type Doc, type Effect, type Node } from '../shared/doc';
 import { world } from './geometry';
 import { font, measureTextNode, textPaintBounds } from './text-layout';
 import { paintStyle, rgba } from './paint';
@@ -117,6 +117,36 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
 }
 
 const snapshot = (source: HTMLCanvasElement) => { const copy = document.createElement('canvas'); copy.width = source.width; copy.height = source.height; copy.getContext('2d')!.drawImage(source, 0, 0); return copy; };
+function drawStrokeShadow(target: CanvasRenderingContext2D, caster: Node, r: Rect, points: PathPoint[], shape: Path2D, effect: Extract<Effect, { spread: number }>, scale: number) {
+    const bounds = strokeBounds(caster, r, points), { e, f } = target.getTransform();
+    const dx = effect.x * scale, dy = effect.y * scale, blur = effect.blur * scale, pad = blur * 4 + 2;
+    const x = Math.floor(Math.max(bounds.x * scale + e - 1, -dx - pad));
+    const y = Math.floor(Math.max(bounds.y * scale + f - 1, -dy - pad));
+    const w = Math.ceil(Math.min((bounds.x + bounds.w) * scale + e + 1, target.canvas.width - dx + pad)) - x;
+    const h = Math.ceil(Math.min((bounds.y + bounds.h) * scale + f + 1, target.canvas.height - dy + pad)) - y;
+    if (w <= 0 || h <= 0) return;
+
+    // Rasterize the stroke separately so its alignment clip doesn't clip the offset shadow.
+    const resolution = Math.min(1, 4096 / Math.max(w, h)), buffer = document.createElement('canvas');
+    buffer.width = Math.max(1, Math.floor(w * resolution));
+    buffer.height = Math.max(1, Math.floor(h * resolution));
+    const c = buffer.getContext('2d');
+    if (!c) return;
+    const sx = buffer.width / w, sy = buffer.height / h;
+    c.setTransform(scale * sx, 0, 0, scale * sy, (e - x) * sx, (f - y) * sy);
+    paintStroke(c, caster, r, points, shape, '#000');
+
+    const sourceX = -w - 2;
+    target.save();
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.shadowColor = rgba(effect.color, effect.opacity);
+    target.shadowBlur = blur;
+    target.shadowOffsetX = x + dx - sourceX;
+    target.shadowOffsetY = dy;
+    target.drawImage(buffer, sourceX, y, w, h);
+    target.restore();
+}
+
 function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, layered = false, backdrop?: HTMLCanvasElement) {
     const r = world(doc, n), effects = (n.effects ?? []).filter(e => e.visible && (n.type !== 'path' || n.closed || e.type !== 'background-blur' && e.type !== 'inner-shadow')), scale = opts.scale ?? opts.zoom, layer = effects.filter(e => e.type === 'layer-blur');
     if (layer.length && !layered) { const underneath = snapshot(target.canvas), buffer = snapshot(target.canvas), b = buffer.getContext('2d')!; b.clearRect(0, 0, buffer.width, buffer.height); b.setTransform(target.getTransform()); drawPaintedNode(b, doc, n, opts, true, underneath); target.save(); target.setTransform(1, 0, 0, 1, 0, 0); target.filter = layer.map(e => `blur(${e.type === 'layer-blur' ? e.radius * scale : 0}px)`).join(' '); target.drawImage(buffer, 0, 0); target.restore(); return; }
@@ -132,6 +162,10 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
         const align = strokeStyle(n).align, width = n.strokeWidth + e.spread * (align === 'center' ? 2 : 1);
         if (!text && !hasFill && width <= 0) continue;
         const caster = { ...n, strokeWidth: width };
+        if (!text && !hasFill && (align !== 'center' || pathArrows(caster, points).length)) {
+            drawStrokeShadow(target, caster, r, points, shape, e, scale);
+            continue;
+        }
         const ink = !text && !hasFill ? strokeBounds(caster, r, points) : r;
         const shift = (target.canvas.width + target.canvas.height) / scale + ink.w + ink.h + Math.abs(e.spread) * 2 + e.blur * 4;
         target.save();
@@ -148,21 +182,7 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
             target.drawImage(glyphs.canvas, -shift * scale + glyphs.x, glyphs.y, glyphs.w, glyphs.h);
         }
         else if (hasFill) target.fill(path(e.spread), fillRule);
-        else if (align === 'center' && !pathArrows(caster, points).length)
-            paintStroke(target, caster, r, points, shape, '#000');
-        else {
-            // Rasterize the stroke before applying its shadow so the clip doesn't also clip the offset shadow.
-            const x = Math.floor(ink.x * scale) - 1, y = Math.floor(ink.y * scale) - 1;
-            const buffer = document.createElement('canvas');
-            buffer.width = Math.ceil((ink.x + ink.w) * scale) - x + 1;
-            buffer.height = Math.ceil((ink.y + ink.h) * scale) - y + 1;
-            const c = buffer.getContext('2d');
-            if (c) {
-                c.setTransform(scale, 0, 0, scale, -x, -y);
-                paintStroke(c, caster, r, points, shape, '#000');
-                target.drawImage(buffer, x / scale, y / scale, buffer.width / scale, buffer.height / scale);
-            }
-        }
+        else paintStroke(target, caster, r, points, shape, '#000');
         target.restore();
     }
     for (const e of effects) if (e.type === 'background-blur') { const copy = backdrop ?? snapshot(target.canvas); clipShape(c => { c.setTransform(1, 0, 0, 1, 0, 0); c.filter = `blur(${e.radius * scale}px)`; c.drawImage(copy, 0, 0); }); }

@@ -34,7 +34,7 @@ it.each(['inside', 'outside', 'arrow'] as const)('casts a stroke-only %s shadow 
         setLineDash: vi.fn(), stroke: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), drawImage: vi.fn(), globalAlpha: 1
     });
     const caster = context(), buffer = { width: 0, height: 0, getContext: () => caster };
-    const target = { ...context(), canvas: { width: 500, height: 500 } };
+    const target = { ...context(), canvas: { width: 500, height: 500 }, getTransform: () => ({ e: 0, f: 0 }) };
     vi.stubGlobal('document', { createElement: () => buffer });
     drawNode(target as unknown as CanvasRenderingContext2D, new Map([[n.id, n]]), n, { zoom: 2, labels: false, file: 'test' });
     expect(caster.stroke).toHaveBeenCalledOnce();
@@ -48,4 +48,29 @@ it.each(['inside', 'outside', 'arrow'] as const)('casts a stroke-only %s shadow 
         expect(caster.clip).toHaveBeenCalledWith(expect.any(Path2D), 'evenodd');
         expect(caster).toMatchObject({ lineWidth: 16 });
     }
+});
+
+it('clips stroke shadow rasters to the translated viewport, caps their size and skips offscreen shadows', () => {
+    const n: Node = {
+        ...makeNode('rect', 0, 0), w: 1000, h: 1000, fills: [], stroke: '#000000', strokeAlign: 'inside',
+        effects: [{ type: 'drop-shadow', x: 10, y: 20, blur: 0, spread: 0, color: '#000000', opacity: 1, visible: true }]
+    };
+    vi.stubGlobal('Path2D', class { roundRect() {} });
+    const c = { save: vi.fn(), restore: vi.fn(), setTransform: vi.fn(), clip: vi.fn(), stroke: vi.fn(), globalAlpha: 1 };
+    const buffer = { width: 0, height: 0, getContext: () => c };
+    const createElement = vi.fn(() => buffer);
+    vi.stubGlobal('document', { createElement });
+    const transform = { e: -5000, f: -4000 };
+    const target = { ...c, canvas: { width: 5000, height: 1000 }, getTransform: () => transform, drawImage: vi.fn() };
+    const draw = () => drawNode(target as unknown as CanvasRenderingContext2D, new Map([[n.id, n]]), n, { zoom: 16, labels: false });
+    draw();
+    expect(createElement).toHaveBeenCalledOnce();
+    expect(buffer.width).toBe(4096);
+    expect(buffer.height).toBeLessThanOrEqual(1004);
+    expect(target.drawImage).toHaveBeenCalledWith(buffer, -5006, -322, 5004, 1004);
+    expect(target).toMatchObject({ shadowOffsetX: 5004, shadowOffsetY: 320 });
+    transform.e = -25000;
+    draw();
+    expect(createElement).toHaveBeenCalledOnce();
+    expect(target.drawImage).toHaveBeenCalledOnce();
 });
