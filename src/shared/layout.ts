@@ -3,6 +3,8 @@ import { children, type Doc, type Node } from './doc';
 function auto(n: Node): boolean { return n.type === 'frame' && (n.layout === 'horizontal' || n.layout === 'vertical'); }
 
 export function applyLayout(doc: Doc): void {
+    const original = doc;
+    doc = new Map([...original].map(([id, n]) => [id, { ...n }]));
     const lists = new Map<string | null, Node[]>();
     for (const n of doc.values()) {
         if (!lists.has(n.parent)) lists.set(n.parent, children(doc, n.parent));
@@ -57,4 +59,9 @@ export function applyLayout(doc: Doc): void {
     }
     for (const n of children(doc, null)) place(n);
     for (const n of doc.values()) place(n);
+    for (const [id, n] of doc) {
+        const before = original.get(id)!;
+        if (n.x !== before.x || n.y !== before.y || n.w !== before.w || n.h !== before.h)
+            original.set(id, n);
+    }
 }

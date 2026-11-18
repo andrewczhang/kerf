@@ -14,8 +14,8 @@ function fixture(layout: Node['layout'] = 'horizontal') {
 it.each(['horizontal', 'vertical'] as const)('lays out %s in index order with gap and padding', direction => {
     const { doc, p, a, b } = fixture(direction);
     applyLayout(doc);
-    expect([a.x, a.y, b.x, b.y]).toEqual(direction === 'horizontal' ? [10, 30, 40, 30] : [10, 30, 10, 60]);
-    expect([p.x, p.y]).toEqual([99, 99]);
+    expect([doc.get(a.id)!.x, doc.get(a.id)!.y, doc.get(b.id)!.x, doc.get(b.id)!.y]).toEqual(direction === 'horizontal' ? [10, 30, 40, 30] : [10, 30, 10, 60]);
+    expect([doc.get(p.id)!.x, doc.get(p.id)!.y]).toEqual([99, 99]);
 });
 
 it.each(['horizontal', 'vertical'] as const)('supports every justify and align in %s', direction => {
@@ -28,18 +28,18 @@ it.each(['horizontal', 'vertical'] as const)('supports every justify and align i
             const spare = horizontal ? 100 : 60;
             const start = horizontal ? 10 : 30;
             const offset = justify === 'center' ? spare / 2 : justify === 'end' ? spare : 0;
-            expect(a[horizontal ? 'x' : 'y']).toBe(start + offset);
-            expect(b[horizontal ? 'x' : 'y']).toBe(start + offset + 30 + (justify === 'between' ? spare : 0));
-            expect(a[horizontal ? 'y' : 'x']).toBe((horizontal ? 30 : 10) + (align === 'center' ? (horizontal ? 110 : 150) / 2 : align === 'end' ? (horizontal ? 110 : 150) : 0));
+            expect(doc.get(a.id)![horizontal ? 'x' : 'y']).toBe(start + offset);
+            expect(doc.get(b.id)![horizontal ? 'x' : 'y']).toBe(start + offset + 30 + (justify === 'between' ? spare : 0));
+            expect(doc.get(a.id)![horizontal ? 'y' : 'x']).toBe((horizontal ? 30 : 10) + (align === 'center' ? (horizontal ? 110 : 150) / 2 : align === 'end' ? (horizontal ? 110 : 150) : 0));
         }
     }
 });
 
 it('uses start for a single between child and preserves empty hug frames', () => {
     const { doc, p, a, b } = fixture();
-    doc.delete(b.id); p.justify = 'between'; applyLayout(doc); expect(a.x).toBe(10);
+    doc.delete(b.id); p.justify = 'between'; applyLayout(doc); expect(doc.get(a.id)!.x).toBe(10);
     doc.delete(a.id); p.sizeW = 'hug'; p.sizeH = 'hug'; applyLayout(doc);
-    expect([p.w, p.h]).toEqual([200, 200]);
+    expect([doc.get(p.id)!.w, doc.get(p.id)!.h]).toEqual([200, 200]);
     applyLayout(new Map());
 });
 
@@ -47,20 +47,20 @@ it.each(['horizontal', 'vertical'] as const)('hugs both axes in %s and treats fi
     const { doc, p, a } = fixture(direction);
     p.sizeW = 'hug'; p.sizeH = 'hug'; a.sizeW = 'fill'; a.sizeH = 'fill';
     applyLayout(doc);
-    expect([p.w, p.h]).toEqual(direction === 'horizontal' ? [100, 110] : [70, 140]);
-    expect([a.w, a.h]).toEqual([20, 20]);
+    expect([doc.get(p.id)!.w, doc.get(p.id)!.h]).toEqual(direction === 'horizontal' ? [100, 110] : [70, 140]);
+    expect([doc.get(a.id)!.w, doc.get(a.id)!.h]).toEqual([20, 20]);
 });
 
 it.each(['horizontal', 'vertical'] as const)('splits main fill and stretches cross fill in %s with minimum sizes', direction => {
     const { doc, p, a, b } = fixture(direction);
     a.sizeW = b.sizeW = a.sizeH = b.sizeH = 'fill'; applyLayout(doc);
-    expect([a.w, a.h, b.w, b.h]).toEqual(direction === 'horizontal' ? [80, 130, 80, 130] : [170, 60, 170, 60]);
+    expect([doc.get(a.id)!.w, doc.get(a.id)!.h, doc.get(b.id)!.w, doc.get(b.id)!.h]).toEqual(direction === 'horizontal' ? [80, 130, 80, 130] : [170, 60, 170, 60]);
     p.w = p.h = 1; applyLayout(doc);
-    expect([a.w, a.h, b.w, b.h]).toEqual([1, 1, 1, 1]);
+    expect([doc.get(a.id)!.w, doc.get(a.id)!.h, doc.get(b.id)!.w, doc.get(b.id)!.h]).toEqual([1, 1, 1, 1]);
 });
 
 it('subtracts fixed children before distributing fill', () => {
-    const { doc, a } = fixture(); a.sizeW = 'fill'; applyLayout(doc); expect(a.w).toBe(120);
+    const { doc, a } = fixture(); a.sizeW = 'fill'; applyLayout(doc); expect(doc.get(a.id)!.w).toBe(120);
 });
 
 it('computes nested hug before fill and then sizes grandchildren from the filled frame', () => {
@@ -68,15 +68,15 @@ it('computes nested hug before fill and then sizes grandchildren from the filled
     a.type = 'frame'; a.layout = 'vertical'; a.sizeW = 'fill'; a.sizeH = 'hug'; a.padTop = 5; a.padBottom = 5;
     const c = { ...makeNode('rect', 90, 90), parent: a.id, w: 10, h: 25, sizeW: 'fill' as const };
     doc.set(c.id, c); applyLayout(doc);
-    expect([a.w, a.h, c.w, c.h, c.x, c.y, b.x]).toEqual([120, 35, 120, 25, 0, 5, 140]);
+    expect([doc.get(a.id)!.w, doc.get(a.id)!.h, doc.get(c.id)!.w, doc.get(c.id)!.h, doc.get(c.id)!.x, doc.get(c.id)!.y, doc.get(b.id)!.x]).toEqual([120, 35, 120, 25, 0, 5, 140]);
     const snapshot = JSON.stringify([...doc]); applyLayout(doc); expect(JSON.stringify([...doc])).toBe(snapshot);
-    expect(p.w).toBe(200);
+    expect(doc.get(p.id)!.w).toBe(200);
 });
 
 it('ignores hug on non-auto frames and fill outside auto parents', () => {
     const { doc, p, a } = fixture('none'); p.sizeW = 'hug'; a.sizeW = a.sizeH = 'fill';
-    applyLayout(doc); expect([p.w, a.x, a.y, a.w, a.h]).toEqual([200, 80, 80, 20, 20]);
-    p.type = 'rect'; p.layout = 'horizontal'; applyLayout(doc); expect(a.x).toBe(80);
+    applyLayout(doc); expect([doc.get(p.id)!.w, doc.get(a.id)!.x, doc.get(a.id)!.y, doc.get(a.id)!.w, doc.get(a.id)!.h]).toEqual([200, 80, 80, 20, 20]);
+    p.type = 'rect'; p.layout = 'horizontal'; applyLayout(doc); expect(doc.get(a.id)!.x).toBe(80);
 });
 
 it('accepts all new keys, rejects invalid values on create/set, and permits resetting defaults', () => {
