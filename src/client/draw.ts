@@ -127,7 +127,44 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
     const text = isTextNode(n) ? n : undefined, mask = text && effects.some(e => e.type === 'background-blur' || e.type === 'inner-shadow') ? textMask(target, text, r) : undefined;
     const clipShape = (draw: (c: CanvasRenderingContext2D) => void) => { if (mask) maskedText(target, mask, draw); else { target.save(); target.clip(shape); draw(target); target.restore(); } };
     const hasFill = (n.type !== 'path' || !!n.closed) && nodeFills(n).some(p => p.visible && p.opacity > 0 && (p.type !== 'linear' && p.type !== 'radial' || p.stops.some(s => s.opacity > 0))), hasStroke = !!n.stroke && n.strokeWidth > 0;
-    for (const e of effects) if (e.type === 'drop-shadow' && (hasFill || hasStroke)) { target.save(); const shift = (target.canvas.width + target.canvas.height) / scale + r.w + r.h + Math.abs(e.spread) * 2 + e.blur * 4; target.translate(-shift, 0); target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; target.shadowOffsetX = (shift + e.x) * scale; target.shadowOffsetY = e.y * scale; target.fillStyle = '#000'; if (text) { target.translate(shift, 0); const glyphs = textMask(target, text, r, e.spread, !hasFill); target.shadowOffsetX = (shift + e.x) * scale; target.setTransform(1, 0, 0, 1, 0, 0); target.drawImage(glyphs.canvas, -shift * scale + glyphs.x, glyphs.y, glyphs.w, glyphs.h); } else if (hasFill) target.fill(path(e.spread), fillRule); else { const width = n.strokeWidth + e.spread * 2; if (width > 0) { target.lineCap = n.type === 'path' ? 'round' : 'butt'; target.lineJoin = n.type === 'path' ? 'round' : 'miter'; target.strokeStyle = '#000'; target.lineWidth = width; target.stroke(shape); } } target.restore(); }
+    for (const e of effects) {
+        if (e.type !== 'drop-shadow' || !hasFill && !hasStroke) continue;
+        const align = strokeStyle(n).align, width = n.strokeWidth + e.spread * (align === 'center' ? 2 : 1);
+        if (!text && !hasFill && width <= 0) continue;
+        const caster = { ...n, strokeWidth: width };
+        const ink = !text && !hasFill ? strokeBounds(caster, r, points) : r;
+        const shift = (target.canvas.width + target.canvas.height) / scale + ink.w + ink.h + Math.abs(e.spread) * 2 + e.blur * 4;
+        target.save();
+        target.translate(-shift, 0);
+        target.shadowColor = rgba(e.color, e.opacity);
+        target.shadowBlur = e.blur * scale;
+        target.shadowOffsetX = (shift + e.x) * scale;
+        target.shadowOffsetY = e.y * scale;
+        target.fillStyle = '#000';
+        if (text) {
+            target.translate(shift, 0);
+            const glyphs = textMask(target, text, r, e.spread, !hasFill);
+            target.setTransform(1, 0, 0, 1, 0, 0);
+            target.drawImage(glyphs.canvas, -shift * scale + glyphs.x, glyphs.y, glyphs.w, glyphs.h);
+        }
+        else if (hasFill) target.fill(path(e.spread), fillRule);
+        else if (align === 'center' && !pathArrows(caster, points).length)
+            paintStroke(target, caster, r, points, shape, '#000');
+        else {
+            // Rasterize the stroke before applying its shadow so the clip doesn't also clip the offset shadow.
+            const x = Math.floor(ink.x * scale) - 1, y = Math.floor(ink.y * scale) - 1;
+            const buffer = document.createElement('canvas');
+            buffer.width = Math.ceil((ink.x + ink.w) * scale) - x + 1;
+            buffer.height = Math.ceil((ink.y + ink.h) * scale) - y + 1;
+            const c = buffer.getContext('2d');
+            if (c) {
+                c.setTransform(scale, 0, 0, scale, -x, -y);
+                paintStroke(c, caster, r, points, shape, '#000');
+                target.drawImage(buffer, x / scale, y / scale, buffer.width / scale, buffer.height / scale);
+            }
+        }
+        target.restore();
+    }
     for (const e of effects) if (e.type === 'background-blur') { const copy = backdrop ?? snapshot(target.canvas); clipShape(c => { c.setTransform(1, 0, 0, 1, 0, 0); c.filter = `blur(${e.radius * scale}px)`; c.drawImage(copy, 0, 0); }); }
     for (const paint of nodeFills(n)) if (paint.visible && (n.type !== 'path' || n.closed)) {
         target.save(); target.globalAlpha *= paint.opacity;

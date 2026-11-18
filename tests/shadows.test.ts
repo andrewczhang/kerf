@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeNode, type Node, type Paint } from '../src/shared/doc';
 import { drawNode } from '../src/client/draw';
+import { corner } from '../src/shared/path';
 afterEach(() => vi.unstubAllGlobals());
 it('skips empty/hidden/transparent shadow casters and strokes stroke-only casters', () => {
     vi.stubGlobal('Path2D', class { roundRect() {} });
@@ -18,4 +19,33 @@ it.each([-1, -2])('does not cast a collapsed stroke-only shadow with spread %s',
     drawNode(c as unknown as CanvasRenderingContext2D, new Map([[n.id, n]]), n, { zoom: 1, labels: false, file: 'test' });
     expect(c.stroke).toHaveBeenCalledTimes(1);
     expect(c.fill).not.toHaveBeenCalled();
+});
+
+it.each(['inside', 'outside', 'arrow'] as const)('casts a stroke-only %s shadow from the painted silhouette', mode => {
+    const n: Node = {
+        ...makeNode(mode === 'arrow' ? 'path' : 'rect', 0, 0),
+        ...(mode === 'arrow' ? { points: [corner(0, 0), corner(1, 0)], strokeEnd: 'circle' } : { strokeAlign: mode }),
+        fills: [], stroke: '#000000', strokeWidth: 8, strokeDash: 6, strokeGap: 4,
+        effects: [{ type: 'drop-shadow', x: 10, y: 14, blur: 2, spread: 0, color: '#000000', opacity: 1, visible: true }]
+    };
+    vi.stubGlobal('Path2D', class { moveTo() {} bezierCurveTo() {} roundRect() {} rect() {} addPath() {} });
+    const context = () => ({
+        save: vi.fn(), restore: vi.fn(), translate: vi.fn(), setTransform: vi.fn(), clip: vi.fn(),
+        setLineDash: vi.fn(), stroke: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), drawImage: vi.fn(), globalAlpha: 1
+    });
+    const caster = context(), buffer = { width: 0, height: 0, getContext: () => caster };
+    const target = { ...context(), canvas: { width: 500, height: 500 } };
+    vi.stubGlobal('document', { createElement: () => buffer });
+    drawNode(target as unknown as CanvasRenderingContext2D, new Map([[n.id, n]]), n, { zoom: 2, labels: false, file: 'test' });
+    expect(caster.stroke).toHaveBeenCalledOnce();
+    expect(caster.setLineDash).toHaveBeenCalledWith([6, 4]);
+    expect(target.drawImage.mock.calls[0]?.[0]).toBe(buffer);
+    if (mode === 'arrow') {
+        expect(caster.arc).toHaveBeenCalledOnce();
+        expect(caster.fill).toHaveBeenCalledOnce();
+    }
+    else {
+        expect(caster.clip).toHaveBeenCalledWith(expect.any(Path2D), 'evenodd');
+        expect(caster).toMatchObject({ lineWidth: 16 });
+    }
 });
