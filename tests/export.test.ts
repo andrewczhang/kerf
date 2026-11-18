@@ -71,11 +71,11 @@ it('drops selected descendants and missing ids, preserving tree paint order', ()
     expect(exportRoots(doc, [b.id, grandchild.id])).toEqual([grandchild, b]);
 });
 
-it('includes centered stroke overflow and rounds bounds outward in world coordinates', () => {
+it('includes centered stroke overflow and keeps the fractional origin with whole-pixel size', () => {
     const frame = makeNode('frame', 100, -20);
     const child = { ...makeNode('rect', .25, .75), parent: frame.id, w: 10, h: 20, stroke: '#000000', strokeWidth: 3 };
     const other = { ...makeNode('ellipse', 120.5, -10), w: 2, h: 3, strokeWidth: 50 };
-    expect(exportBounds(docOf(frame, child, other), [child, other])).toEqual({ x: 98, y: -21, w: 25, h: 24 });
+    expect(exportBounds(docOf(frame, child, other), [child, other])).toEqual({ x: 98.75, y: -20.75, w: 24, h: 23 });
 });
 
 it('includes the spread-expanded arrowhead shadow in PNG export bounds', () => {
@@ -83,7 +83,7 @@ it('includes the spread-expanded arrowhead shadow in PNG export bounds', () => {
         ...makeNode('path', 0, 0), h: 1, points: [corner(0, 0), corner(1, 0)], strokeWidth: 8, strokeEnd: 'circle',
         effects: [{ type: 'drop-shadow', x: 0, y: 5, blur: 0, spread: 12, color: '#000000', opacity: 1, visible: true }]
     };
-    expect(exportBounds(docOf(node), [node])).toEqual({ x: -16, y: -40, w: 132, h: 90 });
+    expect(exportBounds(docOf(node), [node])).toEqual({ x: -16, y: -39.8, w: 132, h: 90 });
 });
 
 it('exports rounded frames, world-space ellipses, clips and cumulative primitive alpha', () => {
@@ -196,7 +196,7 @@ it('renders a solid stroke in SVG and PNG when only the gap is positive', async 
 it('draws open path arrowheads along endpoint tangents and includes their ink in export bounds', () => {
     const line: Node = { ...makeNode('path', 0, 0), h: 1, strokeAlign: 'outside', strokeStart: 'bar', strokeEnd: 'triangle', strokeWidth: 5, strokeCap: 'butt', strokeJoin: 'bevel', points: [{ ...corner(0, 0), ox: .5 }, { ...corner(1, 0), ix: 1, iy: -10 }] };
     const svg = exportSVG(docOf(line), [line.id]);
-    expect(svg).toContain('viewBox="-3 -18 111 29"');
+    expect(svg).toContain('viewBox="-2.5 -17.5 111 28"');
     expect(svg).toContain('stroke-width="5" stroke-linecap="butt" stroke-linejoin="bevel"');
     expect(svg).toContain('<polyline points="0,8 0,-8"');
     expect(svg).toContain('<polygon points="108,-17.5 100,0 92,-17.5"');
@@ -234,4 +234,10 @@ it('keeps advanced strokes when the node has an explicit fill stack', async () =
     const svg = exportSVG(doc, [node.id]);
     expect(svg).toContain('stroke-width="8"');
     expect(svg).toContain('stroke-dasharray="8 5" clip-path="url(#paint-0)"');
+});
+
+it('frames at a half-pixel origin export at their own size', () => {
+    const frame = { ...makeNode('frame', 88.5, -55), w: 390, h: 844 };
+    expect(exportBounds(docOf(frame), [frame])).toEqual({ x: 88.5, y: -55, w: 390, h: 844 });
+    expect(exportSVG(docOf(frame), [frame.id])).toContain('viewBox="88.5 -55 390 844" width="390" height="844"');
 });

@@ -1,7 +1,9 @@
-import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
-import { bounds, handles, intersects, inverse, matrixAngle, parentMatrix, transform, type Point, type Rect } from '../../shared/geometry';
+import { between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
+import { bounds, handles, intersects, inverse, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
 import { aabb, hit, nodeHandles, sizeOf, world, worldMatrix } from '../geometry';
+import type { Store } from '../store';
+import { copyAsset } from '../assets';
+import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import type { Context, Tool } from './tool';
 import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
@@ -10,6 +12,21 @@ import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
+type Clipboard = { roots: string[]; nodes: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
+const currentFile = () => typeof location === 'undefined' ? '' : location.pathname.split('/')[2] || 'untitled';
+let memoryClipboard: Clipboard | null = null, copyPending = false;
+export const layerCopyPending = () => { const pending = copyPending; copyPending = false; return pending; };
+function writeClipboard(clip: Omit<Clipboard, 'pastes'> & { pastes?: number }) {
+    memoryClipboard = { pastes: 0, ...clip };
+    try { localStorage.setItem('kerf:clipboard', JSON.stringify(memoryClipboard)); } catch { }
+}
+function readClipboard(): Clipboard | null {
+    try {
+        const stored = JSON.parse(localStorage.getItem('kerf:clipboard') ?? 'null') as Clipboard | null;
+        if (stored && Array.isArray(stored.nodes) && Array.isArray(stored.roots)) return { ...stored, pastes: Number(stored.pastes) || 0 };
+    } catch { }
+    return memoryClipboard;
+}
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -234,7 +251,7 @@ export class Select implements Tool {
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx, start = this.start; try { if (this.ctx.marquee) {
         const resolved = expand(store.doc);
-        for (const n of resolved.values())
+        if (this.moved) for (const n of resolved.values())
             if (!isVirtual(n.id) && !blocked(resolved, n) && intersects(aabb(resolved, n), this.ctx.marquee))
                 store.selection.add(outerGroup(resolved, n).id);
         this.ctx.marquee = undefined;
@@ -308,6 +325,17 @@ export class Select implements Tool {
             store.set(n.id, { x: round(n.x + b.x - a.x), y: round(n.y + b.y - a.y) }); }
         if (nodes.length) store.commit(normalizeGroups(store.doc, sizeOf));
         store.end();
+    } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c' && nodes.length) {
+        copyPending = true;
+        const roots = nodes.filter(n => !nodes.some(o => o !== n && descendants(store.doc, o.id).includes(n)));
+        const copied = new Map<string, Node>();
+        for (const n of roots)
+            for (const c of [n, ...descendants(store.doc, n.id)])
+                copied.set(c.id, { ...c });
+        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
+        return true;
+    } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v') {
+        return hasLayerClipboard();
     } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         const copies = new Map<string, Node>();
@@ -336,4 +364,44 @@ export class Select implements Tool {
             store.selection.add(copies.get(n.id)!.id);
         store.changed();
     } }
+}
+
+export const hasLayerClipboard = () => !!readClipboard()?.nodes.length;
+export async function pasteLayers(store: Store, file = currentFile()) {
+    const clip = readClipboard();
+    if (!clip?.nodes.length) return;
+    clip.pastes++;
+    writeClipboard(clip);
+    if (clip.file && clip.file !== file) {
+        const hashes = new Set(clip.nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
+        await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
+    }
+    const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
+    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.doc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
+    const created: Node[] = [];
+    for (const n of clip.nodes) {
+        const copy: Node = { ...n, id: ids.get(n.id)! };
+        if (clip.roots.includes(n.id)) {
+            const parent = target(n.id);
+            copy.parent = parent?.id ?? null;
+            const m = clip.matrices?.[n.id];
+            if (parent || !m) {
+                copy.x = n.x + 20 * clip.pastes;
+                copy.y = n.y + 20 * clip.pastes;
+            } else {
+                const local: Mat = [m[0], m[1], m[2], m[3], m[4] + 20 * clip.pastes, m[5] + 20 * clip.pastes];
+                const { w, h } = n.type === 'group' ? { w: 0, h: 0 } : sizeOf(n), c = local[0], sn = local[1];
+                if (n.type !== 'group') copy.rotation = matrixAngle(local);
+                copy.x = local[4] - w / 2 + c * w / 2 - sn * h / 2;
+                copy.y = local[5] - h / 2 + sn * w / 2 + c * h / 2;
+            }
+            copy.index = between([...children(store.doc, copy.parent), ...created.filter(c => c.parent === copy.parent)].map(c => c.index).sort().at(-1) ?? null);
+        }
+        else copy.parent = ids.get(n.parent ?? '') ?? null;
+        created.push(copy);
+    }
+    store.commit(created.map(node => ({ t: 'create', node })));
+    store.selection.clear();
+    for (const id of clip.roots) store.selection.add(ids.get(id)!);
+    store.changed();
 }

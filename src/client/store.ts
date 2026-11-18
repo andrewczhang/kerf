@@ -2,6 +2,7 @@ import { applyOp, descendants, isTextNode, normalizeNode, normalizeRotation, lay
 import { applyLayout, type MeasureText } from '../shared/layout';
 import { detachOps, expand, resizeFollowOps, isVirtual, splitVirtual } from '../shared/components';
 import { MAX_OPS } from '../shared/protocol';
+import { docIndex, indexDoc } from '../shared/doc-index';
 function pendingKey(op: Op): string | undefined { return op.t === 'set' ? op.id + ':' + op.key : op.t === 'override' ? op.id + ':o:' + op.target + ':' + op.key : undefined; }
 function sameValue(a: unknown, b: unknown): boolean {
     if (a === b) return true;
@@ -16,7 +17,19 @@ type Change = {
 export class Store extends EventTarget {
     constructor(public measureText?: MeasureText) { super(); }
     relayout() { applyLayout(this.doc, this.measureText); this.changed(); }
-    doc: Doc = new Map();
+    readOnly = false;
+    private document = indexDoc();
+    get doc(): Doc { return this.document; }
+    get treeRevision() { return docIndex(this.document)!.treeRevision; }
+    set doc(doc: Doc) { this.document = indexDoc(doc); }
+    private needsLayout(ops: Op[]) {
+        return ops.some(op => {
+            if (op.t !== 'set') return true;
+            if (op.key !== 'x' && op.key !== 'y') return !['name', 'hidden', 'locked', 'link', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'grids', 'constraintH', 'constraintV', 'strokeAlign', 'strokeCap', 'strokeJoin', 'strokeStart', 'strokeEnd', 'strokeDash', 'strokeGap', 'strokeMiterLimit'].includes(op.key);
+            const n = this.doc.get(op.id), parent = n?.parent ? this.doc.get(n.parent) : undefined;
+            return parent?.type === 'frame' && (parent.layout === 'horizontal' || parent.layout === 'vertical');
+        });
+    }
     selection = new Set<string>();
     pending = new Map<number, Op[]>();
     seq = 0;
@@ -46,6 +59,7 @@ export class Store extends EventTarget {
         this.redoStack = [];
     } this.group = null; }
     commit(ops: Op[], record = true) {
+        if (this.readOnly) return [];
         ops = ops.map(op => op.t === 'set' && op.key === 'rotation' && typeof op.value === 'number' && Number.isFinite(op.value) ? { ...op, value: this.doc.get(op.id)?.type === 'group' ? 0 : normalizeRotation(op.value) } : op);
         ops = ops.map(op => {
             if (op.t !== 'set' || !isVirtual(op.id) && !(this.doc.get(op.id)?.instanceOf && ['fills', 'effects', 'grids', ...Object.keys(layoutDefaults)].includes(op.key))) return op;
@@ -73,6 +87,7 @@ export class Store extends EventTarget {
                 return [...geometry, op];
             });
         }
+        const layout = this.needsLayout(ops);
         const changes: Change[] = [], queue = [...ops], sent: Op[] = [];
     const final = ops.some(op => op.t === 'delete') ? new Map(this.doc) : undefined;
     if (final) for (const op of ops) applyOp(final, op);
@@ -117,8 +132,8 @@ export class Store extends EventTarget {
             for (const child of removed.reverse())
                 changes.push({ before: { t: 'create', node: { ...child } }, after: { t: 'delete', id: child.id } });
         }
-    } const geometry = record ? [...this.doc.values()].map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
-    applyLayout(this.doc, this.measureText);
+    } const geometry = record && layout ? [...this.doc.values()].map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
+    if (layout) applyLayout(this.doc, this.measureText);
     for (const before of geometry) {
         const after = this.doc.get(before.id)!;
         for (const key of ['x', 'y', 'w', 'h'] as const)
@@ -142,6 +157,7 @@ export class Store extends EventTarget {
         if (baseText !== value && isTextNode(this.doc.get(id))) this.commit([{ t: 'set', id, key: 'text', value, baseText }]);
     }
     remote(ops: Op[]) {
+        const layout = this.needsLayout(ops);
         const pending = [...this.pending.values()].flat();
         const keys = new Set(pending.map(pendingKey).filter(Boolean));
         for (const op of ops) {
@@ -155,13 +171,13 @@ export class Store extends EventTarget {
         const resolved = expand(this.doc);
         for (const id of this.selection)
             if (!resolved.has(id)) this.selection.delete(id);
-        applyLayout(this.doc, this.measureText);
+        if (layout) applyLayout(this.doc, this.measureText);
         this.changed();
     }
     init(nodes: import('../shared/doc').Node[], replayPending = true) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of replayPending ? this.pending.values() : [])
         for (const op of ops)
             applyOp(this.doc, op); for (const id of this.selection) if (!this.doc.has(id)) this.selection.delete(id); applyLayout(this.doc, this.measureText); this.changed(); }
-    history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
+    history(redo = false) { if (this.readOnly) return; const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = []; const shadow = new Map(this.doc);
         const created = new Set(group.flatMap(c => c.after.t === 'create' ? [c.after.node.id] : []));
         for (const c of source) {

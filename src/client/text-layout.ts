@@ -46,11 +46,15 @@ export function layoutText(node: TextNode, measure: (text: string) => number) {
 }
 
 let layouts = new WeakMap<TextNode, ReturnType<typeof layoutText> & { baseline: number; offset: number }>();
-export function clearTextLayouts() { layouts = new WeakMap(); }
+let recent = new Map<string, { node: TextNode; layout: ReturnType<typeof measureTextNode> }>();
+export function clearTextLayouts() { layouts = new WeakMap(); recent.clear(); }
 let meter: CanvasRenderingContext2D | undefined;
 const getMeter = () => meter ??= document.createElement('canvas').getContext('2d')!;
-export function measureTextNode(node: TextNode) {
+export function measureTextNode(node: TextNode): ReturnType<typeof layoutText> & { baseline: number; offset: number } {
     let layout = layouts.get(node);
+    const cached = recent.get(node.id);
+    const keys = ['text', 'fontSize', 'fontFamily', 'fontWeight', 'textAlign', 'textWidth'] as const;
+    if (!layout && cached && keys.every(key => cached.node[key] === node[key]) && (node.textWidth === 'auto' || cached.node.w === node.w)) layout = cached.layout;
     if (!layout) {
         const c = getMeter();
         c.font = font(node);
@@ -59,13 +63,19 @@ export function measureTextNode(node: TextNode) {
         const baseline = Number.isFinite(ascent + descent) ? (box.leading + ascent - descent) / 2 : node.fontSize;
         const offset = node.textAlign === 'center' ? box.w / 2 : node.textAlign === 'right' ? box.w : 0;
         layout = { ...box, baseline, offset };
-        layouts.set(node, layout);
     }
+    layouts.set(node, layout);
+    recent.delete(node.id);
+    recent.set(node.id, { node, layout });
+    if (recent.size > 4096) recent.delete(recent.keys().next().value!);
     return layout;
 }
 
+const inkBounds = new WeakMap<ReturnType<typeof measureTextNode>, { x: number; y: number; w: number; h: number }>();
 export function textPaintBounds(node: TextNode) {
-    const { lines, leading, baseline, offset, w, h } = measureTextNode(node);
+    const layout = measureTextNode(node), cached = inkBounds.get(layout);
+    if (cached) return cached;
+    const { lines, leading, baseline, offset, w, h } = layout;
     const c = getMeter();
     c.font = font(node);
     c.textAlign = node.textAlign;
@@ -78,5 +88,7 @@ export function textPaintBounds(node: TextNode) {
         y = Math.min(y, lineY - (metrics.actualBoundingBoxAscent ?? 0));
         bottom = Math.max(bottom, lineY + (metrics.actualBoundingBoxDescent ?? 0));
     });
-    return { x, y, w: right - x, h: bottom - y };
+    const result = { x, y, w: right - x, h: bottom - y };
+    inkBounds.set(layout, result);
+    return result;
 }

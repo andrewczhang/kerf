@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import type { DurableObjectState, Request as WorkerRequest } from '@cloudflare/workers-types';
+import type { DurableObjectState, DurableObjectNamespace, Request as WorkerRequest } from '@cloudflare/workers-types';
 import { Room } from '../worker/room';
 import { makeNode } from '../src/shared/doc';
 import type { ClientMsg, ServerMsg } from '../src/shared/protocol';
@@ -20,14 +20,18 @@ it('persists large text, answers heartbeats, and deduplicates retries across con
         blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; },
         storage: {
             async get(key: string) { return data.get(key); },
+            async list({ prefix }: { prefix: string }) { return new Map([...data].filter(([key]) => key.startsWith(prefix))); },
+            async transaction(fn: (txn: unknown) => Promise<unknown>) { return fn(this); },
+            async delete(keys: string | string[]) { for (const key of typeof keys === 'string' ? [keys] : keys) data.delete(key); },
             async put(key: string | Record<string, unknown>, value?: unknown) {
                 if (typeof key === 'string') data.set(key, structuredClone(value));
                 else for (const [k, v] of Object.entries(key)) data.set(k, structuredClone(v));
             },
         },
     } as unknown as DurableObjectState;
-    let room = new Room(state); await work;
-    const connect = async () => { await room.fetch(new Request('http://localhost/f/test/ws?clientId=stable', { headers: { Upgrade: 'websocket' } }) as unknown as WorkerRequest); return socket!; };
+    const env = { ROOM: {} as DurableObjectNamespace };
+    let room = new Room(state, env); await work;
+    const connect = async () => { await room.fetch(new Request('http://localhost/f/test/ws?clientId=stable', { headers: { Upgrade: 'websocket', 'x-kerf-role': 'edit' } }) as unknown as WorkerRequest); return socket!; };
     let ws = await connect();
     const send = async (msg: ClientMsg) => { ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(msg) })); await work; };
     await send({ type: 'ping' }); expect(ws.sent.at(-1)).toEqual({ type: 'pong' });
@@ -37,7 +41,7 @@ it('persists large text, answers heartbeats, and deduplicates retries across con
     await send({ type: 'rename', name: '  Layout\n study ' });
     expect(ws.sent.at(-1)).toEqual({ type: 'name', name: 'Layout study' });
     expect(data.get('file-name')).toBe('Layout study');
-    room = new Room(state); await work; ws = await connect();
+    room = new Room(state, env); await work; ws = await connect();
     expect(ws.sent[0]).toMatchObject({ type: 'init', name: 'Layout study', ackSeq: 2, nodes: [{ text: node.text, x: 50 }] });
     await send({ type: 'ops', seq: 1, ops: [{ t: 'set', id: node.id, key: 'x', value: 999 }] });
     expect(room.doc.get(node.id)?.x).toBe(50);
