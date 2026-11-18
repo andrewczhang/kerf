@@ -15,6 +15,8 @@ export class Sync extends EventTarget {
     ready = false;
     lastMessage = Date.now();
     storageError = false;
+    private snapshotTimer?: ReturnType<typeof setTimeout>;
+    private claimed = false;
     constructor(public store: Store, public file: string) {
         super();
         if (navigator.onLine === false) this.status = 'Offline';
@@ -22,33 +24,68 @@ export class Sync extends EventTarget {
             const sessionKey = 'kerf:client:' + file;
             this.clientId = sessionStorage.getItem(sessionKey) ?? this.clientId;
             sessionStorage.setItem(sessionKey, this.clientId);
-            const saved = JSON.parse(localStorage.getItem(this.storageKey) ?? 'null');
-            if (saved) {
-                this.clientId = saved.clientId;
-                store.seq = saved.seq;
-                store.pending = new Map(saved.pending);
-                store.init(saved.nodes);
-            }
         } catch { this.storageError = true; }
         store.send = (ops, seq) => { this.persist(); if (this.ready) this.send({ type: 'ops', ops, seq }); };
-        store.addEventListener('change', () => { this.persist(); if (this.storageError) this.notify(); });
+        store.addEventListener('change', () => {
+            if (!this.snapshotTimer) this.snapshotTimer = setTimeout(() => { this.snapshotTimer = undefined; this.persist(true); }, 250);
+        });
         window.addEventListener('offline', () => this.disconnect());
         window.addEventListener('beforeunload', e => {
-            if (store.pending.size) { this.persist(); e.preventDefault(); (e as BeforeUnloadEvent).returnValue = ''; }
+            this.persist(true);
+            if (store.pending.size) { e.preventDefault(); (e as BeforeUnloadEvent).returnValue = ''; }
         });
+        window.addEventListener('pagehide', () => this.persist(true));
         window.addEventListener('online', () => { this.socket?.close(); });
         setInterval(() => {
             if (navigator.onLine === false || Date.now() - this.lastMessage > 30000) this.disconnect();
             else this.send({ type: 'ping' });
         }, 10000);
-        this.connect();
+        this.claim();
+    }
+    private claim() {
+        const start = (reuse: boolean) => {
+            if (!reuse) this.clientId = crypto.randomUUID();
+            try {
+                sessionStorage.setItem('kerf:client:' + this.file, this.clientId);
+                const saved = JSON.parse(localStorage.getItem(this.storageKey) ?? 'null');
+                if (saved) {
+                    this.store.seq = saved.seq;
+                    this.store.pending = new Map(saved.pending);
+                    this.store.init(JSON.parse(localStorage.getItem(this.storageKey + ':nodes') ?? 'null') ?? saved.nodes ?? []);
+                }
+            } catch { this.storageError = true; }
+            this.claimed = true;
+            this.connect();
+        };
+        if (navigator.locks) {
+            void navigator.locks.request('kerf:tab:' + this.clientId, { ifAvailable: true }, lock => {
+                if (!lock) { this.clientId = crypto.randomUUID(); this.claim(); return; }
+                start(true);
+                return new Promise<void>(() => {});
+            }).catch(() => this.claimWithChannel(start));
+        } else this.claimWithChannel(start);
+    }
+    private claimWithChannel(start: (reuse: boolean) => void) {
+        if (typeof BroadcastChannel === 'undefined') { start(false); return; }
+        const channel = new BroadcastChannel('kerf:tabs:' + this.file), nonce = crypto.randomUUID();
+        let occupied = false;
+        channel.onmessage = ({ data }) => {
+            if (data.clientId !== this.clientId) return;
+            if (data.type === 'probe' && (this.claimed || nonce < data.nonce))
+                channel.postMessage({ type: 'occupied', clientId: this.clientId, nonce: data.nonce });
+            if (data.type === 'occupied' && data.nonce === nonce) occupied = true;
+        };
+        channel.postMessage({ type: 'probe', clientId: this.clientId, nonce });
+        setTimeout(() => start(!occupied), 100);
     }
     get storageKey() { return 'kerf:offline:' + this.file + ':' + this.clientId; }
-    persist() {
+    persist(snapshot = false) {
+        if (!this.claimed) return;
         try {
-            localStorage.setItem(this.storageKey, JSON.stringify({ clientId: this.clientId, seq: this.store.seq, pending: [...this.store.pending], nodes: [...this.store.doc.values()] }));
+            localStorage.setItem(this.storageKey, JSON.stringify({ clientId: this.clientId, seq: this.store.seq, pending: [...this.store.pending] }));
+            if (snapshot) localStorage.setItem(this.storageKey + ':nodes', JSON.stringify([...this.store.doc.values()]));
             this.storageError = false;
-        } catch { this.storageError = true; }
+        } catch { this.storageError = true; this.notify(); }
     }
     disconnect() {
         this.ready = false;

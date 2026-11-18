@@ -3,8 +3,8 @@ import { Sync } from '../src/client/sync';
 import { Store } from '../src/client/store';
 import { Presence } from '../src/client/presence';
 import { Viewport } from '../src/client/viewport';
-import { makeNode } from '../src/shared/doc';
 import type { Peer } from '../src/shared/protocol';
+import { applyOp, makeNode, type Doc } from '../src/shared/doc';
 class Socket {
     static OPEN = 1;
     readyState = 1;
@@ -17,7 +17,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 function setup() {
     vi.useFakeTimers();
     vi.stubGlobal('window', new EventTarget());
-    vi.stubGlobal('navigator', { onLine: true });
+    vi.stubGlobal('navigator', { onLine: true, locks: { request: (_name: string, _options: unknown, callback: (lock: object) => unknown) => Promise.resolve(callback({})) } });
     const data = new Map<string, string>();
     vi.stubGlobal('localStorage', { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value) });
     vi.stubGlobal('sessionStorage', { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value) });
@@ -37,7 +37,7 @@ it('reapplies and retains in-transit local edits after restore until ack', () =>
 });
 it('persists offline edits across refresh and removes acknowledged edits before replay', () => {
     const { store, socket } = setup(), n = makeNode('rect', 0, 0);
-    store.init([n]); socket.readyState = 3; store.set(n.id, { x: 40 });
+    store.init([n]); socket.readyState = 3; store.set(n.id, { x: 40 }); window.dispatchEvent(new Event('pagehide'));
     const refreshed = new Store(), sync = new Sync(refreshed, 'test');
     expect(refreshed.doc.get(n.id)?.x).toBe(40);
     expect(refreshed.pending.size).toBe(1);
@@ -53,6 +53,38 @@ it('replays unacknowledged operations in order after reconnect', () => {
     socket.receive({ type: 'init', nodes: [n], peers: [], comments: [], versions: [], ackSeq: 0 });
     expect(socket.sent.map(s => JSON.parse(s).seq)).toEqual([1, 2]);
     expect(store.doc.get(n.id)).toMatchObject({ x: 40, y: 50 });
+});
+it('gives a duplicated live tab a fresh identity and sequence without claiming the original queue', () => {
+    const { store, sync } = setup();
+    store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);
+    let calls = 0;
+    vi.stubGlobal('navigator', { onLine: true, locks: { request: (_name: string, _options: unknown, callback: (lock: object | null) => unknown) => Promise.resolve(callback(calls++ ? {} : null)) } });
+    const duplicate = new Store(), second = new Sync(duplicate, 'test');
+    expect(second.clientId).not.toBe(sync.clientId); expect(duplicate.seq).toBe(0); expect(duplicate.pending.size).toBe(0);
+    expect(store.pending.size).toBe(1);
+    expect(calls).toBe(2);
+});
+it('shows an offline create locally after refresh and init and replays it to the server', () => {
+    const { store } = setup(), n = makeNode('rect', 20, 30);
+    store.commit([{ t: 'create', node: n }]); window.dispatchEvent(new Event('pagehide'));
+    const refreshed = new Store(), sync = new Sync(refreshed, 'test'), socket = sync.socket as unknown as Socket;
+    socket.receive({ type: 'init', nodes: [], peers: [], comments: [], versions: [], ackSeq: 0 });
+    expect(refreshed.doc.get(n.id)).toEqual(n);
+    const server: Doc = new Map();
+    for (const raw of socket.sent) { const message = JSON.parse(raw); for (const op of message.ops ?? []) applyOp(server, op); }
+    expect(server.get(n.id)).toEqual(n);
+});
+it('throttles snapshot serialization while keeping queue writes and pagehide synchronous', () => {
+    const { store } = setup(); const setItem = vi.spyOn(localStorage, 'setItem');
+    for (let i = 0; i < 50; i++) store.changed();
+    expect(setItem).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(250);
+    expect(setItem.mock.calls.filter(([key]) => key.endsWith(':nodes'))).toHaveLength(1);
+    setItem.mockClear(); store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);
+    expect(setItem.mock.calls.filter(([key]) => !key.endsWith(':nodes'))).toHaveLength(1);
+    expect(setItem.mock.calls.filter(([key]) => key.endsWith(':nodes'))).toHaveLength(0);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(setItem.mock.calls.filter(([key]) => key.endsWith(':nodes'))).toHaveLength(1);
 });
 it('detects stalled and offline sockets', () => {
     const { sync, socket } = setup();

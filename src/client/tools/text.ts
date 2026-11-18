@@ -13,7 +13,7 @@ export class TextEditor {
     }
 
     open(node: TextNode, creating = false) {
-        this.close();
+        if (this.close() === false) return;
         const { store } = this.ctx;
         const input = document.createElement('textarea');
         this.input = input;
@@ -36,7 +36,7 @@ export class TextEditor {
         input.onkeydown = e => {
             if (!e.isComposing && (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey)))) {
                 e.preventDefault();
-                this.canvas.focus();
+                if (input.value.length <= maxTextLength) this.canvas.focus();
             }
         };
         input.onblur = () => this.close();
@@ -59,6 +59,10 @@ export class TextEditor {
     close() {
         if (!this.input)
             return;
+        if (this.input.value.length > maxTextLength) {
+            this.input.focus();
+            return false;
+        }
         this.input.onblur = null;
         this.input.remove();
         this.input = undefined;
@@ -72,6 +76,7 @@ export class TextEditor {
         const input = this.input, { store, viewport, editingText } = this.ctx;
         if (!input || !editingText)
             return;
+        if (input.value.length > maxTextLength) return;
         const node = store.doc.get(editingText);
         if (!isTextNode(node) || !store.selection.has(node.id)) {
             this.close();
