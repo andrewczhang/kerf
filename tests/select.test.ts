@@ -18,14 +18,14 @@ it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty can
 });
 it('keeps overlapping sibling frames as siblings but allows fully contained drops', () => {
     const { store, tool } = setup(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0);
-    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true;
+    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true; tool.start = { x: 120, y: 40 };
     tool.onPointerUp({ x: 125, y: 50 }); expect(store.doc.get(a.id)?.parent).toBe(null);
-    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.onPointerUp({ x: 125, y: 50 });
+    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.start = { x: 120, y: 40 }; tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(b.id);
 });
 it('never reparents into another dragged frame or its descendants', () => {
     const { store, tool } = setup(), a = makeNode('frame', 50, 0), b = { ...makeNode('frame', 0, 0), w: 300, h: 300 }, child = { ...makeNode('frame', 0, 0), parent: b.id, w: 250, h: 250 };
-    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true;
+    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true; tool.start = { x: 120, y: 40 };
     tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(null); expect(store.doc.get(b.id)?.parent).toBe(null);
     expect(store.doc.get(child.id)?.parent).toBe(b.id);
