@@ -12,7 +12,7 @@ import { drawChildren } from './draw';
 import type { Doc } from '../shared/doc';
 import { contoursAbs, toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
-import { pageDocument, pages } from '../shared/pages';
+import { pageDocument, pages, previewDocument } from '../shared/pages';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -30,7 +30,8 @@ export class Renderer {
         this.draw();
     } requestAnimationFrame(() => this.loop()); }
     draw() {
-        const c = this.ctx, { viewport: v } = this.app, store = { doc: this.preview ? pageDocument(this.preview, this.app.store.currentPage) : this.app.store.pageDoc, selection: this.preview ? new Set<string>() : this.app.store.selection }, d = devicePixelRatio || 1;
+        const preview = this.preview ? previewDocument(this.preview, this.app.store.currentPage) : undefined;
+        const c = this.ctx, { viewport: v } = this.app, store = { doc: preview ? pageDocument(preview.doc, preview.page) : this.app.store.pageDoc, selection: this.preview ? new Set<string>() : this.app.store.selection }, d = devicePixelRatio || 1;
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
         drawSnapGrid(c, this.app, this.width, this.height);
@@ -43,7 +44,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         const viewport = { x: -v.x / v.zoom, y: -v.y / v.zoom, w: this.width / v.zoom, h: this.height / v.zoom };
-        drawChildren(c, store.doc, this.app.store.currentPage ?? null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, viewport });
+        drawChildren(c, store.doc, preview?.page ?? this.app.store.currentPage ?? null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, viewport });
         if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, store.doc, v.zoom);
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;

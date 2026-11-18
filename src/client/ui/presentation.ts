@@ -2,10 +2,11 @@ import { children, type Doc, type Node } from '../../shared/doc';
 import { contains, inverse, transform, type Point } from '../../shared/geometry';
 import { hit, worldMatrix } from '../geometry';
 import type { Store } from '../store';
-import { pageDocument, pageOf, pages, topLevelFrames } from '../../shared/pages';
+import { pageDocument, pageOf, previewDocument, topLevelFrames } from '../../shared/pages';
 
 export function presentationSource(store: Store, preview: Doc | null, name: string) {
-    return { fullDoc: preview ?? store.doc, doc: preview ? pages(preview).length ? pageDocument(preview, store.currentPage) : preview : store.pageDoc, selection: preview ? new Set<string>() : store.selection, note: preview ? 'Presenting saved version ' + name : '' };
+    const snapshot = preview && store.pagesEnabled ? previewDocument(preview, store.currentPage) : undefined;
+    return { fullDoc: snapshot?.doc ?? preview ?? store.doc, doc: snapshot ? pageDocument(snapshot.doc, snapshot.page) : preview ?? store.pageDoc, selection: preview ? new Set<string>() : store.selection, note: preview ? 'Presenting saved version ' + name : '' };
 }
 export function activatePresentationFrame(store: Store, id: string) {
     const frame = presentationFrames(store.doc).find(n => n.id === id);

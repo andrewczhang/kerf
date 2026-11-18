@@ -1,4 +1,4 @@
-import { between, children, makeNode, type Doc, type Node, type Op } from './doc';
+import { applyOp, between, children, makeNode, normalizeNode, type Doc, type Node, type Op } from './doc';
 import { moveOps } from './layers';
 import type { SizeOf } from './geometry';
 
@@ -17,6 +17,12 @@ export function migrationOps(doc: Doc): Op[] {
     const first = pages(doc)[0], id = first?.id ?? defaultPage;
     const ops: Op[] = first ? [] : [{ t: 'create', node: { ...makeNode('page', 0, 0), id, name: 'Page 1' } }];
     return [...ops, ...children(doc, null).filter(n => n.type !== 'page').map(n => ({ t: 'set' as const, id: n.id, key: 'parent' as const, value: id }))];
+}
+export function previewDocument(snapshot: Doc, preferred?: string) {
+    const doc: Doc = new Map([...snapshot].map(([id, node]) => [id, normalizeNode(node)]));
+    for (const op of migrationOps(doc)) applyOp(doc, op);
+    const list = pages(doc), page = list.find(n => n.id === preferred)?.id ?? list[0].id;
+    return { doc, page };
 }
 export function addPage(doc: Doc): Node { return { ...makeNode('page', 0, 0, between(pages(doc).at(-1)?.index ?? null)), name: `Page ${pages(doc).length + 1}` }; }
 export function deletePageOps(doc: Doc, id: string): Op[] { return doc.get(id)?.type === 'page' && pages(doc).length > 1 ? [{ t: 'delete', id }] : []; }
