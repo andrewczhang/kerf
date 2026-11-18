@@ -39,4 +39,11 @@ describe('inspectCSS', () => {
     it('does not emit hidden fills or absent optional typography', () => {
         expect(inspectCSS({ ...makeNode('rect', 0, 0), fills: [] })).not.toContain('background');
     });
+    it('only emits fills for node types that paint them', () => {
+        expect(inspectCSS(makeNode('group', 0, 0))).not.toContain('background');
+        const path = makeNode('path', 0, 0);
+        expect(inspectCSS(path)).not.toContain('background');
+        expect(inspectCSS({ ...path, closed: true })).toContain('background: #ff4f00;');
+        expect(inspectCSS({ ...path, fills: [{ type: 'solid', color: '#123456', visible: true, opacity: 1 }] })).not.toContain('background');
+    });
 });
