@@ -3,10 +3,11 @@ import { bounds, inverse, multiply, transformedBounds, type Mat } from '../share
 import { world, worldMatrix } from './geometry';
 import { drawNode } from './draw';
 import { loadAsset } from './assets';
-import { svgPaints } from './svg-paints';
+import { svgPaints, svgStroke } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
+import { arrowBounds, strokeBounds, strokeShadowCaster } from '../shared/stroke';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -28,10 +29,30 @@ export function exportBounds(doc: Doc, roots: Node[]) {
     const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
     roots.forEach(collect);
     const r = bounds(visible.map(n => {
-        const r = isTextNode(n) ? textPaintBounds(n) : { x: 0, y: 0, w: n.w, h: n.h };
-        const pad = n.type !== 'group' && n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
-        let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
-        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        let r = { x: 0, y: 0, w: n.w, h: n.h };
+        if (isTextNode(n)) {
+            const ink = textPaintBounds(n);
+            r = ink;
+        }
+        const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
+        if (n.type !== 'group')
+            r = strokeBounds(n, r, points);
+        let left = 0, top = 0, right = 0, bottom = 0, blur = 0;
+        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) {
+            if (e.type === 'drop-shadow') {
+                const feather = e.blur * 2, size = Math.max(0, e.spread) + feather;
+                left = Math.max(left, size - e.x); top = Math.max(top, size - e.y);
+                right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y);
+                if (e.spread > 0 && n.stroke && n.strokeWidth > 0) {
+                    for (const arrow of arrowBounds(strokeShadowCaster(n, e.spread), points)) {
+                        left = Math.max(left, r.x - arrow.x - e.x + feather);
+                        top = Math.max(top, r.y - arrow.y - e.y + feather);
+                        right = Math.max(right, arrow.x + arrow.w + e.x + feather - r.x - r.w);
+                        bottom = Math.max(bottom, arrow.y + arrow.h + e.y + feather - r.y - r.h);
+                    }
+                }
+            } else if (e.type === 'layer-blur') blur += e.radius * 3;
+        }
         return transformedBounds(worldMatrix(doc, n), { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 });
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
@@ -71,6 +92,11 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     let clip = 0, paint = 0;
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
+    const clipId = () => {
+        let id: string;
+        do { id = `clip-${clip++}`; } while (doc.has(id));
+        return id;
+    };
     const render = (n: Node, alpha: number, applied?: Mat): string => {
         if (n.hidden)
             return '';
@@ -89,20 +115,23 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
-        const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
+        const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
+        const geometry = n.type === 'path' ? `d="${pathData(points, !!n.closed)}"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
-            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, 1, correction)).join('')}</g>`; }
-            const painted = svgPaints(n, r, tag, geometry, opacity, nested, paintId);
+            if (n.type === 'frame') { const id = clipId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, 1, correction)).join('')}</g>`; }
+            const painted = svgPaints(n, r, tag, geometry, opacity, nested, paintId, '', points);
             return transform ? `<g${transform}>${painted}</g>` : painted;
         }
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}"${transform} ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
+        const stroke = svgStroke(n, r, tag, geometry, points, opacity, clipId);
+        const fill = n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${stroke.fillRule}`;
+        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${fill}${stroke.inline}/>${stroke.extra}`;
+        const rotated = transform ? `<g${transform}>${primitive}</g>` : primitive;
         if (n.type !== 'frame')
-            return primitive;
-        let id: string;
-        do { id = `clip-${clip++}`; } while (doc.has(id));
-        return `${primitive}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity, applied)).join('')}</g>`;
+            return rotated;
+        const id = clipId();
+        return `${rotated}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity, applied)).join('')}</g>`;
     };
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${roots.map(n => render(n, 1)).join('')}</svg>`;
 }
