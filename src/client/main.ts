@@ -10,6 +10,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { features } from './ui/features';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
@@ -43,6 +44,7 @@ toolbar(document.querySelector('header')!, choose);
 choose('select');
 inspector(document.querySelector('aside')!, store);
 people(document.querySelector('#people')!, sync, viewport);
+features(renderer, sync, ctx, choose);
 const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.x = pan.vx + p.x - pan.x;
@@ -78,7 +80,7 @@ else {
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea'))
+window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
     return; if (e.code === 'Space') {
     e.preventDefault();
     space = true;

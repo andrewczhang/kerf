@@ -43,5 +43,8 @@ Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting
 - Persist: DO storage, write-through per op (or debounced), loaded on DO start.
 - Drag moves send set ops throttled per frame so others see motion live.
 
+## Prototype, comments and versions
+Prototype links are optional node properties. `draw.ts` shares Canvas2D drawing between editor and presentation. Presentation isolates the current top-level frame, with live navigation and ancestor hotspots. Comments are independent records (`comments` storage), with node-relative pins and no undo entries. `worker/features.ts` owns thread validation and version storage (`versions`, `version:<id>`). Restore broadcasts a minimal shared op diff, saves a safety snapshot first and clears client undo/pending state. History previews use a separate renderer document without mutating the live store. New surfaces retain flat hairline panels and the single orange navigation signal.
+
 ## Visual direction (acz hates stock "AI" look)
 Reference: Swiss / International Typographic Style tool UI — think early Figma crossed with a Dieter Rams instrument panel. Light warm-gray app chrome (#e9e8e4) with pure white canvas? No: canvas #f4f3ef, panels #fbfbf9 separated by 1px hairlines (#d6d4ce), no shadows, no rounded cards, no gradients, no emoji, no pills. Type: "Inter Tight" or system-ui sans at 11-12px for UI, tabular numerals in inspector; one signal color: international orange #ff4f00 for selection/handles. Cursor colors from a saturated palette. Wordmark "Kerf" set in bold sans, lowercase, top-left. Toolbar is a thin top bar of icon glyphs drawn as inline SVG strokes.

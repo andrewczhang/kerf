@@ -1,0 +1,25 @@
+.feature-button { padding: 0 12px; height: 30px; border: 1px solid #d6d4ce; background: transparent; white-space: nowrap; }
+header .feature-button.active { background: #ff4f00; color: #fff; border-color: #ff4f00; }
+[hidden] { display: none !important; }
+header { gap: 10px; }
+header label { white-space: nowrap; font-size: 11px; }
+select { width: 100%; margin-top: 10px; border: 1px solid #d6d4ce; background: transparent; padding: 7px; font: inherit; }
+.feature-panel { position: absolute; right: 240px; top: 56px; bottom: 42px; width: 292px; background: #fbfbf9; border: 1px solid #d6d4ce; z-index: 6; overflow: auto; }
+.feature-panel h2, .comment-pop h2 { font-size: 14px; margin: 0; font-weight: 600; }
+.feature-panel section, .feature-panel > div { padding: 16px; border-bottom: 1px solid #d6d4ce; }
+.feature-panel button { text-align: left; }
+.version-row { display: block; width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid #d6d4ce; background: transparent; }
+.version-row small { display: block; color: #77766f; margin-top: 6px; }
+.version-row.active { border-left: 3px solid #ff4f00; background: #f4f3ef; }
+.preview-banner { position: absolute; top: 58px; left: 18px; z-index: 7; background: #fbfbf9; border: 1px solid #d6d4ce; padding: 12px; display: flex; align-items: center; gap: 16px; }
+.comment-pin { position: absolute; width: 26px; height: 26px; color: white; border: 2px solid #fbfbf9; font-weight: 600; cursor: pointer; z-index: 3; }
+.comment-pop { position: absolute; width: 290px; padding: 16px; background: #fbfbf9; border: 1px solid #d6d4ce; z-index: 8; }
+.comment-pop article { border-bottom: 1px solid #d6d4ce; padding: 12px 0; }
+.comment-pop article p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; line-height: 1.5; }
+.comment-pop small { color: #77766f; }
+.comment-pop textarea, .feature-panel input { box-sizing: border-box; width: 100%; margin: 12px 0; padding: 9px; background: white; border: 1px solid #d6d4ce; font: inherit; resize: vertical; }
+.comment-actions { display: flex; gap: 8px; margin-top: 12px; }
+.present-overlay { position: fixed; inset: 0; background: #292a28; z-index: 30; display: flex; flex-direction: column; }
+.present-overlay canvas { flex: 1; min-height: 0; width: 100%; }
+.present-footer { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; color: #fbfbf9; border-top: 1px solid #50514d; }
+.present-footer button { color: inherit; background: none; border: 1px solid #77766f; padding: 7px 14px; }

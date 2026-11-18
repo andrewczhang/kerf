@@ -26,6 +26,10 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.
+- **C** selects the comment tool; click to pin a thread, Enter posts (Shift+Enter for a newline). Pins follow their attached object. Open a pin to reply, resolve/reopen or delete; Show resolved reveals closed threads. Comments are separate from canvas undo.
+- Set a selected object's **Prototype** target in the inspector. **Show links** reveals all orange connections.
+- **P** or **Present** opens the selected top-level frame (or first frame). Click linked objects to navigate, click empty areas to reveal hotspots. Left/Right moves between frames, Backspace goes back, Esc exits. Presentation updates live.
+- **History** lists shared versions. Save a named milestone, click to preview read-only, then Restore for everyone or Back to current. Restore saves the current document first and clears local undo. Autosaves happen on changed operations at most every ten minutes; the newest 100 autosaves and all named versions are retained.
 
 ## Check
 
