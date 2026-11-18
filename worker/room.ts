@@ -39,22 +39,28 @@ export class Room {
         const pair = new WebSocketPair();
         const [client, ws] = Object.values(pair);
         ws.accept();
+        const clientId = new URL(req.url).searchParams.get('clientId');
+        const receiptKey = clientId ? 'receipt:' + clientId : undefined;
+        let ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
         const peer: Peer = { id: crypto.randomUUID(), name: ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'][this.peers.size % 5], color: palette[this.peers.size % 5], cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        this.send(ws, { type: 'init', nodes: [...this.doc.values()], comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
+        this.send(ws, { type: 'init', ackSeq, nodes: [...this.doc.values()], comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
             const msg = JSON.parse(String(event.data)) as ClientMsg;
             if (msg.type === 'ops' && Array.isArray(msg.ops) && msg.ops.length <= MAX_OPS) {
+                if (receiptKey) ackSeq = await this.state.storage.get<number>(receiptKey) ?? 0;
+                if (receiptKey && msg.seq <= ackSeq) { this.send(ws, { type: 'ack', seq: msg.seq }); return; }
                 for (const op of msg.ops)
                     applyOp(this.doc, op);
                 applyLayout(this.doc);
-                await this.state.storage.put('nodes', [...this.doc.values()]);
+                await this.state.storage.put({ nodes: [...this.doc.values()], ...(receiptKey ? { [receiptKey]: msg.seq } : {}) });
                 this.broadcast({ type: 'ops', ops: msg.ops, from: peer.id }, ws);
                 this.send(ws, { type: 'ack', seq: msg.seq });
                 if (msg.ops.length) await this.features.changed(peer.name);
             }
+            else if (msg.type === 'ping') this.send(ws, { type: 'pong' });
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
                 peer.cursor = msg.cursor;
                 peer.selection = msg.selection;

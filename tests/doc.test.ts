@@ -6,6 +6,14 @@ describe('paints and effects', () => {
     it('rejects malformed paints and effects', () => { const n = makeNode('rect', 0, 0); for (const paint of [{ ...solid, color: 'red' }, { ...solid, type: 'unknown' }, { ...solid, opacity: 2 }, { ...solid, visible: 1 }, { ...gradient, stops: [] }, { ...gradient, stops: Array(17).fill(gradient.stops[0]) }, { ...gradient, from: { x: 4, y: 0 } }, { ...gradient, stops: [{ pos: -1, color: '#000000', opacity: 1 }, gradient.stops[0]] }, { type: 'image', asset: 'bad', fit: 'fill', w: 1, h: 1, opacity: 1, visible: true }, null]) expect(validNode({ ...n, fills: [paint] } as any)).toBe(false); for (const effect of [{ ...shadow, blur: -1 }, { ...shadow, color: '#fff' }, { ...shadow, x: Infinity }, { ...shadow, type: 'unknown' }, { type: 'layer-blur', radius: -1, visible: true }, null]) expect(validNode({ ...n, effects: [effect] } as any)).toBe(false); expect(validNode({ ...n, fills: Array(13).fill(solid) })).toBe(false); expect(validNode({ ...n, effects: Array(9).fill(shadow) })).toBe(false); });
     it('sets validated arrays and preserves legacy fallback', () => { const n = makeNode('rect', 0, 0), doc: Doc = new Map([[n.id, n]]); expect(nodeFills(n)).toEqual([{ type: 'solid', color: n.fill, opacity: 1, visible: true }]); applyOp(doc, { t: 'set', id: n.id, key: 'fills', value: [solid] }); applyOp(doc, { t: 'set', id: n.id, key: 'effects', value: [shadow] }); applyOp(doc, { t: 'set', id: n.id, key: 'fills', value: [{ ...solid, color: 'red' }] }); expect(nodeFills(doc.get(n.id)!)).toEqual([solid]); expect(doc.get(n.id)!.effects).toEqual([shadow]); expect(nodeFills({ ...n, fills: [] })).toEqual([]); });
 });
+it('preserves 100k-character text and empty text without truncation', () => {
+    const doc: Doc = new Map(), node = makeNode('text', 0, 0), text = '界'.repeat(100000);
+    applyOp(doc, { t: 'create', node });
+    applyOp(doc, { t: 'set', id: node.id, key: 'text', value: text });
+    expect(doc.get(node.id)?.text).toBe(text);
+    applyOp(doc, { t: 'set', id: node.id, key: 'text', value: '' });
+    expect(doc.get(node.id)?.text).toBe('');
+});
 describe('document operations', () => {
     it('accepts text content and typography as independent properties', () => {
         const doc: Doc = new Map(), node = makeNode('text', 12, 30);

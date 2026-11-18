@@ -24,9 +24,24 @@ export function insertionSlot(doc: Doc, parent: Node, pointer: Point, moving: Re
     return { parent: parent.id, slot, from: transform(m, from), to: transform(m, to) };
 }
 
+export function eligibleDropFrames(doc: Doc, nodes: Node[], pointer: Point, start: Point, movingNodes = nodes): Node[] {
+    const moving = new Set(movingNodes.flatMap(n => [n.id, ...descendants(doc, n.id).map(c => c.id)]));
+    return [...doc.values()].filter(frame => {
+        const target = inverse(worldMatrix(doc, frame));
+        return frame.type === 'frame' && !moving.has(frame.id) && contains({ x: 0, y: 0, w: frame.w, h: frame.h }, transform(target, pointer)) && nodes.every(original => {
+            const n = doc.get(original.id)!;
+            if (n.type !== 'frame' || frame.parent !== n.parent) return true;
+            const auto = isAutoLayout(doc.get(original.parent ?? '')), m = worldMatrix(doc, auto ? original : n);
+            if (auto) { m[4] += pointer.x - start.x; m[5] += pointer.y - start.y; }
+            const r = transformedBounds(multiply(target, m), { x: 0, y: 0, w: n.w, h: n.h });
+            return r.x >= -1e-8 && r.y >= -1e-8 && r.x + r.w <= frame.w + 1e-8 && r.y + r.h <= frame.h + 1e-8 && (r.w < frame.w - 1e-8 || r.h < frame.h - 1e-8);
+        });
+    });
+}
+
 export function dragInsertion(doc: Doc, nodes: Node[], pointer: Point, start: Point): LayoutInsertion | undefined {
     const moving = new Set(nodes.flatMap(n => [n.id, ...descendants(doc, n.id).map(c => c.id)]));
-    const frames = [...doc.values()].filter(n => n.type === 'frame' && !moving.has(n.id) && contains({ x: 0, y: 0, w: n.w, h: n.h }, transform(inverse(worldMatrix(doc, n)), pointer)));
+    const frames = eligibleDropFrames(doc, nodes, pointer, start);
     frames.sort((a, b) => descendants(doc, a.id).length - descendants(doc, b.id).length);
     let parent = frames[0];
     if (!isAutoLayout(parent) && nodes.length && nodes.every(n => n.parent === nodes[0].parent)) {

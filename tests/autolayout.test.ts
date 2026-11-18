@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addAutoLayout, dragInsertion, insertionSlot, isAutoLayout, layoutInsertions, reorderInAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
+import { addAutoLayout, dragInsertion, eligibleDropFrames, insertionSlot, isAutoLayout, layoutInsertions, reorderInAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
 import { Store } from '../src/client/store';
 import { children, makeNode, type Node } from '../src/shared/doc';
 import { center, matrixAngle, transform, world, worldMatrix } from '../src/shared/geometry';
@@ -7,6 +7,22 @@ import { Select } from '../src/client/tools/select';
 import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
+
+it.each([30, 90])('requires complete sibling-frame containment in a %s degree drop target', rotation => {
+    const parent = { ...makeNode('frame', 100, 100), w: 300, h: 300, rotation }, child = { ...makeNode('frame', 200, 200), rotation }, s = setup([parent, child]), pointer = { x: 250, y: 250 };
+    expect(eligibleDropFrames(s.doc, [child], pointer, pointer).map(n => n.id)).toEqual([parent.id]);
+    s.set(child.id, { x: 50, y: 50, w: 400, h: 400 });
+    expect(eligibleDropFrames(s.doc, [s.doc.get(child.id)!], pointer, pointer)).toEqual([]);
+});
+it('rejects overlapping sibling auto-layout targets and ignores ineligible manual targets', () => {
+    const moving = makeNode('frame', 50, 0), overlap = { ...makeNode('frame', 100, 0), layout: 'horizontal' as const };
+    const s = setup([moving, overlap]), pointer = { x: 125, y: 50 }, start = { x: 75, y: 50 };
+    expect(dragInsertion(s.doc, [moving], pointer, start)).toBeUndefined();
+    const target = { ...makeNode('frame', 0, 0), w: 400, h: 400, layout: 'horizontal' as const };
+    const spacer = { ...makeNode('rect', 0, 0), parent: target.id };
+    s.init([moving, { ...overlap, layout: 'none' }, target, spacer]);
+    expect(dragInsertion(s.doc, [moving], pointer, start)?.parent).toBe(target.id);
+});
 
 it('restores exact root positions and parents after wrapping uneven rects and undoing', () => {
     const a = { ...makeNode('rect', 70, 485, 'A'), w: 55, h: 55 };
