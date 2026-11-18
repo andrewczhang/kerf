@@ -1,0 +1,10 @@
+.style-heading, .style-control { display: flex; align-items: center; gap: 8px; }
+.style-heading { justify-content: space-between; margin-bottom: 12px; }
+.style-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 0; background: none; border: 0; }
+.style-row small { display: block; color: #77766f; margin-top: 4px; font-size: 11px; }
+.style-sample { width: 28px; height: 28px; flex-shrink: 0; font-size: 22px; }
+.style-empty { color: #77766f; font-size: 12px; }
+.style-editor { display: grid; gap: 10px; padding: 8px 0 16px; }
+.style-editor label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.style-editor input { min-width: 0; width: 140px; }
+.style-control select { min-width: 0; flex: 1; }

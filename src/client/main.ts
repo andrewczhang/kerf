@@ -69,7 +69,7 @@ registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
 choose('select');
-inspector(document.querySelector('.inspector')!, store);
+inspector(document.querySelector('.inspector')!, store, sync);
 layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);

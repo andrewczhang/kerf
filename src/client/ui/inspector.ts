@@ -1,4 +1,6 @@
 import type { Store } from '../store';
+import type { Sync } from '../sync';
+import { styleControl, styleLibrary } from './styles';
 import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
@@ -25,7 +27,7 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
     }
 }
 
-export function inspector(el: HTMLElement, store: Store) {
+export function inspector(el: HTMLElement, store: Store, sync: Sync) {
     el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
@@ -50,6 +52,7 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
+            styleLibrary(content, store, sync);
             return;
         }
         content.innerHTML = '';
@@ -96,7 +99,7 @@ export function inspector(el: HTMLElement, store: Store) {
                     const chosen = options.find(([value]) => String(value) === select.value);
                     if (!chosen) return;
                     store.begin();
-                    for (const node of nodes) store.set(node.id, { [key]: chosen[0] });
+                    for (const node of nodes) store.set(node.id, { [key]: chosen[0], ...(['fontFamily', 'fontWeight'].includes(key) ? { textStyle: null } : {}) });
                     store.end();
                     select.blur();
                     render();
@@ -137,7 +140,7 @@ export function inspector(el: HTMLElement, store: Store) {
             let base = store.doc;
             input.onfocus = () => { base = new Map(store.doc); store.begin(); };
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                store.set(n.id, { [key]: value });
+                store.set(n.id, { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
@@ -162,17 +165,21 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
-            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
+            const linkedText = styleControl(content, store, sync, nodes, 'text');
+            fields('Typography', linkedText ? ['textAlign', 'textWidth'] : ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
             fields('Appearance', ['opacity']);
-            fillsSection(content, store, nodes);
+            if (!styleControl(content, store, sync, nodes, 'fill')) fillsSection(content, store, nodes);
+            const linkedStroke = styleControl(content, store, sync, nodes, 'stroke');
+            fields('Stroke', linkedStroke ? ['strokeWidth'] : ['stroke', 'strokeWidth']);
             effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
             autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            fillsSection(content, store, nodes);
-            fields('Stroke', ['stroke', 'strokeWidth']);
+            if (!styleControl(content, store, sync, nodes, 'fill')) fillsSection(content, store, nodes);
+            const linkedStroke = styleControl(content, store, sync, nodes, 'stroke');
+            fields('Stroke', linkedStroke ? ['strokeWidth'] : ['stroke', 'strokeWidth']);
             if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
                 const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
                 if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');
@@ -212,6 +219,8 @@ export function inspector(el: HTMLElement, store: Store) {
         content.append(exports);
     };
     store.addEventListener('change', render);
+    sync.addEventListener('styles-change', render);
+    el.addEventListener('focusout', () => setTimeout(render, 0));
     render();
 }
 

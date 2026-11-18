@@ -4,11 +4,14 @@ import { applyOp, type Doc, type Node } from '../src/shared/doc';
 import type { FeatureClientMsg, FeatureServerMsg } from '../src/shared/features-protocol';
 import { versionDiff, type Version } from '../src/shared/versions';
 import type { Peer } from '../src/shared/protocol';
+import { validStyle, styleOps, detachOps, type Style } from '../src/shared/styles';
 export class Features {
+    styles: Style[] = [];
     comments: Comment[] = [];
     versions: Version[] = [];
     constructor(private storage: DurableObjectStorage, private doc: Doc, private broadcast: (m: FeatureServerMsg) => void) {}
     async load() {
+        this.styles = await this.storage.get<Style[]>('styles') ?? [];
         this.comments = await this.storage.get<Comment[]>('comments') ?? [];
         this.versions = await this.storage.get<Version[]>('versions') ?? [];
     }
@@ -29,6 +32,19 @@ export class Features {
         if (!last || Date.now() - last.at >= 600000) await this.save('Autosave', author, true);
     }
     async message(m: FeatureClientMsg, peer: Peer, reply: (m: FeatureServerMsg) => void) {
+        if (m.type === 'style-upsert' || m.type === 'style-delete') {
+            if (m.type === 'style-upsert' && (!validStyle(m.style) || this.styles.some(s => s.id === m.style.id && s.kind !== m.style.kind))) return;
+            const id = m.type === 'style-upsert' ? m.style.id : m.id;
+            if (typeof id !== 'string') return;
+            const ops = m.type === 'style-upsert' ? styleOps(this.doc, m.style) : detachOps(this.doc, id);
+            this.styles = this.styles.filter(s => s.id !== id);
+            if (m.type === 'style-upsert') this.styles.push(m.style);
+            for (const op of ops) applyOp(this.doc, op);
+            await this.storage.put({ styles: this.styles, nodes: [...this.doc.values()] });
+            this.broadcast({ type: 'styles', styles: this.styles });
+            this.broadcast({ type: 'ops', ops, from: peer.id });
+            return;
+        }
         if (m.type === 'comment-add') {
             const c = { ...m.comment, author: peer.name, color: peer.color, at: Date.now() };
             if (!validComment(c) || this.comments.some(old => old.id === c.id)

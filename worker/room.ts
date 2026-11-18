@@ -44,7 +44,7 @@ export class Room {
         let ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
         const peer: Peer = { id: crypto.randomUUID(), name: ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'][this.peers.size % 5], color: palette[this.peers.size % 5], cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        this.send(ws, { type: 'init', ackSeq, nodes: [...this.doc.values()], comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
+        this.send(ws, { type: 'init', ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer });
         this.peers.set(ws, peer);
         this.broadcast({ type: 'presence', peer }, ws);
         ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
