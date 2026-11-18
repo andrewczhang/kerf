@@ -66,6 +66,29 @@ it('ignores invalid overrides and empty transactions without recording or sendin
     s.commit([]); s.commit([{ t: 'override', id: n.id, target: '', key: 'fill', value: '#112233' }]);
     expect(s.undoStack).toHaveLength(0); expect(s.pending.size).toBe(0);
 });
+it('detaches collaborator instances when undo deletes a wrapped main and restores them on redo', () => {
+    const s = new Store(), a = makeNode('rect', 0, 0), b = makeNode('rect', 150, 0);
+    s.init([a, b]); const { ops, id } = componentOps.create(s.doc, [a.id, b.id]); s.commit(ops);
+    const instance = instanceNode(s.doc.get(id)!, 300, 0);
+    s.remote([{ t: 'create', node: instance }]);
+    s.history();
+    expect(s.doc.has(id)).toBe(false); expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    expect([...s.doc.values()].filter(n => n.parent === instance.id)).toHaveLength(2);
+    expect(s.doc.get(a.id)?.parent).toBeNull();
+    s.history(true); expect(s.doc.get(instance.id)?.instanceOf).toBe(id);
+    expect(s.doc.get(a.id)?.parent).toBe(id);
+    s.history(); expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+});
+it('detaches on generic main or ancestor deletion but skips instances also being deleted', () => {
+    const s = new Store(), frame = makeNode('frame', 0, 0), main = { ...makeNode('frame', 0, 0), parent: frame.id, component: true };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id }, instance = instanceNode(main, 200, 0);
+    s.init([frame, main, child, instance]); s.commit([{ t: 'delete', id: frame.id }]);
+    expect(s.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    s.history(); expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+    s.commit([{ t: 'delete', id: main.id }, { t: 'delete', id: instance.id }]);
+    expect(s.doc.size).toBe(1);
+    s.history(); expect(s.doc.get(instance.id)?.instanceOf).toBe(main.id);
+});
 it('undoes and redoes nested detach override path remapping in the same transaction', () => {
     const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 0, 0), parent: main.id };
     const outer = { ...makeNode('frame', 0, 0), component: true }, nested = instanceNode(main, 0, 0, outer.id);

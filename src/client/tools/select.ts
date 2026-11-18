@@ -1,5 +1,5 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
+import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
 import type { Context, Tool } from './tool';
 export class Select implements Tool {
@@ -117,13 +117,7 @@ export class Select implements Tool {
     } store.end(); this.start = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected(); if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        const deleted = new Set(nodes.flatMap(n => [n.id, ...descendants(store.doc, n.id).map(c => c.id)]));
-        const ops: Op[] = [];
-        for (const n of store.doc.values())
-            if (n.instanceOf && deleted.has(n.instanceOf) && !deleted.has(n.id))
-                ops.push(...detachOps(store.doc, n.id));
-        ops.push(...nodes.map(n => ({ t: 'delete' as const, id: n.id })));
-        store.commit(ops);
+        store.commit(nodes.map(n => ({ t: 'delete', id: n.id })));
         store.selection.clear();
         store.changed();
     } const delta: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }; if (delta[e.key]) {
