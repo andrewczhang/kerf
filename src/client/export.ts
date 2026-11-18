@@ -2,6 +2,7 @@ import { children, isTextNode, type Doc, type Node } from '../shared/doc';
 import { bounds } from '../shared/geometry';
 import { world } from './geometry';
 import { drawNode } from './draw';
+import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 import { toAbs, trace, type PathPoint } from '../shared/path';
 
@@ -9,6 +10,8 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
     const walk = (parent: string | null, ancestorSelected: boolean) => {
         for (const n of children(doc, parent)) {
+            if (blocked(doc, n, false))
+                continue;
             const included = selected.has(n.id);
             if (included && !ancestorSelected)
                 roots.push(n);
@@ -63,6 +66,10 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     let clip = 0;
     const render = (n: Node, alpha: number): string => {
+        if (n.hidden)
+            return '';
+        if (n.type === 'group')
+            return children(doc, n.id).map(child => render(child, alpha)).join('');
         const r = world(doc, n), opacity = alpha * n.opacity;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);

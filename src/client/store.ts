@@ -1,4 +1,5 @@
-import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, normalizeNode, type Doc, type Op, type Key } from '../shared/doc';
+import { MAX_OPS } from '../shared/protocol';
 type Change = {
     before: Op;
     after: Op;
@@ -50,16 +51,17 @@ export class Store extends EventTarget {
             this.undoStack.push(changes);
             this.redoStack = [];
         }
-    } if (ops.length) {
+    } for (let i = 0; i < ops.length; i += MAX_OPS) {
+        const chunk = ops.slice(i, i + MAX_OPS);
         const seq = ++this.seq;
-        this.pending.set(seq, ops);
-        this.send(ops, seq);
+        this.pending.set(seq, chunk);
+        this.send(chunk, seq);
     } this.changed(); }
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)
         if (op.t !== 'set' || !keys.has(op.id + ':' + op.key))
             applyOp(this.doc, op); this.changed(); }
-    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, n])); for (const ops of this.pending.values())
+    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of this.pending.values())
         for (const op of ops)
             applyOp(this.doc, op); this.changed(); }
     history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)

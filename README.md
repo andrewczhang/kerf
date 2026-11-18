@@ -22,6 +22,8 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Set font, size, weight, alignment and wrapping in Typography. Auto hugs the text; Fixed wraps at the W value in Layout.
 - Space + drag or middle-drag pans. Wheel zooms at the pointer; trackpad scroll pans and pinch zooms.
 - Shift-click toggles selection; drag empty canvas for marquee selection.
+- Layers lists the live document tree: click to select, double-click names to rename, use the eye/lock buttons, and drag rows to reorder or nest in frames/groups.
+- Ctrl/Cmd+G groups selection; Ctrl/Cmd+Shift+G ungroups. Click a grouped shape to select its group, double-click to select inside. Hidden/locked layers are excluded from canvas interaction.
 - Eight screen-sized resize handles; Shift preserves aspect ratio, Alt resizes about the center.
 - Drag shapes into or out of a frame to reparent them without changing world position.
 - Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates.

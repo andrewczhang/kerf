@@ -4,9 +4,9 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
     const panel = document.createElement('div'); panel.className = 'feature-panel'; panel.hidden = true;
     const banner = document.createElement('div'); banner.className = 'preview-banner'; banner.hidden = true;
     document.body.append(panel, banner);
-    const inspector = document.querySelector('aside')!, unavailable = document.createElement('section');
+    const inspector = document.querySelector<HTMLElement>('.inspector')!, layers = document.querySelector<HTMLElement>('.layers'), unavailable = document.createElement('section');
     unavailable.className = 'preview-inspector'; unavailable.textContent = 'Inspector unavailable while previewing'; unavailable.hidden = true; inspector.append(unavailable);
-    function previewInspector(active: boolean) { inspector.classList.toggle('previewing', active); unavailable.hidden = !active; }
+    function previewInspector(active: boolean) { inspector.classList.toggle('previewing', active); inspector.inert = active; if (layers) layers.inert = active; unavailable.hidden = !active; }
     let previewId = '', requested = '';
     function current() { previewId = ''; requested = ''; renderer.preview = null; renderer.canvas.style.pointerEvents = ''; previewInspector(false); banner.hidden = true; renderer.invalidate(); render(); renderer.canvas.focus(); }
     function render() {

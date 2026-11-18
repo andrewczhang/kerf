@@ -20,7 +20,7 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  const edits=Object.entries(typography).map(([key,value])=>({t:'set',id:text.id,key,value}));
  b.send({type:'ops',seq:1,ops:edits});assert.deepEqual((await a.take('ops')).ops,edits);await b.take('ack');console.log('PASS text and typography sync back to client A');
  a.send({type:'presence',cursor:{x:125,y:90},selection:[node.id],name:'Ada',viewport:{x:1,y:2,zoom:1}});const presence=await b.take('presence',m=>m.peer.id===ai.you.id);assert.equal(presence.peer.name,'Ada');assert.deepEqual(presence.peer.cursor,{x:125,y:90});assert.deepEqual(presence.peer.selection,[node.id]);console.log('PASS presence cursor, name and selection relay');
- const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography});console.log('PASS late client init contains persisted rectangle and text');
+ const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography,hidden:false,locked:false});console.log('PASS late client init contains persisted rectangle and text');
  const comment={id:'comment',thread:null,x:10,y:20,node:node.id,author:'Ignored',color:'#ffffff',text:'Check spacing',at:0};
  a.send({type:'comment-add',comment});const cm=await b.take('comments');assert.equal(cm.comments[0].text,comment.text);assert.equal(cm.comments[0].author,'Ada');console.log('PASS comment broadcast and server author');
  const d=await client(),di=await d.take('init');assert.equal(di.comments[0].node,node.id);console.log('PASS late join receives pinned comments');
