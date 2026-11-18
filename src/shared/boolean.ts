@@ -135,14 +135,21 @@ function merge(region: Region, tol: number): Region {
         const depth = region.filter(o => o !== poly && inside([o], probe(poly))).length;
         return (area(poly) < 0) === (depth % 2 === 0) ? poly : [...poly].reverse();
     });
-    const verts = oriented.flat(), edges: [Point, Point][] = [];
-    for (const poly of oriented) poly.forEach((a, i) => {
-        const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
-        const on = verts.map(v => ({ v, t: ((v.x - a.x) * dx + (v.y - a.y) * dy) / l2 }))
-            .filter(({ v, t }) => t > 1e-9 && t < 1 - 1e-9 && Math.abs((v.x - a.x) * dy - (v.y - a.y) * dx) / Math.sqrt(l2) < q / 2)
-            .sort((m, n) => m.t - n.t).map(({ v }) => v);
-        [a, ...on, b].forEach((p, j, ps) => { if (j && key(ps[j - 1]) !== key(p)) edges.push([ps[j - 1], p]); });
-    });
+    const boxes = oriented.map(poly => { const xs = poly.map(p => p.x), ys = poly.map(p => p.y); return { x0: Math.min(...xs) - q, y0: Math.min(...ys) - q, x1: Math.max(...xs) + q, y1: Math.max(...ys) + q }; });
+    const near = boxes.map((m, i) => oriented.filter((_, j) => j !== i && boxes[j].x0 <= m.x1 && m.x0 <= boxes[j].x1 && boxes[j].y0 <= m.y1 && m.y0 <= boxes[j].y1).flat());
+    if (near.every(v => !v.length)) return oriented;
+    const edges: [Point, Point][] = [];
+    oriented.forEach((poly, k) => poly.forEach((a, i) => {
+        const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy, l = Math.sqrt(l2);
+        const x0 = Math.min(a.x, b.x) - q, x1 = Math.max(a.x, b.x) + q, y0 = Math.min(a.y, b.y) - q, y1 = Math.max(a.y, b.y) + q;
+        const on: { v: Point; t: number }[] = [];
+        for (const v of near[k]) {
+            if (v.x < x0 || v.x > x1 || v.y < y0 || v.y > y1) continue;
+            const t = ((v.x - a.x) * dx + (v.y - a.y) * dy) / l2;
+            if (t > 1e-9 && t < 1 - 1e-9 && Math.abs((v.x - a.x) * dy - (v.y - a.y) * dx) / l < q / 2) on.push({ v, t });
+        }
+        [a, ...on.sort((m, n) => m.t - n.t).map(o => o.v), b].forEach((p, j, ps) => { if (j && key(ps[j - 1]) !== key(p)) edges.push([ps[j - 1], p]); });
+    }));
     const count = new Map<string, number>();
     for (const [a, b] of edges) count.set(key(a) + '>' + key(b), (count.get(key(a) + '>' + key(b)) ?? 0) + 1);
     const out = new Map<string, [Point, Point][]>();
@@ -157,8 +164,10 @@ function merge(region: Region, tol: number): Region {
     for (const list of out.values()) while (list.length) {
         const loop: Polygon = [];
         let e = list.pop()!;
+        const start = key(e[0]);
         for (let guard = 0; e && guard < edges.length; guard++) {
             loop.push(e[0]);
+            if (key(e[1]) === start) break;
             const next = out.get(key(e[1]));
             if (!next?.length) break;
             e = next.pop()!;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combine, regionArea, type Region } from '../src/shared/boolean';
+import { combine, inside, regionArea, type Region } from '../src/shared/boolean';
 
 const sq = (x: number, y: number, s: number): Region => [[{ x, y }, { x: x + s, y }, { x: x + s, y: y + s }, { x, y: y + s }]];
 const a = sq(0, 0, 10), b = sq(5, 5, 10);
@@ -69,4 +69,28 @@ describe('boolean ops match a grid count for random aligned rectangles', () => {
             }
         }
     });
+});
+
+describe('boolean ops match point sampling for random rects and ellipses', () => {
+    let seed = 11;
+    const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    const shape = (): Region => { const x = rand(6) * 10, y = rand(6) * 10, w = (1 + rand(5)) * 10, h = (1 + rand(5)) * 10;
+        if (rand(2)) return [[{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }]];
+        return [Array.from({ length: 48 }, (_, i) => ({ x: x + w / 2 + Math.cos(i / 48 * Math.PI * 2) * w / 2, y: y + h / 2 + Math.sin(i / 48 * Math.PI * 2) * h / 2 }))]; };
+    const dist = (p: { x: number; y: number }, r: Region) => Math.min(...r.flatMap(poly => poly.map((a, i) => { const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy))); return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); })));
+    it('agrees for 150 random folds', () => {
+        for (let run = 0; run < 150; run++) {
+            const regions = Array.from({ length: 2 + rand(3) }, shape);
+            for (const op of ['union', 'intersect', 'subtract', 'exclude'] as const) {
+                const got = combine(regions, op);
+                for (let x = 1; x < 110; x += 4.3) for (let y = 1; y < 110; y += 4.3) {
+                    const p = { x, y };
+                    if (regions.some(r => dist(p, r) < 0.5)) continue;
+                    const h = regions.map(r => inside(r, p));
+                    const want = op === 'union' ? h.some(Boolean) : op === 'intersect' ? h.every(Boolean) : op === 'subtract' ? h[0] && !h.slice(1).some(Boolean) : h.filter(Boolean).length % 2 === 1;
+                    expect(inside(got, p), `${op} run ${run} at ${x},${y}`).toBe(want);
+                }
+            }
+        }
+    }, 60000);
 });
