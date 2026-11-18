@@ -8,7 +8,7 @@ import { Select } from './tools/select';
 import { Shape } from './tools/shape';
 import { TextEditor, TextTool } from './tools/text';
 import { isTextNode } from '../shared/doc';
-import { hit } from './geometry';
+import { hit, sizeOf } from './geometry';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
@@ -127,7 +127,7 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     if (key === 'k' || key === 'b') {
         e.preventDefault();
         if (key === 'k') {
-            try { const { ops, id } = componentOps.create(store.doc, [...store.selection]); store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
+            try { const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf); store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
         }
         else store.commit(detachOps(store.doc, [...store.selection]));
         return;

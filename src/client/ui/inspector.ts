@@ -1,5 +1,6 @@
 import type { Store } from '../store';
 import { downloadSelection } from '../export';
+import { sizeOf } from '../geometry';
 import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
@@ -28,7 +29,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             store.commit([{ t: 'create', node: n }]); select(n.id);
         };
         const create = () => {
-            try { const { ops, id } = componentOps.create(store.doc, nodes.map(n => n.id)); store.commit(ops); select(id); } catch { }
+            try { const { ops, id } = componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); store.commit(ops); select(id); } catch { }
         };
         const reset = (id: string, target?: string) => {
             const ops: Op[] = [];
@@ -76,7 +77,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             button(s, 'Create instance', () => insert(first));
         }
         else {
-            try { componentOps.create(store.doc, nodes.map(n => n.id)); button(section('Component'), 'Create component', create); } catch { }
+            try { componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); button(section('Component'), 'Create component', create); } catch { }
         }
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],

@@ -38,7 +38,7 @@ export function expand(doc: Doc): Doc {
     return out;
 }
 export const componentOps = {
-    create(doc: Doc, selectionIds: string[]): { ops: Op[]; id: string } {
+    create(doc: Doc, selectionIds: string[], sizeOf: (node: Node) => { w: number; h: number } = node => node): { ops: Op[]; id: string } {
         const nodes = [...new Set(selectionIds)].map(id => doc.get(id));
         if (!nodes.length || selectionIds.some(isVirtual) || nodes.some(n => !n || n.parent !== nodes[0]?.parent || (n.parent && doc.get(n.parent)?.instanceOf)))
             throw Error('Invalid component selection');
@@ -46,7 +46,8 @@ export const componentOps = {
         if (selected.length === 1 && first.type === 'frame' && !first.instanceOf)
             return { ops: [{ t: 'set', id: first.id, key: 'component', value: true }], id: first.id };
         const x = Math.min(...selected.map(n => n.x)), y = Math.min(...selected.map(n => n.y));
-        const frame = { ...makeNode('frame', x, y, first.index), parent: first.parent, component: true, name: 'Component', w: Math.max(...selected.map(n => n.x + n.w)) - x, h: Math.max(...selected.map(n => n.y + n.h)) - y };
+        const sizes = selected.map(sizeOf);
+        const frame = { ...makeNode('frame', x, y, first.index), parent: first.parent, component: true, name: 'Component', w: Math.max(...selected.map((n, i) => n.x + sizes[i].w)) - x, h: Math.max(...selected.map((n, i) => n.y + sizes[i].h)) - y };
         const ops: Op[] = [{ t: 'create', node: frame }];
         for (const n of selected)
             ops.push({ t: 'set', id: n.id, key: 'parent', value: frame.id }, { t: 'set', id: n.id, key: 'x', value: n.x - x }, { t: 'set', id: n.id, key: 'y', value: n.y - y });
