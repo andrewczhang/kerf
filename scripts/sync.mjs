@@ -21,5 +21,13 @@ try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readin
  b.send({type:'ops',seq:1,ops:edits});assert.deepEqual((await a.take('ops')).ops,edits);await b.take('ack');console.log('PASS text and typography sync back to client A');
  a.send({type:'presence',cursor:{x:125,y:90},selection:[node.id],name:'Ada',viewport:{x:1,y:2,zoom:1}});const presence=await b.take('presence',m=>m.peer.id===ai.you.id);assert.equal(presence.peer.name,'Ada');assert.deepEqual(presence.peer.cursor,{x:125,y:90});assert.deepEqual(presence.peer.selection,[node.id]);console.log('PASS presence cursor, name and selection relay');
  const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography});console.log('PASS late client init contains persisted rectangle and text');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 7 checks passed');
+ const comment={id:'comment',thread:null,x:10,y:20,node:node.id,author:'Ignored',color:'#ffffff',text:'Check spacing',at:0};
+ a.send({type:'comment-add',comment});const cm=await b.take('comments');assert.equal(cm.comments[0].text,comment.text);assert.equal(cm.comments[0].author,'Ada');console.log('PASS comment broadcast and server author');
+ const d=await client(),di=await d.take('init');assert.equal(di.comments[0].node,node.id);console.log('PASS late join receives pinned comments');
+ a.send({type:'version-save',name:'Checkpoint'});const versions=await b.take('versions',m=>m.versions.some(v=>v.name==='Checkpoint'));const version=versions.versions.find(v=>v.name==='Checkpoint');
+ a.send({type:'ops',seq:4,ops:[{t:'set',id:node.id,key:'x',value:999}]});await a.take('ack');await b.take('ops');
+ a.send({type:'version-preview',id:version.id});assert.equal((await a.take('version-preview')).nodes[0].x,140);
+ a.send({type:'version-restore',id:version.id});const restored=await b.take('restored');assert(restored.ops.some(o=>o.t==='set'&&o.key==='x'&&o.value===140));await a.take('restored');
+ const e=await client();assert.equal((await e.take('init')).nodes[0].x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 10 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}

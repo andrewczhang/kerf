@@ -103,6 +103,17 @@ export function inspector(el: HTMLElement, store: Store) {
             fields('Appearance', ['radius', 'opacity']);
             fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
         }
+        if (nodes.length === 1) {
+            const section = document.createElement('section');
+            section.innerHTML = '<div class="section-label">Prototype</div><label>On click → navigate to </label>';
+            const select = document.createElement('select');
+            select.setAttribute('aria-label', 'Prototype target');
+            select.append(new Option('None', ''));
+            for (const frame of store.doc.values()) if (frame.type === 'frame' && !frame.parent) select.append(new Option(frame.name, frame.id));
+            select.value = nodes[0].link ?? '';
+            select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
+            section.append(select); content.append(section);
+        }
         const exports = document.createElement('section');
         exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
         for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {
