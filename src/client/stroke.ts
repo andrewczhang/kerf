@@ -8,7 +8,7 @@ export function strokeStyle(n: Node) {
     const options = strokeOptions(n);
     const align = options.strokeAlign;
     const cap = options.strokeCap, join = options.strokeJoin, miter = options.strokeMiterLimit;
-    const dash = options.strokeGap > 0 ? [options.strokeDash, options.strokeGap] : [];
+    const dash = options.strokeDash > 0 && options.strokeGap > 0 ? [options.strokeDash, options.strokeGap] : [];
     const width = n.strokeWidth * (align === 'center' ? 1 : 2);
     return { align, cap, join, miter, dash, width };
 }

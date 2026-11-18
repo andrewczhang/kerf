@@ -127,6 +127,17 @@ it('clips inside strokes and masks outside strokes without cropping aligned ink'
     expect(svg).not.toContain('stroke-dasharray');
 });
 
+it('renders a solid stroke in SVG and PNG when only the gap is positive', async () => {
+    const node: Node = { ...makeNode('rect', 0, 0), stroke: '#000000', strokeGap: 8 };
+    const doc = docOf(node);
+    expect(exportSVG(doc, [node.id])).not.toContain('stroke-dasharray');
+    const c = { scale: vi.fn(), translate: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), roundRect: vi.fn(), fill: vi.fn(), stroke: vi.fn(), setLineDash: vi.fn(), globalAlpha: 1 };
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => c, toBlob: (callback: BlobCallback) => callback(new Blob()) }) });
+    await exportPNG(doc, [node.id], 1);
+    expect(c.stroke).toHaveBeenCalledOnce();
+    expect(c.setLineDash).not.toHaveBeenCalled();
+});
+
 it('draws open path arrowheads along endpoint tangents and includes their ink in export bounds', () => {
     const line: Node = { ...makeNode('path', 0, 0), h: 1, strokeAlign: 'outside', strokeStart: 'bar', strokeEnd: 'triangle', strokeWidth: 5, strokeCap: 'butt', strokeJoin: 'bevel', points: [{ ...corner(0, 0), ox: .5 }, { ...corner(1, 0), ix: 1, iy: -10 }] };
     const svg = exportSVG(docOf(line), [line.id]);
