@@ -11,6 +11,7 @@ import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
 import type { Doc } from '../shared/doc';
 import { toAbs, trace } from '../shared/path';
+import { drawLayoutGrids } from './layout-grids';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -18,6 +19,7 @@ export class Renderer {
     height = 0;
     preview: Doc | null = null;
     showLinks = false;
+    inspectOverlay?: (c: CanvasRenderingContext2D) => void;
     constructor(public canvas: HTMLCanvasElement, public app: Context, public sync: Sync) { this.ctx = canvas.getContext('2d')!; new ResizeObserver(() => this.resize()).observe(canvas); requestAnimationFrame(() => this.loop()); }
     invalidate = () => { this.dirty = true; };
     resize() { const r = this.canvas.getBoundingClientRect(), d = devicePixelRatio || 1; this.width = r.width; this.height = r.height; this.canvas.width = Math.round(r.width * d); this.canvas.height = Math.round(r.height * d); this.invalidate(); }
@@ -40,6 +42,7 @@ export class Renderer {
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
             drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate });
+        if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, store.doc, v.zoom);
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = store.doc.get(n.link);
@@ -126,5 +129,6 @@ export class Renderer {
             c.restore();
         }
         drawGuides(c, this.app, this.width, this.height);
+        this.inspectOverlay?.(c);
     }
 }

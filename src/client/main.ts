@@ -15,6 +15,7 @@ import { clearTextLayouts, measureTextNode } from './text-layout';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
+import { installInspect } from './ui/inspect';
 import { people } from './ui/people';
 import { imageImport } from './image-import';
 import { layers } from './ui/layers';
@@ -59,7 +60,7 @@ function choose(id: string) { textEditor.close(); active?.deactivate?.(); active
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
-registry.set('text', new TextTool(ctx, (node, creating) => { choose('select'); textEditor.open(node, creating); }));
+registry.set('text', new TextTool(ctx, (node, creating) => { if (isInspecting()) return; choose('select'); textEditor.open(node, creating); }));
 registry.set('pen', new Pen(ctx, () => choose('select')));
 registry.set('hand', { id: 'hand', cursor: 'grab', onPointerDown() { }, onPointerMove() { }, onPointerUp() { } });
 toolbar(document.querySelector('header')!, choose);
@@ -68,9 +69,10 @@ inspector(document.querySelector('.inspector')!, store);
 layers(document.querySelector('.layers')!, ctx);
 people(document.querySelector('#people')!, sync, viewport);
 features(renderer, sync, ctx, choose);
+const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
-    if (active.id !== 'select') return;
+    if (isInspecting() || active.id !== 'select') return;
     const node = hit(store.doc, viewport.world(local(e)), 4 / viewport.zoom);
     if (isTextNode(node))
         textEditor.open(node);
@@ -138,7 +140,7 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest(
     if (nodes.length === 1 && nodes[0].type === 'frame' && !isAutoLayout(nodes[0])) addAutoLayout(store, nodes[0]);
     else if (nodes.length) wrapInAutoLayout(store, nodes);
     return;
-} if (e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
+} if (!isInspecting() && e.key === 'Enter' && e.target === canvas && active.id === 'select' && store.selection.size === 1) {
     const node = store.doc.get([...store.selection][0]);
     if (isTextNode(node)) {
         e.preventDefault();

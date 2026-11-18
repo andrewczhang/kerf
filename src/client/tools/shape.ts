@@ -17,7 +17,7 @@ export class Shape implements Tool {
         this.ctx.store.selection.clear(); this.ctx.store.selection.add(this.node.id); this.ctx.store.commit([{ t: 'create', node: this.node }]);
     }
     onPointerMove(p: Point, e: PointerEvent) {
-        if (!this.start || !this.node) return;
+        if (e.buttons === 0 || !this.start || !this.node) return;
         const m = parentMatrix(this.ctx.store.doc, this.node), q = transform(inverse(m), p);
         let w = Math.abs(q.x - this.start.x), h = Math.abs(q.y - this.start.y);
         if (e.shiftKey) w = h = Math.max(w, h);

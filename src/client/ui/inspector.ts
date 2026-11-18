@@ -8,6 +8,7 @@ import { fit, toAbs } from '../../shared/path';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
 import { inverse, parentMatrix, transform } from '../../shared/geometry';
+import { layoutGridsSection } from './layout-grids';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -132,6 +133,7 @@ export function inspector(el: HTMLElement, store: Store) {
             fields('Stroke', ['stroke', 'strokeWidth']);
             effectsSection(content, store, nodes);
         }
+        if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
         if (nodes.length === 1) {
             const section = document.createElement('section');
             section.innerHTML = '<div class="section-label">Prototype</div><label>On click → navigate to </label>';

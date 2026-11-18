@@ -1,0 +1,3 @@
+.layout-grid-fields { grid-template-columns: 1fr; }
+.layout-grid-fields .field span { flex: 0 0 48px; }
+.layout-grid-fields .field select { margin: 0; padding: 0; }

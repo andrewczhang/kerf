@@ -62,6 +62,7 @@ export class Select implements Tool {
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
+        if (e.buttons === 0 && this.start) return;
         if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
