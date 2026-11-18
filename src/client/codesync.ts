@@ -70,7 +70,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
                 id: id ?? node.id, parent, name: attrs['data-name'] ?? defaultName(type),
                 w: number('width', 100), h: number('height', 100), fill: background,
                 radius: type === 'ellipse' ? old?.radius ?? 0 : number('borderRadius', 0),
-                opacity: number('opacity', 1), strokeWidth: old?.strokeWidth ?? 1,
+                opacity: number('opacity', 1), stroke: null, strokeWidth: old?.strokeWidth ?? 1,
             });
             if (style.border !== undefined) {
                 if (typeof style.border !== 'string') fail('border must be a CSS border string');

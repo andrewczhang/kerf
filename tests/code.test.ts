@@ -18,6 +18,18 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('round-trips unstroked paths without restoring their creation default stroke', () => {
+        const path = { ...makeNode('path', 10, 20), stroke: null };
+        const doc = new Map([[path.id, path]]);
+        const parsed = tree(toReact(doc, null));
+        expect(diffCode(doc, null, parsed)).toEqual([]);
+        parsed.children[0].style.width = 144;
+        expect(diffCode(doc, null, parsed)).toEqual([{ t: 'set', id: path.id, key: 'w', value: 144 }]);
+        doc.set(path.id, { ...path, stroke: '#272822' });
+        const stroked = tree(toReact(doc, null));
+        delete stroked.children[0].style.border;
+        expect(diffCode(doc, null, stroked)).toEqual([{ t: 'set', id: path.id, key: 'stroke', value: null }]);
+    });
     it('preserves properties outside the code subset after merging richer node types', () => {
         const doc = fixture();
         Object.assign(doc.get('frame')!, { layout: 'horizontal', gap: 16, padTop: 8, sizeH: 'hug' });
