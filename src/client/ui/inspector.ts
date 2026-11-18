@@ -1,17 +1,33 @@
 import type { Store } from '../store';
 import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
+import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
 import { downloadSelection } from '../export';
 import { world } from '../geometry';
 import { fit, toAbs } from '../../shared/path';
+
+export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
+    if (!nodes.length) return;
+    for (const input of content.querySelectorAll<HTMLInputElement>('input[type="number"][data-key]')) {
+        if (input === active) continue;
+        const key = input.dataset.key as Key;
+        const value = nodes[0][key] ?? 0;
+        const mixed = nodes.some(n => (n[key] ?? 0) !== value);
+        input.value = mixed ? '' : String(Math.round(Number(value) * 100) / 100);
+        input.placeholder = mixed ? 'Mixed' : '';
+    }
+}
+
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
-        if (el.contains(document.activeElement))
-            return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        if (el.contains(document.activeElement)) {
+            refreshNumericFields(content, nodes, document.activeElement);
+            return;
+        }
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
@@ -70,6 +86,7 @@ export function inspector(el: HTMLElement, store: Store) {
             }
             else {
                 input.type = 'number';
+                input.dataset.key = key;
                 input.step = key === 'opacity' ? '.05' : '1';
                 if (key === 'fontSize') input.max = String(maxFontSize);
                 if (key === 'fontSize' || key === 'w') input.min = '1';
@@ -80,6 +97,7 @@ export function inspector(el: HTMLElement, store: Store) {
                 store.set(n.id, { [key]: value }); };
             input.onblur = () => { store.end(); render(); };
             label.append(span, input);
+            sizingControl(label, input, key, nodes, store);
             grid.append(label);
         } content.append(section); };
         if (nodes.length === 1 && nodes[0].type === 'path') {
@@ -104,6 +122,7 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
+            autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
             fillsSection(content, store, nodes);
             fields('Stroke', ['stroke', 'strokeWidth']);

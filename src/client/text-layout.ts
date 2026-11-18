@@ -45,7 +45,8 @@ export function layoutText(node: TextNode, measure: (text: string) => number) {
     return { lines, w, h: lines.length * lineHeight(node), leading: lineHeight(node) };
 }
 
-const layouts = new WeakMap<TextNode, ReturnType<typeof layoutText> & { baseline: number; offset: number }>();
+let layouts = new WeakMap<TextNode, ReturnType<typeof layoutText> & { baseline: number; offset: number }>();
+export function clearTextLayouts() { layouts = new WeakMap(); }
 let meter: CanvasRenderingContext2D | undefined;
 const getMeter = () => meter ??= document.createElement('canvas').getContext('2d')!;
 export function measureTextNode(node: TextNode) {
