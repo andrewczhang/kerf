@@ -5,12 +5,15 @@ import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
+import type { Doc } from '../shared/doc';
 import { contoursAbs, trace } from '../shared/path';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
     width = 0;
     height = 0;
+    preview: Doc | null = null;
+    showLinks = false;
     constructor(public canvas: HTMLCanvasElement, public app: Context, public sync: Sync) { this.ctx = canvas.getContext('2d')!; new ResizeObserver(() => this.resize()).observe(canvas); requestAnimationFrame(() => this.loop()); }
     invalidate = () => { this.dirty = true; };
     resize() { const r = this.canvas.getBoundingClientRect(), d = devicePixelRatio || 1; this.width = r.width; this.height = r.height; this.canvas.width = Math.round(r.width * d); this.canvas.height = Math.round(r.height * d); this.invalidate(); }
@@ -19,7 +22,7 @@ export class Renderer {
         this.draw();
     } requestAnimationFrame(() => this.loop()); }
     draw() {
-        const c = this.ctx, { viewport: v, store } = this.app, d = devicePixelRatio || 1;
+        const c = this.ctx, { viewport: v } = this.app, store = this.preview ? { ...this.app.store, doc: this.preview, selection: new Set<string>() } : this.app.store, d = devicePixelRatio || 1;
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
         drawSnapGrid(c, this.app, this.width, this.height);
@@ -33,6 +36,17 @@ export class Renderer {
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
             drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
+        for (const n of store.doc.values()) {
+            if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
+            const target = store.doc.get(n.link);
+            if (!target || target.type !== 'frame') continue;
+            const a = world(store.doc, n), b = world(store.doc, target);
+            const x = a.x + a.w, y = a.y + a.h / 2, tx = b.x, ty = b.y + b.h / 2;
+            const bend = Math.max(60 / v.zoom, Math.abs(tx - x) / 2);
+            c.strokeStyle = '#ff4f00'; c.lineWidth = 1.5 / v.zoom;
+            c.beginPath(); c.moveTo(x, y); c.bezierCurveTo(x + bend, y, tx - bend, ty, tx, ty); c.stroke();
+            c.beginPath(); c.moveTo(tx - 8 / v.zoom, ty - 5 / v.zoom); c.lineTo(tx, ty); c.lineTo(tx - 8 / v.zoom, ty + 5 / v.zoom); c.stroke();
+        }
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
             return; c.beginPath(); contoursAbs(n, world(store.doc, n)).forEach((abs, i) => trace(c, abs, i > 0 || !!n.closed)); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
