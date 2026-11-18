@@ -8,6 +8,7 @@ import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
+import { constraintOps } from '../../shared/constraints';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -29,6 +30,7 @@ export class Select implements Tool {
         if (this.start && this.moved) this.onPointerMove(this.lastPoint, { ...this.modifiers, altKey: alt, buttons: 1 } as PointerEvent);
         this.updateCursor(this.lastPoint, alt);
     }
+    base = new Map<string, Node>();
     lastClick?: { time: number; x: number; y: number };
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
@@ -76,6 +78,7 @@ export class Select implements Tool {
         }
         this.original = new Map(this.selected().filter(n => !blocked(resolved, resolved.get(n.id)!) && !this.selected().some(a => a.id !== n.id && descendants(store.doc, a.id).some(d => d.id === n.id))).map(n => [n.id, { ...resolved.get(n.id)! }]));
         if (this.handle >= 0) for (const n of [...this.original.values()]) if (n.type === 'group') for (const c of descendants(store.doc, n.id)) if (!blocked(resolved, resolved.get(c.id)!)) this.original.set(c.id, { ...resolved.get(c.id)! });
+        this.base = new Map(store.doc);
         store.begin();
         this.sources = new Map(this.original);
         this.copies = undefined;
@@ -155,6 +158,8 @@ export class Select implements Tool {
                 const values = { x: keepX ? n.x : left, y: keepY ? n.y : top, w: keepX ? n.w : Math.max(1, right - left), h: keepY ? n.h : Math.max(1, bottom - top) };
                 for (const [key, value] of Object.entries(values))
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
+                if (n.type === 'frame')
+                    ops.push(...constraintOps(this.base, n.id, values, id => this.original.has(id), store.doc));
             }
         }
         else {

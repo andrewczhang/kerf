@@ -37,7 +37,7 @@ New node types must add a drawing case in both draw.ts and exportSVG in export.t
 
 ## Document model
 Node = { id, type: 'frame'|'rect'|'ellipse'|'group'|'text'|'path', parent: string|null (null = page root), index: string (fractional index for z-order among siblings), name, x, y, w, h (parent-relative), fill: string (hex), stroke: string|null, strokeWidth, radius, opacity, hidden, locked }. Path nodes add points: {x,y,ix,iy,ox,oy}[] (anchor plus in/out bezier handles, normalized 0..1 to the node box so resize and move just work) and closed: boolean; geometry lives in shared/path.ts and pen.ts edits it by rewriting points plus the fitted box.
-Frames and groups may parent nodes. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
+Frames and groups may parent nodes. Children of a frame carry optional constraintH (left|right|both|center|scale) and constraintV (top|bottom|both|center|scale), default left/top; resizing a frame by handle or inspector W/H lays out its subtree with shared/constraints.ts (group children scale with the group, nested frames recurse), and the inspector shows a pin diagram plus selects for layers inside a frame. Groups have no fill or clip; their bounds are the union of children, normalized without changing world positions. Missing hidden/locked flags in old documents normalize to false.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
 ## Components
@@ -56,7 +56,7 @@ Effects are drop-shadow/inner-shadow (x/y, nonnegative blur, spread, hex6 color,
 
 Paint/effect UI lives in `ui/fills.ts` and `ui/effects.ts`; editing state and legacy-fill writes in `paint-edit.ts`, canvas controls in `gradient-handles.ts`, clipboard/drop handling in `image-import.ts`. UI transactions write whole arrays through Store; no sync protocol changes are needed.
 
-Canvas and PNG export share `draw.ts`; PNG waits for image assets to decode and pads output bounds for drop shadows and layer blur. SVG preserves stacked solid/linear/radial paints, paint/stop opacity, drop shadows (including spread) and layer blur via SVG gradients/filters. SVG image paints use legacy fill, and inner-shadow/background-blur are omitted; use PNG for those features. Background blur in PNG samples only the exported selection underneath, not unselected page content.
+Canvas and PNG export share `draw.ts`; PNG waits for image assets to decode and pads output bounds for drop shadows and layer blur. SVG preserves stacked paints, embeds image bytes in data URIs, and uses clipped images/patterns for cover, contain and tile placement. `exportSVGWithAssets` resolves assets asynchronously; `exportSVG` is the synchronous serializer with an optional resolved image map. Missing assets fail export rather than falling back to a color. SVG filters implement drop/inner shadows, spread and layer/background blur. Background blur replays earlier visible content through internal references, clipped to the node interior; both formats sample only exported content underneath, not unselected page content. Open paths omit inner shadows and background blur.
 
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.

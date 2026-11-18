@@ -16,6 +16,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { installInspect } from './ui/inspect';
+import { alignmentKey } from './align';
 import { people } from './ui/people';
 import { imageImport } from './image-import';
 import { layers } from './ui/layers';
@@ -132,7 +133,7 @@ else {
 } }, { passive: false });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.stopFollowing())
     return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || ctx.editingText)
-    return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
+    return; if (alignmentKey(e, store)) return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));

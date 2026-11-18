@@ -18,6 +18,8 @@ export const strokeAlignments = ['inside', 'center', 'outside'] as const;
 export const strokeCaps = ['butt', 'round', 'square'] as const;
 export const strokeJoins = ['miter', 'round', 'bevel'] as const;
 export const arrowheads = ['none', 'line', 'triangle', 'circle', 'bar'] as const;
+export const horizontalConstraints = ['left', 'right', 'both', 'center', 'scale'] as const;
+export const verticalConstraints = ['top', 'bottom', 'both', 'center', 'scale'] as const;
 
 interface TextProperties {
     text: string;
@@ -77,6 +79,10 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     points?: PathPoint[];
     /** path only */
     closed?: boolean;
+    /** how the node follows its parent frame's width; default left */
+    constraintH?: typeof horizontalConstraints[number];
+    /** how the node follows its parent frame's height; default top */
+    constraintV?: typeof verticalConstraints[number];
 }
 export const layoutDefaults = { layout: 'none', gap: 0, padTop: 0, padRight: 0, padBottom: 0, padLeft: 0, justify: 'start', align: 'start', sizeW: 'fixed', sizeH: 'fixed' } as const;
 function validLayout(n: Node): boolean {
@@ -193,7 +199,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -253,6 +259,8 @@ function validOverrides(value: unknown): boolean {
     return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
+    if (key === 'constraintH') return value === undefined || horizontalConstraints.includes(value as typeof horizontalConstraints[number]);
+    if (key === 'constraintV') return value === undefined || verticalConstraints.includes(value as typeof verticalConstraints[number]);
     if ((strokeKeys as string[]).includes(key)) return validStroke({ [key]: value } as unknown as Node);
     if (key === 'fills') return value === undefined || Array.isArray(value) && value.length <= 12 && value.every(validPaint);
     if (key === 'effects') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validEffect);
@@ -284,7 +292,7 @@ function validProperty(key: string, value: unknown): boolean {
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
-export function validNode(n: Node): boolean { return !!n && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { return !!n && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))

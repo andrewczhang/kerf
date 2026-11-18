@@ -32,6 +32,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Ctrl/Cmd+Alt+K makes a component; Ctrl/Cmd+D on a main component creates an instance. The inspector also lists components and creates instances.
 - Double-click or Ctrl/Cmd+click an instance to select a layer inside it. Edit appearance in the inspector to override it; virtual layers cannot be moved, resized or deleted. Escape selects the owning instance.
 - Ctrl/Cmd+Alt+B detaches an instance. Reset overrides in the inspector to follow the main again. Deleting a main detaches its surviving instances.
+- Align: Alt+A/H/D for left/center/right, Alt+W/V/S for top/middle/bottom. Alt+Shift+H/V distributes horizontal/vertical spacing; Ctrl+Alt+T tidies rows, columns and grids. A single child aligns within its frame.
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.
@@ -57,6 +58,10 @@ npm run test:sync
 ```
 
 The sync integration script starts its own Wrangler on port 8790, connects three real WebSocket clients, checks creation, movement, presence, late-join state and departure, then stops its server. Port 8787 can remain running independently.
+
+SVG exports embed image assets and include inner shadows and background blur. Like PNG, backdrop blur samples only exported content below the node.
+
+For the headless SVG/PNG pixel comparison, keep Wrangler running on port 8787 (`npm run build && npm start`), install Chromium with `npx playwright install chromium`, then run `node scripts/svg-parity.mjs`. Alternatively set `CHROME_BIN` to an existing Chromium executable. The check uploads a generated test image to the local `svg-parity-check` file, compares a 1× scene with image cover/contain/tile, inner shadows, backdrop blur and nested frames, and writes PNG/SVG/comparison artifacts under `~/kerf-shots/`. `KERF_URL` and `KERF_SHOTS` override the server and artifact directory.
 
 ## Extension points
 
