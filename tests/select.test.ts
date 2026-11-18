@@ -4,6 +4,7 @@ import { world } from '../src/shared/geometry';
 import { Store } from '../src/client/store';
 import { Select } from '../src/client/tools/select';
 import { Viewport } from '../src/client/viewport';
+import { duplicateNodes } from '../src/client/tools/duplicate';
 const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setup = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
 it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty canvas', () => {
@@ -34,6 +35,48 @@ it('keeps a shape in its current parent when a co-dragged overlapping frame cann
     tool.onPointerUp({ x: 125, y: 50 });
     expect(store.doc.get(a.id)?.parent).toBe(null);
     expect(store.doc.get(shape.id)?.parent).toBe(b.id);
+});
+const pointer = (altKey = false, buttons = 1) => ({ altKey, buttons, ctrlKey: true, timeStamp: 1000 } as PointerEvent);
+it('deep duplicates a hierarchy just above its original with independent nested data', () => {
+    const a = makeNode('frame', 0, 0), child = { ...makeNode('path', 10, 20), parent: a.id }, next = { ...makeNode('rect', 200, 0), index: 'z' };
+    const doc = new Map([a, child, next].map(n => [n.id, n]));
+    const copies = duplicateNodes(doc, [a, child]);
+    expect(copies.size).toBe(2); expect(copies.get(child.id)?.parent).toBe(copies.get(a.id)?.id);
+    expect(copies.get(a.id)!.index > a.index).toBe(true); expect(copies.get(a.id)!.index < next.index).toBe(true);
+    expect(copies.get(child.id)?.points).not.toBe(child.points);
+    expect(duplicateNodes(doc, []) .size).toBe(0);
+});
+it('alt-drags copies through normal ops with one undo and redo, leaving originals unmoved', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    const sent: unknown[] = []; store.send = ops => sent.push(...ops);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+    tool.onPointerMove({ x: 90, y: 110 }, pointer(true)); tool.onPointerUp({ x: 90, y: 110 });
+    const copy = store.doc.get([...store.selection][0])!;
+    expect(copy.x).toBe(60); expect(copy.y).toBe(80); expect(store.doc.get(a.id)?.x).toBe(20);
+    expect(sent).toContainEqual({ t: 'create', node: expect.objectContaining({ id: copy.id }) });
+    expect(store.undoStack).toHaveLength(1); store.history(); expect(store.doc.size).toBe(1);
+    store.history(true); expect(store.doc.get(copy.id)?.x).toBe(60);
+});
+it('toggles copies mid-drag, ignores stray moves, and undoes the final original move', () => {
+    const { store, tool } = setup(), a = makeNode('rect', 20, 30); store.init([a]); store.selection.add(a.id);
+    tool.onPointerDown({ x: 50, y: 60 }, pointer());
+    tool.onPointerMove({ x: 90, y: 110 }, pointer());
+    tool.modifier(true); expect(store.doc.size).toBe(2); expect(store.doc.get(a.id)?.x).toBe(20);
+    tool.onPointerMove({ x: 500, y: 500 }, pointer(true, 0));
+    expect(store.doc.get([...store.selection][0])?.x).toBe(60);
+    tool.modifier(false); expect(store.doc.size).toBe(1); expect([...store.selection]).toEqual([a.id]);
+    tool.onPointerUp({ x: 90, y: 110 }); expect(store.doc.get(a.id)?.x).toBe(60);
+    store.history(); expect(store.doc.get(a.id)?.x).toBe(20);
+});
+it('does not duplicate alt-clicks, subthreshold moves, empty canvas or locked nodes', () => {
+    for (const locked of [false, true]) {
+        const { store, tool } = setup(), a = { ...makeNode('rect', 20, 30), locked }; store.init([a]);
+        tool.onPointerDown({ x: 50, y: 60 }, pointer(true));
+        tool.onPointerMove({ x: 51, y: 60 }, pointer(true)); tool.onPointerUp({ x: 51, y: 60 });
+        expect(store.doc.size).toBe(1); expect(store.undoStack).toHaveLength(0);
+        tool.onPointerDown({ x: 400, y: 400 }, pointer(true)); tool.onPointerMove({ x: 500, y: 500 }, pointer(true)); tool.onPointerUp({ x: 500, y: 500 });
+        expect(store.doc.size).toBe(1);
+    }
 });
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
     const { store, tool } = setup(), a = makeNode('rect', 20, 30), b = { ...makeNode('ellipse', 200, 50), index: 'z' }; store.init([a, b]); store.selection.add(a.id); store.selection.add(b.id);

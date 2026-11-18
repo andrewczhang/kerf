@@ -6,6 +6,7 @@ import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reor
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
+import { duplicateNodes } from './duplicate';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -14,6 +15,19 @@ export class Select implements Tool {
     box?: Rect;
     handle = -1;
     moved = false;
+    sources = new Map<string, Node>();
+    copies?: Map<string, Node>;
+    lastPoint?: Point;
+    modifiers = { ctrlKey: false, metaKey: false, shiftKey: false };
+    updateCursor(p: Point, alt: boolean) {
+        const n = hit(this.ctx.store.doc, p, 4 / this.ctx.viewport.zoom);
+        this.cursor = alt && (this.start ? this.handle < 0 && !this.ctx.marquee && this.original.size > 0 : !!n && !blocked(this.ctx.store.doc, n)) ? 'copy' : 'default';
+    }
+    modifier(alt: boolean) {
+        if (!this.lastPoint) return;
+        if (this.start && this.moved) this.onPointerMove(this.lastPoint, { ...this.modifiers, altKey: alt, buttons: 1 } as PointerEvent);
+        this.updateCursor(this.lastPoint, alt);
+    }
     lastClick?: { time: number; x: number; y: number };
     constructor(public ctx: Context) { }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.doc.get(id)).filter((n): n is Node => !!n); }
@@ -52,10 +66,17 @@ export class Select implements Tool {
         this.original = new Map(this.selected().filter(n => !blocked(store.doc, n) && !this.selected().some(a => a.id !== n.id && descendants(store.doc, a.id).some(d => d.id === n.id))).map(n => [n.id, { ...n }]));
         if (this.handle >= 0) for (const n of [...this.original.values()]) if (n.type === 'group') for (const c of descendants(store.doc, n.id)) if (!blocked(store.doc, c)) this.original.set(c.id, { ...c });
         store.begin();
+        this.sources = new Map(this.original);
+        this.copies = undefined;
+        this.lastPoint = p;
+        this.updateCursor(p, e.altKey);
         store.changed();
     }
     onPointerMove(p: Point, e: PointerEvent) {
-        if (e.buttons === 0 && this.start) return;
+        if (this.start && e.buttons === 0) return;
+        this.lastPoint = p;
+        this.modifiers = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
+        this.updateCursor(p, e.altKey);
         if (gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
@@ -73,6 +94,20 @@ export class Select implements Tool {
         }
         if (!this.moved)
             return;
+        if (this.handle < 0 && this.original.size && e.altKey !== !!this.copies) {
+            if (e.altKey) {
+                store.commit([...this.sources.values()].flatMap(n => [{ t: 'set', id: n.id, key: 'x', value: n.x }, { t: 'set', id: n.id, key: 'y', value: n.y }] as Op[]));
+                this.copies = duplicateNodes(store.doc, [...this.sources.values()]);
+                store.commit([...this.copies.values()].map(node => ({ t: 'create', node })), false);
+                this.original = new Map([...this.sources.keys()].map(id => { const n = this.copies!.get(id)!; return [n.id, n]; }));
+            } else {
+                store.commit([...this.original.keys()].map(id => ({ t: 'delete', id })), false);
+                this.copies = undefined;
+                this.original = new Map(this.sources);
+            }
+            store.selection.clear();
+            for (const id of this.original.keys()) store.selection.add(id);
+        }
         const ops: Op[] = [];
         if (this.handle >= 0 && this.box) {
             const b = this.box;
@@ -122,7 +157,7 @@ export class Select implements Tool {
                 if (!isAutoLayout(store.doc.get(n.parent ?? '')))
                     ops.push({ t: 'set', id: n.id, key: 'x', value: roundUnlessSnapped(this.ctx, n.x + dx) }, { t: 'set', id: n.id, key: 'y', value: roundUnlessSnapped(this.ctx, n.y + dy) });
         }
-        store.commit(ops);
+        store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; if (this.ctx.marquee) {
         for (const n of store.doc.values())
@@ -130,7 +165,7 @@ export class Select implements Tool {
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
     }
-    else if (this.moved && this.handle < 0) {
+    else if (this.moved && this.handle < 0 && !this.copies) {
         const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
         if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
         else
@@ -146,7 +181,8 @@ export class Select implements Tool {
                 store.set(id, { parent: parent?.id ?? null, x: roundUnlessSnapped(this.ctx, r.x - origin.x), y: roundUnlessSnapped(this.ctx, r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
-    } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
+    } if (this.copies) store.commit([...this.copies.values()].map(n => ({ t: 'create', node: store.doc.get(n.id)! })));
+    layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; this.copies = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
@@ -173,20 +209,7 @@ export class Select implements Tool {
         store.end();
     } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
-        const copies = new Map<string, Node>();
-        for (const n of nodes)
-            for (const c of [n, ...descendants(store.doc, n.id)])
-                if (!copies.has(c.id))
-                    copies.set(c.id, { ...c, id: crypto.randomUUID() });
-        for (const [old, n] of copies) {
-            const original = store.doc.get(old)!;
-            n.parent = copies.get(original.parent ?? '')?.id ?? original.parent;
-            if (!copies.has(original.parent ?? '')) {
-                n.x += 20;
-                n.y += 20;
-                n.index = between(children(store.doc, n.parent).at(-1)?.index ?? null);
-            }
-        }
+        const copies = duplicateNodes(store.doc, nodes, 20);
         store.commit([...copies.values()].map(node => ({ t: 'create', node })));
         store.selection.clear();
         for (const n of nodes)
