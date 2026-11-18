@@ -10,6 +10,7 @@ export interface Peer {
     name: string;
     cursor: Point | null;
     selection: string[];
+    spotlight?: boolean;
     viewport: {
         x: number;
         y: number;

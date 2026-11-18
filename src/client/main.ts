@@ -67,7 +67,7 @@ toolbar(document.querySelector('header')!, choose);
 choose('select');
 inspector(document.querySelector('.inspector')!, store);
 layers(document.querySelector('.layers')!, ctx);
-people(document.querySelector('#people')!, sync, viewport);
+people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);
 const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'));
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -92,6 +92,7 @@ else
     active.onPointerMove(viewport.world(p), e); presence.update(viewport.world(p)); }
 canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
     return; canvas.focus(); canvas.setPointerCapture(e.pointerId); const p = local(e); if (space || e.button === 1 || active.id === 'hand') {
+    presence.stopFollowing();
     pan = { ...p, vx: viewport.x, vy: viewport.y };
     canvas.style.cursor = 'grabbing';
 }
@@ -112,20 +113,22 @@ canvas.onpointerup = e => { if (pointer) {
 } if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
 canvas.onpointerleave = () => presence.update(null);
-canvas.parentElement!.addEventListener('wheel', e => { if ((e.target as HTMLElement).closest('.comment-pop')) return; e.preventDefault(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
+canvas.parentElement!.addEventListener('wheel', e => { if ((e.target as HTMLElement).closest('.comment-pop')) return; e.preventDefault(); presence.stopFollowing(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
 else {
     viewport.x -= e.deltaX;
     viewport.y -= e.deltaY;
     viewport.changed();
 } }, { passive: false });
-window.addEventListener('keydown', e => { if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]'))
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.stopFollowing())
+    return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]'))
     return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
     return;
 } if (e.code === 'Space') {
+    if ((e.target as HTMLElement).closest('#people button, .follow-banner button')) return;
     e.preventDefault();
     space = true;
     canvas.style.cursor = 'grab';
@@ -158,6 +161,10 @@ window.addEventListener('keyup', e => { if (e.code === 'Space') {
     space = false;
     canvas.style.cursor = active.cursor;
 } });
-document.querySelector('#zoom-in')!.addEventListener('click', () => viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, 1.25));
-document.querySelector('#zoom-out')!.addEventListener('click', () => viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, .8));
-document.querySelector('#zoom-value')!.addEventListener('click', () => viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, 1 / viewport.zoom));
+function zoomFromToolbar(factor: number) {
+    presence.stopFollowing();
+    viewport.zoomAt({ x: renderer.width / 2, y: renderer.height / 2 }, factor);
+}
+document.querySelector('#zoom-in')!.addEventListener('click', () => zoomFromToolbar(1.25));
+document.querySelector('#zoom-out')!.addEventListener('click', () => zoomFromToolbar(.8));
+document.querySelector('#zoom-value')!.addEventListener('click', () => zoomFromToolbar(1 / viewport.zoom));
