@@ -126,18 +126,17 @@ function despike(poly: Polygon, tol: number): Polygon {
 
 /**
  * Merge contours that share edges (pieces that touch once snapped): orient every contour by its even-odd depth,
- * split edges where another contour's vertex lies on them, cancel each edge against its reverse, and relink the rest.
+ * split edges where any vertex (including the contour's own, for self-touching contours) lies on them, cancel each edge against its reverse, and relink the rest.
  */
 function merge(region: Region, tol: number): Region {
-    if (region.length < 2) return region;
+    if (!region.length) return region;
     const q = tol / 10, key = (p: Point) => `${p.x},${p.y}`;
     const oriented = region.map(poly => {
         const depth = region.filter(o => o !== poly && inside([o], probe(poly))).length;
         return (area(poly) < 0) === (depth % 2 === 0) ? poly : [...poly].reverse();
     });
     const boxes = oriented.map(poly => { const xs = poly.map(p => p.x), ys = poly.map(p => p.y); return { x0: Math.min(...xs) - q, y0: Math.min(...ys) - q, x1: Math.max(...xs) + q, y1: Math.max(...ys) + q }; });
-    const near = boxes.map((m, i) => oriented.filter((_, j) => j !== i && boxes[j].x0 <= m.x1 && m.x0 <= boxes[j].x1 && boxes[j].y0 <= m.y1 && m.y0 <= boxes[j].y1).flat());
-    if (near.every(v => !v.length)) return oriented;
+    const near = boxes.map((m, i) => oriented.filter((_, j) => boxes[j].x0 <= m.x1 && m.x0 <= boxes[j].x1 && boxes[j].y0 <= m.y1 && m.y0 <= boxes[j].y1).flat());
     const edges: [Point, Point][] = [];
     oriented.forEach((poly, k) => poly.forEach((a, i) => {
         const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy, l = Math.sqrt(l2);
