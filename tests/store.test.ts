@@ -3,6 +3,24 @@ import { Store } from '../src/client/store';
 import { makeNode } from '../src/shared/doc';
 import type { Op } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode } from '../src/shared/components';
+it('composes nested detaches sharing enclosing overrides in one undo step', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id }, outer = { ...makeNode('frame', 0, 0), component: true };
+    const a = instanceNode(main, 0, 0, outer.id), b = instanceNode(main, 100, 0, outer.id);
+    const parent = { ...instanceNode(outer, 300, 0), overrides: { [a.id + '/' + child.id]: { fill: '#123456' }, [b.id + '/' + child.id]: { fill: '#abcdef' } } };
+    s.init([main, child, outer, a, b, parent]);
+    expect(detachOps(s.doc, [])).toEqual([]);
+    expect(detachOps(s.doc, ['missing', main.id])).toEqual([]);
+    s.commit(detachOps(s.doc, [a.id, b.id, a.id]));
+    const overrides = s.doc.get(parent.id)!.overrides!;
+    expect(Object.keys(overrides)).toHaveLength(2);
+    expect(Object.keys(overrides).every(key => !key.includes('/'))).toBe(true);
+    const resolved = expand(s.doc);
+    for (const [key, value] of Object.entries(overrides)) expect(resolved.get(parent.id + '/' + key)?.fill).toBe(value.fill);
+    expect(s.undoStack).toHaveLength(1);
+    s.history(); expect(s.doc.get(parent.id)?.overrides).toEqual(parent.overrides);
+    s.history(true); expect(s.doc.get(parent.id)?.overrides).toEqual(overrides);
+});
 it('chunks large commits into independently acked batches without splitting history', () => {
     const s = new Store(), batches: { ops: Op[]; seq: number }[] = [];
     s.send = (ops, seq) => batches.push({ ops, seq });

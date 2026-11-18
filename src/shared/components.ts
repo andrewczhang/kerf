@@ -1,4 +1,4 @@
-import { between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
+import { applyOp, between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
@@ -57,7 +57,16 @@ export function instanceNode(main: Node, x: number, y: number, parent: string | 
     const { component, overrides, ...values } = main;
     return { ...values, id: crypto.randomUUID(), type: 'frame', instanceOf: main.id, x, y, parent, index };
 }
-export function detachOps(doc: Doc, instanceId: string): Op[] {
+export function detachOps(doc: Doc, instanceId: string | string[]): Op[] {
+    if (Array.isArray(instanceId)) {
+        const shadow = new Map(doc), ops: Op[] = [];
+        for (const id of instanceId) {
+            const detach = detachOps(shadow, id);
+            for (const op of detach) applyOp(shadow, op);
+            ops.push(...detach);
+        }
+        return ops;
+    }
     if (!doc.get(instanceId)?.instanceOf)
         return [];
     const expanded = expand(doc), root = expanded.get(instanceId)!;

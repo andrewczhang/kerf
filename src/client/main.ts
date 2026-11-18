@@ -129,7 +129,7 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
         if (key === 'k') {
             try { const { ops, id } = componentOps.create(store.doc, [...store.selection]); store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
         }
-        else store.commit([...store.selection].flatMap(id => detachOps(store.doc, id)));
+        else store.commit(detachOps(store.doc, [...store.selection]));
         return;
     }
 } const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', t: 'text', h: 'hand' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
