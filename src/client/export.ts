@@ -89,42 +89,50 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     let clip = 0, paint = 0;
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
-    const renderList = (nodes: Node[], alpha: number, backdrop: string): string => {
+    const definitions: string[] = [], plainIds = new Map<string, string>();
+    const plainRef = (n: Node, alpha: number, shell = false): string => {
+        const key = `${n.id}/${alpha}/${shell}`; let id = plainIds.get(key);
+        if (!id) { id = paintId(); plainIds.set(key, id); const content = render(n, alpha, '', true, shell); definitions.push(`<g id="${id}">${content}</g>`); }
+        return `<use href="#${id}"/>`;
+    };
+    const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false): string => {
         let output = '', below = backdrop;
-        for (const n of nodes) { if (n.hidden) continue; const id = paintId(), rendered = render(n, alpha, below); output += `<g id="${id}">${rendered}</g>`; below += `<use href="#${id}"/>`; }
+        for (const n of nodes) { if (n.hidden) continue; const original = plainRef(n, alpha); if (plain) output += original; else { output += render(n, alpha, below); below = extendBackdrop(below, original); } }
         return output;
     };
-    const render = (n: Node, alpha: number, backdrop: string): string => {
+    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false): string => {
         if (n.hidden)
             return '';
         if (n.type === 'group')
-            return renderList(children(doc, n.id), alpha, backdrop);
+            return renderList(children(doc, n.id), alpha, backdrop, plain);
         const r = world(doc, n), opacity = alpha * n.opacity;
+        const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur') } : n, nodeId = plain ? painted.id : n.id;
         if (isTextNode(n)) {
             const { lines, leading, baseline, offset } = measureTextNode(n);
             const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
             const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
-            if (n.fills !== undefined || n.effects !== undefined) return svgPaints(n, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs, { images, backdrop, region: r });
-            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+            if (n.fills !== undefined || n.effects !== undefined) return svgPaints(painted, r, 'text', `xml:space="preserve" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}"`, opacity, '', paintId, runs, { images, backdrop, region: r });
+            return `<text id="${escape(nodeId)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
         }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'path' ? `d="${pathData(toAbs(n.points ?? [], r), !!n.closed)}" stroke-linejoin="round" stroke-linecap="round"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
-            let nested = '', ownId: string | undefined;
-            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); ownId = paintId(); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, backdrop + `<use href="#${ownId}" opacity="${opacity}"/>`)}</g>`; }
-            return svgPaints(n, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop, region: r, ownId });
+            let nested = '';
+            if (n.type === 'frame' && !shell) { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain ? '' : extendBackdrop(backdrop, plainRef(n, alpha, true)), plain)}</g>`; }
+            return svgPaints(painted, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop, region: r });
         }
-        const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
-        if (n.type !== 'frame')
+        const primitive = `<${tag} id="${escape(nodeId)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
+        if (n.type !== 'frame' || shell)
             return primitive;
         let id: string;
         do { id = `clip-${clip++}`; } while (doc.has(id));
-        const ownId = paintId();
-        return `<g id="${ownId}">${primitive}</g><defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, backdrop + `<use href="#${ownId}"/>`)}</g>`;
+        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain ? '' : extendBackdrop(backdrop, plainRef(n, alpha, true)), plain)}</g>`;
     };
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${renderList(roots, 1, '')}</svg>`;
+    const content = renderList(roots, 1, '');
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}"><defs>${definitions.join('')}</defs>${content}</svg>`;
 }
 
 export function exportFilename(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1): string {

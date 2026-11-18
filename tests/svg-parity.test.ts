@@ -6,6 +6,11 @@ vi.mock('../src/client/text-layout', () => ({ fontFamilies: { sans: 'sans-serif'
 afterEach(() => vi.unstubAllGlobals());
 const hash = 'a'.repeat(64), uri = 'data:image/png;base64,AQID', images = new Map([[hash, uri]]), image: Paint = { type: 'image', asset: hash, w: 40, h: 20, fit: 'fill', opacity: .6, visible: true }, solid: Paint = { type: 'solid', color: '#123456', opacity: 1, visible: true }, inner: Effect = { type: 'inner-shadow', x: 4, y: -2, blur: 8, spread: 3, color: '#abcdef', opacity: .4, visible: true }, backdrop: Effect = { type: 'background-blur', radius: 6, visible: true };
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
+it('keeps twenty blurred siblings linear in serialized size and free of replay recursion', () => {
+    const scene = (count: number) => { let index: string | null = null; const nodes = Array.from({ length: count }, (_, i) => { index = between(index); return { ...makeNode('rect', i * 5, 0), index, fills: [solid], effects: [backdrop] }; }); return exportSVG(docOf(...nodes), nodes.map(n => n.id)); };
+    const ten = scene(10), twenty = scene(20); expect(twenty.length).toBeLessThan(ten.length * 2.3); expect([...twenty.matchAll(/<use /g)].length).toBeLessThan(100);
+    const definitions = twenty.slice(0, twenty.indexOf('</defs>')); expect(definitions).not.toContain('<feGaussianBlur'); expect(definitions).not.toContain('clip-path=');
+});
 it.each(['fill', 'fit', 'tile'] as const)('embeds %s images with world-space placement, opacity and paint order', fit => {
     const n = { ...makeNode('rect', 20, 30), radius: 12, fills: [solid, { ...image, fit }, { ...solid, color: '#ff0000', opacity: .2 }] }, svg = exportSVG(docOf(n), [n.id], images);
     expect(svg).toContain(`href="${uri}"`); expect(svg).not.toContain('/f/'); expect(svg.indexOf('fill="#123456"')).toBeLessThan(svg.indexOf(fit === 'tile' ? 'fill="url(' : '<image x=')); expect(svg.lastIndexOf('fill="#ff0000"')).toBeGreaterThan(svg.indexOf(fit === 'tile' ? 'fill="url(' : '<image x='));
