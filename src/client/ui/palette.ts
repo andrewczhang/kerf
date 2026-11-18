@@ -14,6 +14,22 @@ export function fuzzyMatch(text: string, query: string): number[] | null {
     return indices;
 }
 
+export function rankCommands(candidates: Iterable<Command>, query: string): Command[] {
+    const ranked: { command: Command; score: number }[] = [];
+    for (const command of candidates) {
+        if (command.enabled && !command.enabled()) continue;
+        const matches = fuzzyMatch(command.title, query);
+        if (!matches) continue;
+        let score = 0;
+        matches.forEach((at, i) => {
+            if (at === 0 || /\W/.test(command.title[at - 1])) score += 20;
+            if (i > 0) score += at === matches[i - 1] + 1 ? 15 : -(at - matches[i - 1] - 1);
+        });
+        ranked.push({ command, score });
+    }
+    return ranked.sort((a, b) => b.score - a.score || a.command.title.localeCompare(b.command.title)).map(({ command }) => command);
+}
+
 export function installPalette(canvas: HTMLCanvasElement, prepare = () => {}) {
     const overlay = document.createElement('div'); overlay.className = 'palette-overlay'; overlay.hidden = true;
     overlay.innerHTML = '<div class="palette" role="dialog" aria-modal="true" aria-label="Commands"><input aria-label="Search commands" placeholder="Search commands…" autocomplete="off" role="combobox" aria-controls="command-results" aria-expanded="true"><div id="command-results" role="listbox"></div><div class="palette-help">↑ ↓ Navigate · Enter Run · Esc Close</div><div class="palette-error" role="alert"></div></div>';
@@ -27,7 +43,7 @@ export function installPalette(canvas: HTMLCanvasElement, prepare = () => {}) {
         try { await command.run(); canvas.focus(); } catch { overlay.hidden = false; overlay.querySelector('.palette-error')!.textContent = 'Command failed. Please try again.'; input.focus(); }
     }
     function render() {
-        results = [...commands.values()].filter(c => (!c.enabled || c.enabled()) && fuzzyMatch(c.title, input.value) !== null);
+        results = rankCommands(commands.values(), input.value);
         selected = Math.max(0, Math.min(selected, results.length - 1)); list.replaceChildren();
         results.forEach((command, i) => {
             const row = document.createElement('button'); row.className = 'palette-row'; row.id = 'command-' + i; row.role = 'option'; row.setAttribute('aria-selected', String(i === selected));
