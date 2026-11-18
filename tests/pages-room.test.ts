@@ -1,16 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import type { DurableObjectNamespace, DurableObjectState, Request as WorkerRequest } from '@cloudflare/workers-types';
+import type { DurableObjectNamespace, DurableObjectState, Request as WorkerRequest, WebSocket } from '@cloudflare/workers-types';
 import { Room } from '../worker/room';
 import { makeNode, type Node } from '../src/shared/doc';
 import type { ClientMsg, ServerMsg } from '../src/shared/protocol';
 
 afterEach(() => vi.unstubAllGlobals());
 it('accepts page ops, ignores duplicate migration creates, relays page presence and reconciles last-page deletion', async () => {
-    class Socket extends EventTarget { sent: ServerMsg[] = []; accept() {} send(data: string) { this.sent.push(JSON.parse(data)); } }
+    class Socket { sent: ServerMsg[] = []; serializeAttachment() {} send(data: string) { this.sent.push(JSON.parse(data)); } }
     let socket: Socket;
     vi.stubGlobal('WebSocketPair', class { 0 = new Socket(); 1 = socket = new Socket(); }); vi.stubGlobal('Response', class {});
+    vi.stubGlobal('WebSocketRequestResponsePair', class {});
     const data = new Map<string, unknown>(); let work: Promise<unknown> = Promise.resolve();
-    const state = { blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; }, storage: {
+    const state = { acceptWebSocket() {}, getWebSockets: () => [], setWebSocketAutoResponse() {}, blockConcurrencyWhile(fn: () => Promise<unknown>) { work = fn(); return work; }, storage: {
         async get(key: string) { return data.get(key); },
         async list({ prefix }: { prefix: string }) { return new Map([...data].filter(([key]) => key.startsWith(prefix))); },
         async transaction(fn: (txn: unknown) => Promise<unknown>) { return fn(this); },
@@ -21,7 +22,7 @@ it('accepts page ops, ignores duplicate migration creates, relays page presence 
     const persisted = () => [...data].filter(([key]) => key.startsWith('node:')).map(([, value]) => value as Node);
     const connect = async (id: string) => { await room.fetch(new Request('http://localhost/f/pages/ws?clientId=' + id, { headers: { Upgrade: 'websocket', 'x-kerf-role': 'edit' } }) as unknown as WorkerRequest); return socket!; };
     const a = await connect('a'), b = await connect('b');
-    const send = async (ws: Socket, msg: ClientMsg) => { ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(msg) })); await work; };
+    const send = (ws: Socket, msg: ClientMsg) => room.webSocketMessage(ws as unknown as WebSocket, JSON.stringify(msg));
     const first = { ...makeNode('page', 0, 0), id: 'page-1', name: 'Page 1' }, second = { ...makeNode('page', 0, 0, 'V'), id: 'page-2' }, rect = { ...makeNode('rect', 20, 30), parent: first.id };
     await send(a, { type: 'ops', seq: 1, ops: [first, second, rect].map(node => ({ t: 'create', node })) });
     await send(a, { type: 'ops', seq: 2, ops: [{ t: 'set', id: first.id, key: 'name', value: 'Renamed' }] });

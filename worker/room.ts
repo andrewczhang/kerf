@@ -2,27 +2,64 @@ import type { WebSocket, DurableObjectState, DurableObjectNamespace, Request as 
 import { applyOp, isTextNode, type Op } from '../src/shared/doc';
 import { StoredDocument } from './document';
 import { applyLayout } from '../src/shared/layout';
-import type { ClientMsg, Peer, ServerMsg } from '../src/shared/protocol';
+import type { ClientMsg, Peer, Role, ServerMsg } from '../src/shared/protocol';
 import { MAX_OPS } from '../src/shared/protocol';
 import { Features } from './features';
 import { resolveStyleOps } from '../src/shared/styles';
 import { sanitizeFileName } from '../src/shared/file-name';
 declare const WebSocketPair: typeof import('@cloudflare/workers-types').WebSocketPair;
+declare const WebSocketRequestResponsePair: typeof import('@cloudflare/workers-types').WebSocketRequestResponsePair;
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 declare const Request: typeof import('@cloudflare/workers-types').Request;
+type Connection = { peer: Peer; role: Role; receiptKey?: string; joinedEpoch: number; target: string; overflow?: boolean };
+type Attachment = Connection | { id: string };
 export class Room {
     doc = new StoredDocument();
     name = '';
-    peers = new Map<WebSocket, Peer>();
+    private connections = new Map<WebSocket, Connection>();
+    private departed = new WeakSet<WebSocket>();
     features: Features;
-    constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) { this.features = new Features(state.storage, this.doc, m => this.broadcast(m)); state.blockConcurrencyWhile(async () => { this.name = await state.storage.get<string>('file-name') ?? ''; await this.doc.load(state.storage); await this.features.load(); }); }
+    constructor(private state: DurableObjectState, private env: { ROOM: DurableObjectNamespace }) {
+        this.features = new Features(state.storage, this.doc, m => this.broadcast(m));
+        state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
+        state.blockConcurrencyWhile(async () => {
+            this.name = await state.storage.get<string>('file-name') ?? '';
+            await this.doc.load(state.storage);
+            await this.features.load();
+            for (const ws of state.getWebSockets()) {
+                const attachment = this.attachment(ws);
+                if (!attachment) continue;
+                const connection = 'id' in attachment ? await state.storage.get<Connection>('socket:' + attachment.id) : attachment;
+                if (connection) this.connections.set(ws, connection);
+            }
+        });
+    }
+    private attachment(ws: WebSocket): Attachment | undefined {
+        const data = ws.deserializeAttachment();
+        if (data instanceof Uint8Array) return JSON.parse(new TextDecoder().decode(data));
+    }
+    private saveConnection(ws: WebSocket, connection: Connection) {
+        const id = connection.peer.id, key = 'socket:' + id, encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify({ ...connection, overflow: undefined }));
+        // Leave room for the structured-clone header within the 16 KiB attachment limit.
+        if (data.length <= 16000) {
+            ws.serializeAttachment(data);
+            if (connection.overflow) {
+                connection.overflow = undefined;
+                return this.state.storage.delete(key);
+            }
+            return;
+        }
+        return this.state.storage.put(key, { ...connection, overflow: true }).then(() => {
+            connection.overflow = true;
+            ws.serializeAttachment(encoder.encode(JSON.stringify({ id })));
+        });
+    }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
     }
-    catch {
-        this.peers.delete(ws);
-    } }
-    broadcast(msg: ServerMsg, except?: WebSocket) { for (const ws of this.peers.keys())
+    catch {} }
+    broadcast(msg: ServerMsg, except?: WebSocket) { for (const ws of this.connections.keys())
         if (ws !== except)
             this.send(ws, msg); }
     canonicalText(op: Op): Op[] {
@@ -64,14 +101,14 @@ export class Room {
             return new Response('WebSocket required', { status: 426 });
         const pair = new WebSocketPair();
         const [client, ws] = Object.values(pair);
-        ws.accept();
-        const clientId = new URL(req.url).searchParams.get('clientId');
+        const clientId = url.searchParams.get('clientId');
         const receiptKey = clientId ? 'receipt:' + clientId : undefined;
-        let ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
+        const ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
         const palette = ['#2364df', '#a02bbe', '#00856a', '#d13c57', '#be7000'];
         const names = ['Alex', 'Sam', 'Robin', 'Jules', 'Casey'];
-        const usedColors = new Set([...this.peers.values()].map(p => p.color));
-        const usedNames = new Set([...this.peers.values()].map(p => p.name));
+        const peers = [...this.connections.values()].map(c => c.peer);
+        const usedColors = new Set(peers.map(p => p.color));
+        const usedNames = new Set(peers.map(p => p.name));
         let slot = 0, name: string, color: string;
         do {
             name = names[slot] ?? 'Guest ' + (slot + 1);
@@ -80,18 +117,27 @@ export class Room {
         } while (usedColors.has(color) || usedNames.has(name));
         const peer: Peer = { id: crypto.randomUUID(), name, color, cursor: null, selection: [], viewport: { x: 0, y: 0, zoom: 1 } };
         const joinedEpoch = this.features.epoch;
-        this.send(ws, { type: 'init', role, name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers: [...this.peers.values()], you: peer, epoch: joinedEpoch });
-        this.peers.set(ws, peer);
+        const connection: Connection = { peer, role, receiptKey, joinedEpoch, target: url.pathname.split('/')[2] };
+        this.state.acceptWebSocket(ws);
+        const saved = this.saveConnection(ws, connection);
+        if (saved) await saved;
+        this.send(ws, { type: 'init', role, name: this.name, ackSeq, nodes: [...this.doc.values()], styles: this.features.styles, comments: this.features.comments, versions: this.features.versions, peers, you: peer, epoch: joinedEpoch });
+        this.connections.set(ws, connection);
         this.broadcast({ type: 'presence', peer }, ws);
-        ws.addEventListener('message', event => { this.state.blockConcurrencyWhile(async () => { try {
-            const msg = JSON.parse(String(event.data)) as ClientMsg;
+        return new Response(null, { status: 101, webSocket: client });
+    }
+    webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+        return this.state.blockConcurrencyWhile(async () => { try {
+            const connection = this.connections.get(ws);
+            if (!connection) return;
+            const { peer, role, receiptKey, joinedEpoch, target } = connection;
+            const msg = JSON.parse(String(message)) as ClientMsg;
             if (role === 'view' && !['ping', 'presence', 'comment-add', 'version-preview'].includes(msg.type)) {
                 this.send(ws, { type: 'error', request: msg.type, message: 'View only' }); return;
             }
             if (msg.type === 'share-view') {
                 let key = await this.state.storage.get<string>('viewKey');
                 if (!key) { key = crypto.randomUUID(); await this.state.storage.put('viewKey', key); }
-                const target = url.pathname.split('/')[2];
                 const registered = await this.env.ROOM.get(this.env.ROOM.idFromName('v:' + key)).fetch(new Request('https://room/_internal/register-view', { method: 'POST', body: target }));
                 if (!registered.ok) throw Error('Alias registration failed');
                 this.send(ws, { type: 'share-view', key }); return;
@@ -101,7 +147,7 @@ export class Room {
                     this.send(ws, { type: 'ack', seq: msg.seq });
                     return;
                 }
-                if (receiptKey) ackSeq = await this.state.storage.get<number>(receiptKey) ?? 0;
+                const ackSeq = receiptKey ? await this.state.storage.get<number>(receiptKey) ?? 0 : 0;
                 if (receiptKey && msg.seq <= ackSeq) {
                     const text = msg.ops.flatMap(op => this.canonicalText(op));
                     this.send(ws, { type: 'ack', seq: msg.seq, ...(text.length ? { text } : {}) });
@@ -143,25 +189,45 @@ export class Room {
                 const spotlight = typeof msg.spotlight === 'boolean' && !!peer.spotlight !== msg.spotlight;
                 if (spotlight) {
                     if (msg.spotlight) {
-                        for (const other of this.peers.values()) {
-                            if (!other.spotlight) continue;
-                            other.spotlight = false;
-                            this.broadcast({ type: 'presence', peer: other });
+                        for (const [otherSocket, other] of this.connections) {
+                            if (!other.peer.spotlight) continue;
+                            other.peer.spotlight = false;
+                            await this.saveConnection(otherSocket, other);
+                            this.broadcast({ type: 'presence', peer: other.peer });
                         }
                     }
                     peer.spotlight = msg.spotlight;
                 }
+                await this.saveConnection(ws, connection);
                 this.broadcast({ type: 'presence', peer }, spotlight ? undefined : ws);
             }
             else if (msg.type !== 'ops' && msg.type !== 'presence') await this.features.message(msg, peer, m => this.send(ws, m));
         }
         catch {
             ws.close(1003, 'Invalid message');
-        } }); });
-        const leave = () => { if (this.peers.delete(ws))
-            this.broadcast({ type: 'leave', id: peer.id }); };
-        ws.addEventListener('close', leave);
-        ws.addEventListener('error', leave);
-        return new Response(null, { status: 101, webSocket: client });
+        } });
+    }
+    private async leave(ws: WebSocket) {
+        if (this.departed.has(ws)) return;
+        const connection = this.connections.get(ws) ?? this.attachment(ws);
+        if (!connection) return;
+        this.departed.add(ws);
+        this.connections.delete(ws);
+        const id = 'id' in connection ? connection.id : connection.peer.id;
+        this.broadcast({ type: 'leave', id });
+        if ('id' in connection || connection.overflow) await this.state.storage.delete('socket:' + id);
+    }
+    webSocketClose(ws: WebSocket, code: number, reason: string) {
+        const left = this.leave(ws);
+        if (code !== 1006) {
+            if (code >= 1000 && code < 5000 && ![1004, 1005, 1015].includes(code)) ws.close(code, reason);
+            else ws.close();
+        }
+        return left;
+    }
+    webSocketError(ws: WebSocket) {
+        const left = this.leave(ws);
+        ws.close(1011, 'WebSocket error');
+        return left;
     }
 }
