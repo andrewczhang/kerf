@@ -340,13 +340,13 @@ export async function pasteLayers(store: Store, file = currentFile()) {
         await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
     }
     const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
-    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.doc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
+    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.pageDoc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
     const created: Node[] = [];
     for (const n of clip.nodes) {
         const copy: Node = { ...n, id: ids.get(n.id)! };
         if (clip.roots.includes(n.id)) {
             const parent = target(n.id);
-            copy.parent = parent?.id ?? null;
+            copy.parent = parent?.id ?? store.currentPage ?? null;
             const m = clip.matrices?.[n.id];
             if (parent || !m) {
                 copy.x = n.x + 20 * clip.pastes;
