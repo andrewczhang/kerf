@@ -11,6 +11,12 @@ it('keeps twenty blurred siblings linear in serialized size and free of replay r
     const ten = scene(10), twenty = scene(20); expect(twenty.length).toBeLessThan(ten.length * 2.3); expect([...twenty.matchAll(/<use /g)].length).toBeLessThan(100);
     const definitions = twenty.slice(0, twenty.indexOf('</defs>')); expect(definitions).not.toContain('<feGaussianBlur'); expect(definitions).not.toContain('clip-path=');
 });
+it.each([false, true])('clips earlier child replay to every ancestor frame (painted=%s)', painted => {
+    const outer = { ...makeNode('frame', 0, 0), ...(painted ? { fills: [] } : {}) }, frame = { ...makeNode('frame', 20, 20), parent: outer.id, w: 50, h: 50 }, outside = { ...makeNode('rect', 40, 0), parent: frame.id, name: 'Outside', w: 40 }, glass = { ...makeNode('rect', 10, 10), parent: frame.id, index: between(outside.index), effects: [backdrop] }, svg = exportSVG(docOf(outer, frame, outside, glass), [outer.id]);
+    const original = /<g id="([^"]+)"><rect[^>]*data-name="Outside"/.exec(svg)![1];
+    const replay = new RegExp(`<g clip-path="url\\(#([^\"]+)\\)"><g clip-path="url\\(#([^\"]+)\\)"><use href="#${original}"/></g></g>`).exec(svg);
+    expect(replay).not.toBeNull(); expect(replay![1]).not.toBe(replay![2]);
+});
 it.each(['fill', 'fit', 'tile'] as const)('embeds %s images with world-space placement, opacity and paint order', fit => {
     const n = { ...makeNode('rect', 20, 30), radius: 12, fills: [solid, { ...image, fit }, { ...solid, color: '#ff0000', opacity: .2 }] }, svg = exportSVG(docOf(n), [n.id], images);
     expect(svg).toContain(`href="${uri}"`); expect(svg).not.toContain('/f/'); expect(svg.indexOf('fill="#123456"')).toBeLessThan(svg.indexOf(fit === 'tile' ? 'fill="url(' : '<image x=')); expect(svg.lastIndexOf('fill="#ff0000"')).toBeGreaterThan(svg.indexOf(fit === 'tile' ? 'fill="url(' : '<image x='));

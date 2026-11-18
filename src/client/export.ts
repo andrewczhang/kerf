@@ -88,6 +88,8 @@ const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<string, string> = new Map()): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     let clip = 0, paint = 0;
+    const needsBackdrop = (nodes: Node[]): boolean => nodes.some(n => !n.hidden && ((n.type !== 'path' || n.closed) && n.effects?.some(e => e.visible && e.type === 'background-blur') || (n.type === 'frame' || n.type === 'group') && needsBackdrop(children(doc, n.id))));
+    const hasBackdrop = needsBackdrop(roots);
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
     const definitions: string[] = [], plainIds = new Map<string, string>();
     const plainRef = (n: Node, alpha: number, shell = false): string => {
@@ -96,16 +98,17 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         return `<use href="#${id}"/>`;
     };
     const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
-    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false): string => {
+    const clipped = (content: string, clips: string[]) => clips.reduceRight((body, id) => `<g clip-path="url(#${id})">${body}</g>`, content);
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: string[] = []): string => {
         let output = '', below = backdrop;
-        for (const n of nodes) { if (n.hidden) continue; const original = plainRef(n, alpha); if (plain) output += original; else { output += render(n, alpha, below); below = extendBackdrop(below, original); } }
+        for (const n of nodes) { if (n.hidden) continue; if (!plain && !hasBackdrop) { output += render(n, alpha, '', false, false, clips); continue; } const original = plainRef(n, alpha); if (plain) output += original; else { output += render(n, alpha, below, false, false, clips); below = extendBackdrop(below, clipped(original, clips)); } }
         return output;
     };
-    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false): string => {
+    const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false, clips: string[] = []): string => {
         if (n.hidden)
             return '';
         if (n.type === 'group')
-            return renderList(children(doc, n.id), alpha, backdrop, plain);
+            return renderList(children(doc, n.id), alpha, backdrop, plain, clips);
         const r = world(doc, n), opacity = alpha * n.opacity;
         const painted = plain ? { ...n, id: paintId(), effects: n.effects?.filter(e => e.type !== 'background-blur') } : n, nodeId = plain ? painted.id : n.id;
         if (isTextNode(n)) {
@@ -121,7 +124,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
-            if (n.type === 'frame' && !shell) { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain ? '' : extendBackdrop(backdrop, plainRef(n, alpha, true)), plain)}</g>`; }
+            if (n.type === 'frame' && !shell) { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), 1, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, id])}</g>`; }
             return svgPaints(painted, r, tag, geometry, opacity, nested, paintId, '', { images, backdrop, region: r });
         }
         const primitive = `<${tag} id="${escape(nodeId)}" data-name="${escape(n.name)}" ${geometry}${n.type === 'path' && !n.closed ? ' fill="none"' : ` fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
@@ -129,10 +132,10 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
             return primitive;
         let id: string;
         do { id = `clip-${clip++}`; } while (doc.has(id));
-        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain ? '' : extendBackdrop(backdrop, plainRef(n, alpha, true)), plain)}</g>`;
+        return `${primitive}<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, id])}</g>`;
     };
     const content = renderList(roots, 1, '');
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}"><defs>${definitions.join('')}</defs>${content}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${definitions.length ? `<defs>${definitions.join('')}</defs>` : ''}${content}</svg>`;
 }
 
 export function exportFilename(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1): string {
