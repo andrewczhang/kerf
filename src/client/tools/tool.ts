@@ -2,6 +2,7 @@ import type { Point } from '../../shared/geometry';
 import type { Store } from '../store';
 import type { Viewport } from '../viewport';
 export interface Context {
+    snap?: import('../snapping').SnapState;
     store: Store;
     viewport: Viewport;
     invalidate: () => void;

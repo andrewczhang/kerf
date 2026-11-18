@@ -14,6 +14,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { installGuides } from './guides';
 import { downloadSelection } from './export';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
@@ -27,6 +28,7 @@ const viewport = new Viewport(() => { renderer?.invalidate(); textEditor?.update
 const sync = new Sync(store, file);
 const presence = new Presence(sync, viewport, store.selection);
 const ctx: Context = { store, viewport, invalidate: () => renderer?.invalidate() };
+installGuides(canvas, ctx, file, () => space || active?.id === 'hand');
 textEditor = new TextEditor(ctx, canvas);
 renderer = new Renderer(canvas, ctx, sync);
 store.addEventListener('change', () => { renderer.invalidate(); presence.update(); });
