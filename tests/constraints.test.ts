@@ -10,6 +10,30 @@ import { expand, instanceNode } from '../src/shared/components';
 const from = { w: 200, h: 100 }, to = { w: 300, h: 160 };
 const box = { ...makeNode('rect', 20, 10), w: 40, h: 20 };
 it.each([
+    [undefined, { x: 250, y: 120, w: 20, h: 20 }],
+    [{ constraintH: 'both', constraintV: 'both' }, { x: 150, y: 60, w: 120, h: 80 }],
+    [{ constraintH: 'center', constraintV: 'center' }, { x: 200, y: 90, w: 20, h: 20 }],
+    [{ constraintH: 'left', constraintV: 'top' }, { x: 150, y: 60, w: 20, h: 20 }]
+] as const)('uses inherited and root override pins when resizing an instance parent (%j)', (overrides, expected) => {
+    const frame = { ...makeNode('frame', 0, 0), w: 200, h: 100 };
+    const main = { ...makeNode('frame', 400, 0), component: true, w: 20, h: 20, constraintH: 'right' as const, constraintV: 'bottom' as const };
+    const instance = { ...instanceNode(main, 150, 60, frame.id), overrides: overrides ? { '': overrides } : undefined };
+    const store = new Store(); store.init([frame, main, instance]);
+    store.commit([...constraintOps(store.doc, frame.id, { w: 300, h: 160 }), { t: 'set', id: frame.id, key: 'w', value: 300 }, { t: 'set', id: frame.id, key: 'h', value: 160 }]);
+    expect(store.doc.get(instance.id)).toMatchObject(expected);
+    expect(store.doc.get(main.id)).toMatchObject({ w: 20, h: 20, constraintH: 'right', constraintV: 'bottom' });
+    store.history(); expect(store.doc.get(instance.id)).toMatchObject({ x: 150, y: 60, w: 20, h: 20 });
+    store.history(true); expect(store.doc.get(instance.id)).toMatchObject(expected);
+});
+it('does not resolve missing sources or replace already resolved virtual pins', () => {
+    const frame = makeNode('frame', 0, 0), main = { ...makeNode('frame', 0, 0), component: true, constraintH: 'right' as const };
+    const child = { ...instanceNode(main, 10, 0, frame.id), id: 'outer/child', constraintH: 'left' as const, overrides: { '': { constraintH: 'right' } } };
+    const missing = { ...instanceNode(main, 20, 0, frame.id), instanceOf: 'missing' };
+    const doc: Doc = new Map([frame, main, child, missing].map(n => [n.id, n]));
+    expect(constraintOps(doc, frame.id, { w: 200, h: 100 })).toEqual([]);
+    expect(constraintOps(doc, 'missing', { w: 200, h: 100 })).toEqual([]);
+});
+it.each([
     ['left', 80, 20], ['right', 30, 20], ['center', 55, 20], ['scale', 40, 10], ['both', 80, 1]
 ] as const)('resolves instance %s pins without changing the main', (constraintH, x, w) => {
     const main = { ...makeNode('frame', 0, 0), component: true };
