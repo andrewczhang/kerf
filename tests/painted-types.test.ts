@@ -7,6 +7,7 @@ import { editingPaint } from '../src/client/paint-edit';
 import { gradientDown, gradientMove, gradientUp } from '../src/client/gradient-handles';
 import { Store } from '../src/client/store';
 import type { Context } from '../src/client/tools/tool';
+import { textMask } from '../src/client/text-paint';
 
 vi.mock('../src/client/text-layout', () => ({ font: () => '24px sans-serif', fontFamilies: { sans: 'sans-serif' }, measureTextNode: () => ({ lines: ['Painted'], w: 120, h: 30, leading: 30, baseline: 24, offset: 0 }), textPaintBounds: () => ({ x: -2, y: 0, w: 124, h: 30 }) }));
 afterEach(() => vi.unstubAllGlobals());
@@ -45,6 +46,13 @@ it('uses measured text geometry for gradient handle editing', () => {
     const ctx = { store, viewport: { zoom: 1 }, invalidate() {} } as Context;
     expect(gradientDown(ctx, { x: 140, y: 60 })).toBe(true); expect(gradientMove(ctx, { x: 80, y: 45 })).toBe(true); expect(gradientUp(ctx)).toBe(true);
     expect(store.doc.get(n.id)?.fills?.[0]).toMatchObject({ to: { x: .5, y: .5 } });
+});
+it('pads glyph masks by transformed effect extent and retains offscreen glyph positions', () => {
+    const n = { ...makeNode('text', -100, 20), effects: [{ ...shadow, x: 80, y: -20, blur: 4, spread: 2 }] }, c = { setTransform: vi.fn(), fillText: vi.fn() }, canvas = { width: 0, height: 0, getContext: () => c };
+    vi.stubGlobal('document', { createElement: () => canvas });
+    const target = { canvas: { width: 200, height: 100 }, getTransform: () => ({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }) } as unknown as CanvasRenderingContext2D;
+    const mask = textMask(target, n, n);
+    expect(mask.pad).toBe(180); expect(canvas.width).toBe(560); expect(canvas.height).toBe(460); expect(c.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 190, 200); expect(c.fillText).toHaveBeenCalledWith('Painted', -100, 44);
 });
 it('exports painted paths and text with filters and retains text effect overflow', () => {
     const n = path(), svg = exportSVG(docOf(n), [n.id]); expect(svg).toContain('<path d="M20 30C'); expect(svg).toContain('gradientUnits="userSpaceOnUse"'); expect(svg).toContain('<feGaussianBlur');
