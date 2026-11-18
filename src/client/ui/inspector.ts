@@ -82,6 +82,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
         const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const section = document.createElement('section'); if (target === true) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!;
         if (target && target !== true && styleControl(section, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key));
         for (const key of keys) {
+            const stroke = target === true;
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
