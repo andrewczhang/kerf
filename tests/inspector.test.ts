@@ -1,8 +1,23 @@
 import { expect, it } from 'vitest';
-import { refreshNumericFields } from '../src/client/ui/inspector';
+import { refreshFocusedInspector, refreshNumericFields } from '../src/client/ui/inspector';
 import { Store } from '../src/client/store';
 import { layoutText } from '../src/client/text-layout';
 import { makeNode } from '../src/shared/doc';
+import { instanceNode } from '../src/shared/components';
+
+it('rebuilds focused inspector controls when creating or switching to an instance', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true }, instance = instanceNode(main, 200, 0);
+    const { inputs, content } = fields({ w: '100' }); Object.assign(content, { dataset: {} });
+    const button = {} as HTMLElement;
+    expect(refreshFocusedInspector(content, [main], null)).toBe(false);
+    expect(refreshFocusedInspector(content, [main], button)).toBe(true);
+    expect(refreshFocusedInspector(content, [instance], button)).toBe(false);
+    expect(refreshFocusedInspector(content, [{ ...instance, w: 150 }], button)).toBe(true);
+    expect(inputs.w.value).toBe('150');
+    expect(refreshFocusedInspector(content, [], button)).toBe(false);
+    expect(refreshFocusedInspector(content, [], null)).toBe(false);
+    expect(refreshFocusedInspector(content, [main], button)).toBe(false);
+});
 
 function fields(values: Record<string, string>) {
     const inputs = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { dataset: { key }, value, placeholder: '' } as unknown as HTMLInputElement]));

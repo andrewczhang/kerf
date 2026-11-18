@@ -4,11 +4,47 @@ import { editorCommands } from '../src/client/ui/editor-commands';
 import { registry } from '../src/client/tools/tool';
 import type { Context } from '../src/client/tools/tool';
 import type { Renderer } from '../src/client/renderer';
+import { Store } from '../src/client/store';
+import { makeNode } from '../src/shared/doc';
+import { instanceNode } from '../src/shared/components';
+import { downloadSelection } from '../src/client/export';
 
 const { prepare } = vi.hoisted(() => ({ prepare: { current: () => {} } }));
 vi.mock('../src/client/ui/palette', async importOriginal => ({ ...await importOriginal<typeof import('../src/client/ui/palette')>(), installPalette: (_: unknown, fn: () => void) => { prepare.current = fn; return () => {}; } }));
+vi.mock('../src/client/export', async importOriginal => ({ ...await importOriginal<typeof import('../src/client/export')>(), downloadSelection: vi.fn() }));
 afterEach(() => { commands.clear(); registry.clear(); vi.unstubAllGlobals(); });
 describe('editor palette commands', () => {
+    it('enables exports for deep-selected instance layers but not missing or empty selections', () => {
+        vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });
+        const store = new Store(), main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 0, 0), parent: main.id }, instance = instanceNode(main, 200, 0);
+        store.init([main, child, instance]); store.selection.add(instance.id + '/' + child.id);
+        editorCommands({ store, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn());
+        for (const format of ['png', 'svg']) {
+            const command = commands.get('export-' + format)!;
+            expect(command.enabled!()).toBe(true); command.run();
+            expect(downloadSelection).toHaveBeenCalledWith(store.doc, store.selection, format, format === 'png' ? 2 : 1);
+            store.selection = new Set(['missing']); expect(command.enabled!()).toBe(false);
+            store.selection.clear(); expect(command.enabled!()).toBe(false);
+            store.selection.add(instance.id + '/' + child.id);
+        }
+    });
+    it('creates components and detaches instances through registered commands', () => {
+        vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });
+        const store = new Store(), rect = makeNode('rect', 0, 0);
+        store.init([rect]);
+        editorCommands({ store, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn());
+        expect(commands.get('create-component')!.enabled!()).toBe(false);
+        expect(commands.get('detach-instance')!.enabled!()).toBe(false);
+        const selection = store.selection;
+        store.selection.add(rect.id); commands.get('create-component')!.run();
+        const main = store.doc.get([...store.selection][0])!;
+        expect(store.selection).toBe(selection); expect([...selection]).toEqual([main.id]);
+        expect(main.component).toBe(true);
+        const instance = { ...makeNode('frame', 200, 0), instanceOf: main.id };
+        store.commit([{ t: 'create', node: instance }]); store.selection = new Set([instance.id]);
+        expect(commands.get('detach-instance')!.enabled!()).toBe(true);
+        commands.get('detach-instance')!.run(); expect(store.doc.get(instance.id)?.instanceOf).toBeUndefined();
+    });
     it('excludes pointer-only gradient markers while keeping clickable panel actions', () => {
         const markerClick = vi.fn(), actionClick = vi.fn();
         const marker = { getClientRects: () => [{}], closest: (selector: string) => selector.includes('.stop-strip') ? {} : null, matches: () => false, dataset: {}, getAttribute: () => 'Gradient stop 1', click: markerClick };

@@ -121,7 +121,8 @@ export class Pen implements Tool {
     }
     create(p: Point) {
         const { store } = this.ctx, doc = store.doc, target = hit(store.pageDoc, p);
-        const parent = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined;
+        const frame = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined;
+        const parent = frame?.instanceOf ? undefined : frame;
         const m = parent ? worldMatrix(doc, parent) : identity, abs = [corner(p.x, p.y)], f = fit(mapped(abs, inverse(m)), false, { x: 0, y: 0 });
         const node: Node = { ...makeNode('path', f.x, f.y, between(children(doc, parent?.id ?? store.currentPage ?? null).at(-1)?.index ?? null)), parent: parent?.id ?? store.currentPage ?? null, w: f.w, h: f.h, points: f.points };
         store.commit([{ t: 'create', node }]);

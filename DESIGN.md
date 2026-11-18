@@ -44,6 +44,9 @@ Nodes also carry rotation in degrees, normalized to [-180,180), with legacy miss
 Rectangles, ellipses and closed paths may carry `mask: true`. A visible mask is not painted: its world-space geometry clips following siblings up to the next visible mask or the end, within page, group or frame. Hidden masks have no effect; mask opacity is ignored. The same clipping applies to exports and hit testing.
 Op = {t:'create', node} | {t:'set', id, key, value} | {t:'delete', id}. Deleting a frame deletes descendants.
 
+## Components
+Main components are frames marked `component`; instances are childless frames with `instanceOf` and per-path `overrides`. `shared/components.ts` expands instances into virtual layers (`instance/id`, nested `instance/nested/id`) for rendering, hit testing and presence. Structural properties stay on each instance; appearance follows the main unless overridden. Main size edits also resize instances still at the old size, in the same history transaction. Override writes sync as property-LWW operations keyed by instance, target and property. Detach bakes the resolved subtree into real nodes; deleting a main detaches surviving instances first. Creation and reparenting prevent component cycles and children inside instances; expansion caps nested depth at eight.
+
 Optional layout fields: `layout: 'none'|'horizontal'|'vertical'` (default none), `gap`, `padTop`, `padRight`, `padBottom`, `padLeft` (finite nonnegative numbers, default 0), `justify: 'start'|'center'|'end'|'between'` and `align: 'start'|'center'|'end'` (default start), `sizeW`, `sizeH: 'fixed'|'hug'|'fill'` (default fixed). Absent fields preserve existing documents.
 
 ### Auto layout

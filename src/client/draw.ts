@@ -1,4 +1,4 @@
-import { children, nodeFills, isTextNode, type Doc, type Effect, type Node } from '../shared/doc';
+import { childIndex, nodeFills, isTextNode, type Doc, type Effect, type Node } from '../shared/doc';
 import { world, worldMatrix } from './geometry';
 import { inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { font, measureTextNode, textPaintBounds } from './text-layout';
@@ -68,7 +68,7 @@ function paintStroke(c: CanvasRenderingContext2D, n: Node, r: Rect, points: Path
     c.restore();
 }
 
-type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void; viewport?: Rect };
+type DrawOptions = { zoom: number; labels: boolean; skip?: string; scale?: number; file?: string; invalidate?: () => void; viewport?: Rect; tree?: Map<string | null, Node[]> };
 const labelWidths = new WeakMap<Node, number>();
 export function clipMask(c: CanvasRenderingContext2D, doc: Doc, n: Node, applied?: Mat) {
     const r = { x: 0, y: 0, w: n.w, h: n.h }, m = worldMatrix(doc, n), relative = applied ? multiply(inverse(applied), m) : m;
@@ -81,8 +81,9 @@ export function clipMask(c: CanvasRenderingContext2D, doc: Doc, n: Node, applied
     c.restore(); c.clip();
 }
 export function drawChildren(c: CanvasRenderingContext2D, doc: Doc, parent: string | null, opts: DrawOptions, applied?: Mat) {
+    if (!opts.tree) opts = { ...opts, tree: childIndex(doc) };
     let clipped = false;
-    for (const n of children(doc, parent)) {
+    for (const n of (opts.tree!.get(parent) ?? [])) {
         if (n.hidden) continue;
         if (n.mask) { if (clipped) c.restore(); c.save(); clipMask(c, doc, n, applied); clipped = true; }
         else drawNode(c, doc, n, opts, applied);
@@ -91,6 +92,7 @@ export function drawChildren(c: CanvasRenderingContext2D, doc: Doc, parent: stri
 }
 export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions, applied?: Mat) {
     if (blocked(doc, n, false) || n.mask || opts.skip === n.id) return;
+    if (!opts.tree) opts = { ...opts, tree: childIndex(doc) };
     if (opts.viewport) {
         let labelWidth = 0;
         if (opts.labels && n.type === 'frame') {
@@ -144,11 +146,7 @@ export function drawNode(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: D
         drawChildren(c, doc, n.id, { ...opts, viewport: undefined }, matrix);
         c.restore();
     }
-    if (n.type === 'frame' && opts.labels) {
-        c.fillStyle = '#77766f';
-        c.font = `${11 / opts.zoom}px system-ui`;
-        c.fillText(n.name, r.x, r.y - 8 / opts.zoom);
-    }
+    drawLabel(c, doc, n, opts);
     c.restore();
 }
 
@@ -235,5 +233,32 @@ function drawPaintedNode(target: CanvasRenderingContext2D, doc: Doc, n: Node, op
     }
     for (const e of effects) if (e.type === 'inner-shadow') { if (text && mask) { clipShape(c => { const hole = e.spread ? textMask(target, text, r, -e.spread) : mask, inverse = snapshot(hole.canvas), b = inverse.getContext('2d')!; b.globalCompositeOperation = 'source-out'; b.fillStyle = '#000'; b.fillRect(0, 0, inverse.width, inverse.height); const shift = hole.w + hole.h + e.blur * scale * 4; c.setTransform(1, 0, 0, 1, 0, 0); c.shadowColor = rgba(e.color, e.opacity); c.shadowBlur = e.blur * scale; shadowOffset(c, e.x, e.y, shift); c.drawImage(inverse, -shift + hole.x, hole.y, hole.w, hole.h); }); continue; } target.save(); target.clip(shape, fillRule); const ring = new Path2D(); const margin = Math.max(r.w, r.h) + e.blur * 4 + Math.abs(e.spread) + Math.abs(e.x) + Math.abs(e.y), shift = (target.canvas.width + target.canvas.height) / scale + margin * 4; ring.rect(r.x - margin, r.y - margin, r.w + margin * 2, r.h + margin * 2); ring.addPath(path(-e.spread)); target.fillStyle = '#000'; target.shadowColor = rgba(e.color, e.opacity); target.shadowBlur = e.blur * scale; shadowOffset(target, shift + e.x, e.y); target.translate(-shift, 0); target.fill(ring, 'evenodd'); target.restore(); }
     if (n.type === 'frame') { target.clip(shape, fillRule); drawChildren(target, doc, n.id, { ...opts, viewport: undefined }, applied); }
-    target.restore(); if (n.type === 'frame' && opts.labels) { target.fillStyle = '#77766f'; target.font = `${11 / opts.zoom}px system-ui`; target.fillText(n.name, r.x, r.y - 8 / opts.zoom); }
+    target.restore(); drawLabel(target, doc, n, opts);
+}
+
+function drawLabel(c: CanvasRenderingContext2D, doc: Doc, n: Node, opts: DrawOptions) {
+    const r = world(doc, n);
+    if (n.type === 'frame' && opts.labels) {
+        c.fillStyle = '#77766f';
+        c.strokeStyle = '#77766f';
+        if (n.instanceOf && !doc.has(n.instanceOf)) {
+            c.lineWidth = 1 / opts.zoom;
+            c.setLineDash([4 / opts.zoom, 3 / opts.zoom]);
+            c.strokeRect(r.x, r.y, r.w, r.h);
+            c.setLineDash([]);
+        }
+        if (n.component || n.instanceOf) {
+            c.save();
+            c.translate(r.x, r.y - 13 / opts.zoom);
+            c.scale(1 / opts.zoom, 1 / opts.zoom);
+            c.lineWidth = 1;
+            for (const [x, y] of [[5, 0], [0, 5], [10, 5], [5, 10]]) {
+                c.beginPath(); c.moveTo(x, y - 3); c.lineTo(x + 3, y); c.lineTo(x, y + 3); c.lineTo(x - 3, y); c.closePath();
+                if (n.instanceOf) c.stroke(); else c.fill();
+            }
+            c.restore();
+        }
+        c.font = `${11 / opts.zoom}px system-ui`;
+        c.fillText(n.name, r.x + (n.component || n.instanceOf ? 19 / opts.zoom : 0), r.y - 8 / opts.zoom);
+    }
 }

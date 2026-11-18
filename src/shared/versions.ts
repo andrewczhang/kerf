@@ -3,6 +3,22 @@ export interface Version { id: string; name: string; at: number; author: string;
 export function versionDiff(current: Doc, target: Doc): Op[] {
     const ops: Op[] = [], shadow = new Map(current);
     const push = (op: Op) => { ops.push(op); applyOp(shadow, op); };
+    for (const n of current.values())
+        if ((!target.has(n.id) || n.instanceOf !== target.get(n.id)!.instanceOf) && shadow.has(n.id))
+            push({ t: 'delete', id: n.id });
+    for (const n of shadow.values()) {
+        const next = target.get(n.id)!;
+        if (n.parent !== next.parent && (!next.parent || !shadow.has(next.parent)))
+            push({ t: 'set', id: n.id, key: 'parent', value: null });
+    }
+    for (const n of shadow.values()) {
+        const next = target.get(n.id)!;
+        if (n.parent === next.parent) continue;
+        const op: Op = { t: 'set', id: n.id, key: 'parent', value: next.parent }, trial = new Map(shadow);
+        applyOp(trial, op);
+        if (trial.get(n.id) !== n) push(op);
+        else if (n.parent) push({ t: 'set', id: n.id, key: 'parent', value: null });
+    }
     const remaining = new Map(target);
     while (remaining.size) {
         let progress = false;
@@ -19,6 +35,5 @@ export function versionDiff(current: Doc, target: Doc): Op[] {
         }
         if (!progress) throw Error('Invalid snapshot hierarchy');
     }
-    for (const n of current.values()) if (!target.has(n.id) && shadow.has(n.id)) push({ t: 'delete', id: n.id });
     return ops;
 }

@@ -173,7 +173,8 @@ export class TextTool implements Tool {
             this.edit(target);
             return;
         }
-        const parent = target?.type === 'frame' ? target : target?.parent ? store.doc.get(target.parent) : undefined;
+        const frame = target?.type === 'frame' ? target : target?.parent ? store.doc.get(target.parent) : undefined;
+        const parent = frame?.instanceOf ? undefined : frame;
         const local = transform(inverse(parent ? worldMatrix(store.doc, parent) : identity), p);
         const index = between(children(store.doc, parent?.id ?? store.currentPage ?? null).at(-1)?.index ?? null);
         const node = makeNode('text', local.x, local.y, index);

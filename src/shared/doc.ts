@@ -68,6 +68,9 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     strokeWidth: number;
     radius: number;
     opacity: number;
+    component?: boolean;
+    instanceOf?: string;
+    overrides?: Record<string, Partial<Record<Key, unknown>>>;
     layout?: 'none' | 'horizontal' | 'vertical';
     gap?: number;
     padTop?: number;
@@ -132,6 +135,13 @@ export type Op = {
     value: Node[Key];
     baseText?: string;
 } | {
+    t: 'override';
+    id: string;
+    target: string;
+    key: Key;
+    value: unknown;
+    clear?: true;
+} | {
     t: 'delete';
     id: string;
 };
@@ -154,18 +164,45 @@ export function between(a: string | null = null, b: string | null = null): strin
     }
 }
 export function children(doc: Doc, parent: string | null) { return docIndex(doc)?.children(parent) ?? [...doc.values()].filter(n => n.parent === parent).sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id)); }
+export function childIndex(doc: Doc): Map<string | null, Node[]> {
+    const index = new Map<string | null, Node[]>();
+    for (const n of doc.values()) {
+        const siblings = index.get(n.parent) ?? [];
+        siblings.push(n); index.set(n.parent, siblings);
+    }
+    for (const siblings of index.values()) siblings.sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
+    return index;
+}
 export function descendants(doc: Doc, id: string): Node[] { return children(doc, id).flatMap(n => [n, ...descendants(doc, n.id)]); }
 export function applyOp(doc: Doc, op: Op): void {
-    if (!op || !['create', 'set', 'delete'].includes(op.t))
+    if (!op || !['create', 'set', 'delete', 'override'].includes(op.t))
         return;
     if (op.t === 'create') {
-        if (validNode(op.node) && !doc.has(op.node.id))
+        if (validNode(op.node) && !doc.has(op.node.id) && validParent(doc, op.node) && (!op.node.instanceOf || !componentCycle(doc, op.node)))
             doc.set(op.node.id, normalizeNode(op.node));
         return;
     }
     const n = doc.get(op.id);
     if (!n)
         return;
+    if (op.t === 'override') {
+        if (!n.instanceOf || typeof op.target !== 'string' || !overridable(op.key, op.target))
+            return;
+        const overrides = { ...n.overrides }, values = { ...overrides[op.target] };
+        if (op.clear)
+            delete values[op.key];
+        else {
+            if (!validProperty(op.key, op.value))
+                return;
+            values[op.key] = op.value;
+        }
+        if (Object.keys(values).length)
+            Object.defineProperty(overrides, op.target, { value: values, enumerable: true, configurable: true, writable: true });
+        else
+            delete overrides[op.target];
+        doc.set(n.id, { ...n, overrides });
+        return;
+    }
     if (op.t === 'delete') {
         if (n.type === 'page' && [...doc.values()].filter(n => n.type === 'page').length <= 1) return;
         for (const c of descendants(doc, n.id))
@@ -173,7 +210,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['mask', 'rotation', 'grids', 'fillStyle', 'strokeStyle', 'textStyle', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'points', 'closed', 'contours', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['mask', 'fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'contours', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
@@ -189,27 +226,92 @@ export function applyOp(doc: Doc, op: Op): void {
             seen.add(p);
             p = doc.get(p)?.parent ?? null;
         }
-        if (op.value !== null && !['frame', 'group', 'page'].includes(doc.get(op.value as string)?.type ?? ''))
+        if (!validParent(doc, { ...n, parent: op.value as string | null }))
             return;
     }
     const value = op.key === 'text' && isTextNode(n) && typeof op.baseText === 'string'
         && typeof op.value === 'string' && op.baseText.length <= maxTextLength && op.value.length <= maxTextLength
         ? mergeText(op.baseText, op.value, n.text) : op.value;
     const next = { ...n, [op.key]: value };
-    if (validLink(next.link) && validNode(next))
+    if (validNode(next) && (op.key !== 'parent' || !componentCycle(doc, next)))
         doc.set(n.id, normalizeNode(next));
 }
+export function overridable(key: string, target = ''): key is Key { return !(key === 'rotation' && !target) && !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
+function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group', 'page'].includes(p.type) && !p.instanceOf); }
+function componentCycle(doc: Doc, next: Node): boolean {
+    const byParent = new Map<string, Node[]>();
+    for (const n of doc.values()) {
+        if (n.id === next.id || n.parent === null)
+            continue;
+        const siblings = byParent.get(n.parent) ?? [];
+        siblings.push(n);
+        byParent.set(n.parent, siblings);
+    }
+    const instances: Node[] = [], visited = new Set<string>();
+    const collect = (n: Node) => {
+        if (visited.has(n.id)) return;
+        visited.add(n.id);
+        if (n.instanceOf) instances.push(n);
+        for (const c of byParent.get(n.id) ?? []) collect(c);
+    };
+    collect(next);
+    if (!instances.length) return false;
+    const ancestors = new Set([next.id]);
+    let p = next.parent;
+    while (p && !ancestors.has(p)) { ancestors.add(p); p = doc.get(p)?.parent ?? null; }
+    const seen = new Set<string>();
+    const reaches = (id: string): boolean => {
+        if (ancestors.has(id)) return true;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        const n = doc.get(id);
+        return !!(n?.instanceOf && reaches(n.instanceOf)) || (byParent.get(id) ?? []).some(c => reaches(c.id));
+    };
+    return instances.some(n => reaches(n.instanceOf!));
+}
+function plain(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype; }
+function validOverrides(value: unknown): boolean {
+    return plain(value) && Object.entries(value).every(([target, values]) => plain(values) && Object.entries(values).every(([key, v]) => overridable(key, target) && validProperty(key, v)));
+}
+function validProperty(key: string, value: unknown): boolean {
+    if (key === 'rotation') return value === undefined || typeof value === 'number' && Number.isFinite(value);
+    if (key === 'constraintH') return value === undefined || horizontalConstraints.includes(value as typeof horizontalConstraints[number]);
+    if (key === 'constraintV') return value === undefined || verticalConstraints.includes(value as typeof verticalConstraints[number]);
+    if ((strokeKeys as string[]).includes(key)) return validStroke({ [key]: value } as unknown as Node);
+    if (key === 'fills') return value === undefined || Array.isArray(value) && value.length <= 12 && value.every(validPaint);
+    if (key === 'effects') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validEffect);
+    if (key === 'grids') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validGrid);
+    if (Object.hasOwn(layoutEnums, key)) return value === undefined || layoutEnums[key as keyof typeof layoutEnums].includes(value as string);
+    if (['gap', 'padTop', 'padRight', 'padBottom', 'padLeft'].includes(key)) return value === undefined || finite(value) && value >= 0;
+    if (key === 'mask' || key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
+    if (['link', 'fillStyle', 'strokeStyle', 'textStyle'].includes(key)) return validLink(value);
+    if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
+    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group', 'page'].includes(value as string);
+    if (key === 'points') return validPoints(value);
+    if (key === 'contours') return value === undefined || Array.isArray(value) && value.length <= 200 && value.every(validPoints);
+    if (key === 'closed') return typeof value === 'boolean';
+    if (key === 'text') return typeof value === 'string' && value.length <= maxTextLength;
+    if (key === 'fontFamily') return textFonts.includes(value as typeof textFonts[number]);
+    if (key === 'fontWeight') return textWeights.includes(value as typeof textWeights[number]);
+    if (key === 'textAlign') return textAlignments.includes(value as typeof textAlignments[number]);
+    if (key === 'textWidth') return textWidths.includes(value as typeof textWidths[number]);
+    if (key === 'fontSize') return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= maxFontSize;
+    if (key === 'parent') return value === null || typeof value === 'string';
+    if (key === 'component') return value === undefined || typeof value === 'boolean';
+    if (key === 'instanceOf') return value === undefined || typeof value === 'string';
+    if (key === 'overrides') return value === undefined || validOverrides(value);
+    if (key === 'stroke' && value === null) return true;
+    if (key === 'fill' || key === 'stroke') return typeof value === 'string' && /^#[\da-f]{6}$/i.test(value);
+    if (!['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].includes(key) || typeof value !== 'number' || !Number.isFinite(value)) return false;
+    if (key === 'w' || key === 'h') return value >= 1;
+    if (key === 'opacity') return value >= 0 && value <= 1;
+    return key === 'x' || key === 'y' || value >= 0;
+}
+export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeRotation(angle: number): number { return ((angle + 180) % 360 + 360) % 360 - 180; }
 export function normalizeNode(n: Node): Node { return n.type === 'page' ? { ...n, parent: null, x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, locked: false, fill: '#000000', stroke: null, strokeWidth: 0, radius: 0, opacity: 1 } : { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
-export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function maskEligible(n: Node): boolean { return n.type === 'rect' || n.type === 'ellipse' || n.type === 'path' && !!n.closed; }
-export function validNode(n: Node): boolean {
-    if (n && (n.mask !== undefined && typeof n.mask !== 'boolean' || n.mask === true && !maskEligible(n))) return false;
-    if (n?.type === 'page') return n.parent === null && typeof n.id === 'string' && typeof n.name === 'string' && typeof n.index === 'string';
-    if (!n || !validLink(n.link) || !validStroke(n) || n.rotation !== undefined && !Number.isFinite(n.rotation) || !validLink(n.fillStyle) || !validLink(n.strokeStyle) || !validLink(n.textStyle) || n.type !== 'text' && n.textStyle != null) return false;
-    if (n.grids !== undefined && (n.type !== 'frame' || !Array.isArray(n.grids) || n.grids.length > 8 || !n.grids.every(validGrid))) return false;
-    return !!n && validLayout(n) && typeof n.id === 'string' && ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(n.type) && ['hidden', 'locked'].every(k => n[k as keyof Node] === undefined || typeof n[k as keyof Node] === 'boolean') && (n.type !== 'path' || validPoints(n.points) && typeof n.closed === 'boolean' && (n.contours === undefined || Array.isArray(n.contours) && n.contours.length <= 200 && n.contours.every(validPoints))) && typeof n.index === 'string' && typeof n.name === 'string' && (n.parent === null || typeof n.parent === 'string') && ['x', 'y', 'w', 'h', 'strokeWidth', 'radius', 'opacity'].every(k => Number.isFinite(n[k as keyof Node])) && n.w >= 1 && n.h >= 1 && n.opacity >= 0 && n.opacity <= 1 && n.radius >= 0 && n.strokeWidth >= 0 && /^#[\da-f]{6}$/i.test(n.fill) && (n.stroke === null || /^#[\da-f]{6}$/i.test(n.stroke)) && (n.constraintH === undefined || horizontalConstraints.includes(n.constraintH)) && (n.constraintV === undefined || verticalConstraints.includes(n.constraintV)) && (n.type !== 'text' || validText(n)) && (n.fills === undefined || Array.isArray(n.fills) && n.fills.length <= 12 && n.fills.every(validPaint)) && (n.effects === undefined || Array.isArray(n.effects) && n.effects.length <= 8 && n.effects.every(validEffect));
-}
+export function validNode(n: Node): boolean { if (n?.type === 'page') return n.parent === null && typeof n.id === 'string' && typeof n.name === 'string' && typeof n.index === 'string'; return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed', 'contours'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))
@@ -218,14 +320,6 @@ function validStroke(n: Node): boolean {
         && (n.strokeStart === undefined || arrowheads.includes(n.strokeStart))
         && (n.strokeEnd === undefined || arrowheads.includes(n.strokeEnd))
         && length(n.strokeDash, 0) && length(n.strokeGap, 0) && length(n.strokeMiterLimit, 1);
-}
-function validText(n: Node): boolean {
-    return typeof n.text === 'string' && n.text.length <= maxTextLength
-        && n.fontFamily !== undefined && textFonts.includes(n.fontFamily)
-        && typeof n.fontSize === 'number' && Number.isFinite(n.fontSize) && n.fontSize >= 1 && n.fontSize <= maxFontSize
-        && n.fontWeight !== undefined && textWeights.includes(n.fontWeight)
-        && n.textAlign !== undefined && textAlignments.includes(n.textAlign)
-        && n.textWidth !== undefined && textWidths.includes(n.textWidth);
 }
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;

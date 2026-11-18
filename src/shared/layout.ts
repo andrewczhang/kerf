@@ -1,4 +1,4 @@
-import { children, isTextNode, type Doc, type Node, type TextNode } from './doc';
+import { children, childIndex, isTextNode, type Doc, type Node, type TextNode } from './doc';
 
 function auto(n: Node): boolean { return n.type === 'frame' && (n.layout === 'horizontal' || n.layout === 'vertical'); }
 
@@ -7,12 +7,7 @@ export type MeasureText = (node: TextNode) => { w: number; h: number };
 export function applyLayout(doc: Doc, measure?: MeasureText): void {
     const original = doc;
     doc = new Map([...original].map(([id, n]) => [id, { ...n }]));
-    const lists = new Map<string | null, Node[]>();
-    for (const n of doc.values()) {
-        if (!lists.has(n.parent)) lists.set(n.parent, []);
-        lists.get(n.parent)!.push(n);
-    }
-    for (const list of lists.values()) list.sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
+    const lists = childIndex(doc);
     const below = (n: Node) => lists.get(n.id) ?? [];
     const measureTexts = () => {
         if (!measure) return;

@@ -45,7 +45,7 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
     };
     button.onclick = toggle;
     const commit = store.commit.bind(store);
-    store.commit = (...args) => { if (!enabled) commit(...args); };
+    store.commit = (...args) => enabled ? [] : commit(...args);
     const history = store.history.bind(store);
     store.history = (...args) => { if (!enabled) history(...args); };
     store.addEventListener('change', render);

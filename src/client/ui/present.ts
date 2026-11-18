@@ -3,6 +3,7 @@ import { type Point } from '../../shared/geometry';
 import { aabb, worldCorners } from '../geometry';
 import { drawNode } from '../draw';
 import type { Store } from '../store';
+import { expand } from '../../shared/components';
 import type { Sync } from '../sync';
 import { commentPoint, commentSurface } from './comments';
 import { activatePresentationFrame, hotspotAt, interactiveHotspots, presentationContains, presentationFrames, presentationHit, presentationSource } from './presentation';
@@ -11,7 +12,8 @@ import { pageOf, pages } from '../../shared/pages';
 export function present(store: Store, sync: Sync, options: { initial?: string; preview?: Doc | null; name?: string } = {}) {
     if (options.initial && !options.preview) activatePresentationFrame(store, options.initial);
     const source = presentationSource(store, options.preview ?? null, options.name ?? 'version');
-    const doc = () => options.preview ? source.fullDoc : store.doc;
+    let resolved = expand(options.preview ? source.fullDoc : store.doc);
+    const doc = () => resolved;
     let previewPage: string | undefined = pages(source.doc)[0]?.id;
     const currentPage = () => options.preview ? previewPage : store.currentPage;
     const overlay = document.createElement('div'); overlay.className = 'present-overlay';
@@ -29,6 +31,7 @@ export function present(store: Store, sync: Sync, options: { initial?: string; p
         return (!comment.node || members.has(comment.node)) && presentationContains(doc(), current, commentPoint(doc(), comment));
     }, currentPage);
     function draw() {
+        resolved = expand(options.preview ? source.fullDoc : store.doc);
         const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1;
         canvas.width = r.width * d; canvas.height = r.height * d; c.setTransform(d, 0, 0, d, 0, 0);
         let current = frame();

@@ -1,10 +1,57 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeNode, type Doc, type Node } from '../src/shared/doc';
+import { applyOp, makeNode, type Doc, type Node } from '../src/shared/doc';
 import { corner } from '../src/shared/path';
 import { exportBounds, exportFilename, exportPNG, exportRoots, exportSVG } from '../src/client/export';
+import { instanceNode } from '../src/shared/components';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 afterEach(() => vi.unstubAllGlobals());
+it('exports validated path overrides within component instances', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const path = { ...makeNode('path', 0, 0), parent: main.id };
+    const instance = instanceNode(main, 200, 0), doc = docOf(main, path, instance);
+    const points = [corner(0, 0), corner(1, 1)];
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'points', value: points });
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'points', value: [corner(NaN, 0)] });
+    applyOp(doc, { t: 'override', id: instance.id, target: path.id, key: 'closed', value: 'true' });
+    expect(doc.get(instance.id)?.overrides?.[path.id]).toEqual({ points });
+    const svg = exportSVG(doc, [instance.id]);
+    expect(svg).toContain('<path');
+    expect(svg).toContain('d="M200 0C200 0 300 100 300 100"');
+    expect(svg).toContain('fill="none"');
+});
+it('exports validated text overrides inside component instances', () => {
+    const measureText = (line: string) => ({ width: line.length * 10, fontBoundingBoxAscent: 18, fontBoundingBoxDescent: 6 });
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText }) }) });
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const text = { ...makeNode('text', 10, 10), parent: main.id };
+    const instance = instanceNode(main, 200, 0), doc = docOf(main, text, instance);
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'text', value: '<override>' });
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'fontSize', value: 32 });
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'fontSize', value: '32" onload="bad' });
+    const svg = exportSVG(doc, [instance.id]);
+    expect(svg).toContain('&lt;override&gt;');
+    expect(svg).toContain('font-size="32"');
+    expect(svg).not.toContain('onload');
+});
+it('coerces numeric SVG attributes and escapes untrusted string attributes', () => {
+    const node = { ...makeNode('rect', 0, 0), stroke: '#123456', strokeWidth: '1" onload="bad', fill: '" onload="bad', name: 123 } as unknown as Node;
+    const svg = exportSVG(docOf(node), [node.id]);
+    expect(svg).not.toContain(' onload="');
+    expect(svg).toContain('fill="&quot; onload=&quot;bad"');
+    expect(svg).toContain('data-name="123"');
+    expect(svg).not.toContain('stroke-width=');
+});
+it('exports resolved instance children and virtual layer selections with overrides', () => {
+    const main = { ...makeNode('frame', 0, 0), component: true }, child = { ...makeNode('rect', 10, 20), parent: main.id };
+    const instance = { ...instanceNode(main, 200, 0), overrides: { [child.id]: { fill: '#123456' } } };
+    const doc = docOf(main, child, instance);
+    expect(exportSVG(doc, [instance.id])).toContain('fill="#123456"');
+    const virtual = exportSVG(doc, [instance.id + '/' + child.id]);
+    expect(virtual).toContain('x="210" y="20"');
+    expect(virtual).toContain('fill="#123456"');
+    expect(virtual).not.toContain('<clipPath');
+});
 
 it('exports group children without a group primitive or hidden subtrees', () => {
     const group = { ...makeNode('group', 10, 20), id: 'group' }, a = { ...makeNode('rect', 5, 6), id: 'visible', parent: group.id }, b = { ...makeNode('frame', 0, 0), id: 'hidden', parent: group.id, hidden: true }, c = { ...makeNode('ellipse', 0, 0), id: 'descendant', parent: b.id };

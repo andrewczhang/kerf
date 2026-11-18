@@ -1,13 +1,59 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { applyOp, makeNode, validNode, type LayoutGrid } from '../src/shared/doc';
 import { defaultLayoutGrid, gridBands, gridLines } from '../src/shared/layout-grid';
 import { resizeSnap, snapRect } from '../src/shared/snap';
 import { Store } from '../src/client/store';
 import { snapped } from '../src/client/snapping';
 import type { Context } from '../src/client/tools/tool';
+import { expand, instanceNode } from '../src/shared/components';
+import { layoutGridsSection } from '../src/client/ui/layout-grids';
+
+afterEach(() => vi.unstubAllGlobals());
+class GridElement {
+    children: GridElement[] = [];
+    attributes: Record<string, string> = {};
+    dataset: Record<string, string> = {};
+    textContent = '';
+    className = '';
+    value = '';
+    min = '';
+    max = '';
+    onclick?: () => void;
+    onchange?: () => void;
+    constructor(text = '', value = '') { this.textContent = text; this.value = value; }
+    set innerHTML(value: string) { this.children = []; if (value.includes('layout-grid-heading')) { const heading = new GridElement(); heading.className = 'layout-grid-heading'; this.children.push(heading); } }
+    querySelector(selector: string) { return this.all().find(n => '.' + n.className === selector); }
+    append(...nodes: GridElement[]) { this.children.push(...nodes); }
+    setAttribute(key: string, value: string) { this.attributes[key] = value; }
+    checkValidity() { return Number.isFinite(Number(this.value)) && (!this.min || +this.value >= +this.min) && (!this.max || +this.value <= +this.max); }
+    all(): GridElement[] { return [this, ...this.children.flatMap(n => n.all())]; }
+}
 
 const grid: LayoutGrid = { type: 'columns', count: 12, size: 20, gutter: 20, margin: 24, color: '#ff0000', opacity: .1, visible: true };
 const rect = { x: 100, y: 50, w: 1200, h: 800 };
+it('lists and edits inherited grids without changing the main and retains newly added grids', () => {
+    vi.stubGlobal('document', { createElement: () => new GridElement() }); vi.stubGlobal('Option', GridElement);
+    const store = new Store(), main = { ...makeNode('frame', 0, 0), component: true, grids: [grid] }, instance = instanceNode(main, 200, 0);
+    store.init([main, instance]);
+    const content = new GridElement(); layoutGridsSection(content as unknown as HTMLElement, store, instance);
+    const find = (label: string) => content.all().find(n => n.attributes['aria-label'] === label)!;
+    expect(find('Grid count').value).toBe('12');
+    find('Grid count').value = '0'; find('Grid count').onchange!();
+    expect(store.undoStack).toHaveLength(0);
+    find('Grid count').value = '6'; find('Grid count').onchange!();
+    expect(find('Grid count').value).toBe('6'); expect(store.doc.get(main.id)?.grids).toEqual([grid]);
+    find('Add layout grid').onclick!();
+    expect(content.all().filter(n => n.attributes['aria-label'] === 'Grid count')).toHaveLength(2);
+    expect(expand(store.doc).get(instance.id)?.grids).toHaveLength(2);
+    content.all().find(n => n.textContent === 'Remove')!.onclick!();
+    expect(expand(store.doc).get(instance.id)?.grids).toHaveLength(1);
+    store.history(); store.history(); store.history();
+    expect(expand(store.doc).get(instance.id)?.grids).toEqual([grid]);
+    store.set(instance.id, { grids: [] });
+    const empty = new GridElement(); layoutGridsSection(empty as unknown as HTMLElement, store, instance);
+    expect(empty.all().some(n => n.attributes['aria-label'] === 'Grid count')).toBe(false);
+    expect(store.doc.get(main.id)?.grids).toEqual([grid]);
+});
 it('creates visible default columns even for the smallest valid frames', () => {
     for (const w of [1, 10, 100, 267, 268, 1200]) {
         const g = defaultLayoutGrid(w), bands = gridBands({ ...rect, w }, g);

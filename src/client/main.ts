@@ -11,7 +11,7 @@ import { Shape } from './tools/shape';
 import { Pen } from './tools/pen';
 import { TextEditor, TextTool } from './tools/text';
 import { isTextNode } from '../shared/doc';
-import { hit } from './geometry';
+import { hit, sizeOf } from './geometry';
 import { clearTextLayouts, measureTextNode } from './text-layout';
 import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
@@ -24,6 +24,7 @@ import { layers } from './ui/layers';
 import { features } from './ui/features';
 import { installGuides } from './guides';
 import { downloadSelection } from './export';
+import { componentOps, detachOps, isVirtual, splitVirtual } from '../shared/components';
 import { applyBoolean, booleanOps } from './boolean';
 import { home } from './ui/home';
 import { trackRecent } from './recent-preview';
@@ -88,7 +89,7 @@ if (store.readOnly) {
     document.querySelectorAll<HTMLElement>('[data-tool]').forEach(el => { if (!['select', 'hand'].includes(el.dataset.tool!)) el.hidden = true; });
 }
 choose('select');
-inspector(document.querySelector('.inspector')!, store, sync);
+inspector(document.querySelector('.inspector')!, store, viewport, sync);
 layers(document.querySelector('.layers')!, ctx, sync);
 people(document.querySelector('#people')!, sync, presence, canvas.parentElement!);
 features(renderer, sync, ctx, choose);
@@ -116,6 +117,8 @@ canvas.ondblclick = e => {
         choose('pen');
         store.changed();
     }
+    else
+        (active as Select).deepSelect(viewport.world(local(e)));
 };
 function move(e: PointerEvent) { const p = local(e); if (pan) {
     viewport.x = pan.vx + p.x - pan.x;
@@ -199,9 +202,22 @@ window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.sto
         return;
     }
 } if (e.key === 'Escape') {
+    const instances = [...store.selection].filter(isVirtual).map(id => splitVirtual(id).instance);
     store.selection.clear();
+    for (const id of instances) store.selection.add(id);
     store.changed();
     choose('select');
+    return;
+} if ((e.ctrlKey || e.metaKey) && e.altKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'k' || key === 'b') {
+        e.preventDefault();
+        if (key === 'k') {
+            try { const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf); if (!ops.length) return; store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
+        }
+        else store.commit(detachOps(store.doc, [...store.selection]));
+        return;
+    }
 } if (e.key === 'Enter' && active.id === 'select' && store.selection.size === 1 && store.doc.get([...store.selection][0])?.type === 'path')
     choose('pen'); const keys: Record<string, string> = { v: 'select', r: 'rect', o: 'ellipse', f: 'frame', t: 'text', h: 'hand', p: 'pen' }; if (!e.ctrlKey && !e.metaKey && keys[e.key.toLowerCase()])
     choose(keys[e.key.toLowerCase()]); });

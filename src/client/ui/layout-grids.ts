@@ -2,6 +2,7 @@ import type { LayoutGrid, Node } from '../../shared/doc';
 import type { Store } from '../store';
 import './layout-grids.css';
 import { defaultLayoutGrid } from '../../shared/layout-grid';
+import { expand } from '../../shared/components';
 import { formatNumber, inputElement, parseColor } from './values';
 
 function gridIndex(grids: LayoutGrid[], target: number | string) {
@@ -9,13 +10,13 @@ function gridIndex(grids: LayoutGrid[], target: number | string) {
 }
 
 export function removeLayoutGrid(store: Store, id: string, target: number | string) {
-    const grids = store.doc.get(id)?.grids ?? [], index = gridIndex(grids, target);
+    const grids = expand(store.doc).get(id)?.grids ?? [], index = gridIndex(grids, target);
     if (!grids[index]) return;
     store.begin(); store.set(id, { grids: grids.filter((_, i) => i !== index) }); store.end();
 }
 
 export function editLayoutGrid(store: Store, id: string, target: number | string, key: keyof LayoutGrid, value: LayoutGrid[keyof LayoutGrid]) {
-    const grids = store.doc.get(id)?.grids;
+    const grids = expand(store.doc).get(id)?.grids;
     const index = gridIndex(grids ?? [], target);
     if (!grids?.[index]) return;
     store.begin();
@@ -25,7 +26,7 @@ export function editLayoutGrid(store: Store, id: string, target: number | string
 
 export function refreshLayoutGridFields(content: HTMLElement, store: Store, active: Element | null) {
     for (const input of content.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('[data-grid-node]')) {
-        const grids = store.doc.get(input.dataset.gridNode!)?.grids ?? [];
+        const grids = expand(store.doc).get(input.dataset.gridNode!)?.grids ?? [];
         const grid = grids[gridIndex(grids, input.dataset.gridId ?? Number(input.dataset.gridIndex))];
         input.disabled = !grid;
         if (!grid || input === active || !input.dataset.gridKey) continue;
@@ -40,11 +41,11 @@ export function layoutGridsSection(content: HTMLElement, store: Store, node: Nod
     section.className = 'layout-grid-section';
     const render = () => {
         section.innerHTML = '<div class="layout-grid-heading"><div class="section-label">Layout grid</div></div>';
-        const grids = store.doc.get(node.id)?.grids ?? [];
+        const resolved = expand(store.doc).get(node.id), grids = resolved?.grids ?? [];
         const commit = (next: LayoutGrid[]) => { store.begin(); store.set(node.id, { grids: next }); store.end(); render(); };
         const add = document.createElement('button'); add.textContent = '+'; add.setAttribute('aria-label', 'Add layout grid'); add.disabled = grids.length >= 8;
         add.onclick = () => {
-            const current = store.doc.get(node.id);
+            const current = expand(store.doc).get(node.id);
             if (!current || (current.grids?.length ?? 0) >= 8) return;
             commit([...(current.grids ?? []), defaultLayoutGrid(current.w)]);
         };

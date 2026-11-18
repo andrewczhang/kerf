@@ -1,6 +1,8 @@
+import { pageDocument } from '../../shared/pages';
 import { between, children, makeNode, type Node } from '../../shared/doc';
 import { inverse, matrixAngle, parentMatrix, transform, type Point } from '../../shared/geometry';
 import { hit, worldMatrix } from '../geometry';
+import { expand, isVirtual, splitVirtual } from '../../shared/components';
 import type { Context, Tool } from './tool';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 export class Shape implements Tool {
@@ -11,7 +13,7 @@ export class Shape implements Tool {
     node?: Node;
     constructor(public ctx: Context, public type: Node['type'], public done: () => void) { this.id = type; }
     onPointerDown(p: Point) {
-        this.ctx.store.begin(); const doc = this.ctx.store.doc, target = hit(this.ctx.store.pageDoc, p), parent = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined;
+        this.ctx.store.begin(); const doc = pageDocument(expand(this.ctx.store.doc), this.ctx.store.currentPage), inner = hit(doc, p), target = inner && isVirtual(inner.id) ? doc.get(splitVirtual(inner.id).instance) : inner, frame = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined, parent = frame?.instanceOf ? undefined : frame;
         const local = parent ? transform(inverse(worldMatrix(doc, parent)), p) : p;
         this.downAt = local; this.start = { x: Math.round(local.x), y: Math.round(local.y) };
         this.node = { ...makeNode(this.type, this.start.x, this.start.y, between(children(doc, parent?.id ?? this.ctx.store.currentPage ?? null).at(-1)?.index ?? null)), parent: parent?.id ?? this.ctx.store.currentPage ?? null };

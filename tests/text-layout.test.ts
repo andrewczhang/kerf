@@ -1,11 +1,29 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { layoutText, measureTextNode } from '../src/client/text-layout';
-import { makeNode, type Doc, type Op, type TextNode } from '../src/shared/doc';
+import { applyOp, makeNode, type Doc, type Op, type TextNode } from '../src/shared/doc';
+import { componentOps } from '../src/shared/components';
+import { sizeOf, world } from '../src/client/geometry';
 import { applyLayout } from '../src/shared/layout';
 import { Store } from '../src/client/store';
 import { wrapInAutoLayout } from '../src/client/autolayout';
 
 const measure = (text: string) => text.length * 10;
+afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+    ['auto', 'Wide\nHi\n\nEnd', 40, 96],
+    ['auto', '', 1, 24],
+    ['fixed', 'Alpha beta\ngamma', 50, 72],
+] as const)('wraps %s text using its measured multiline bounds', (textWidth, text, w, h) => {
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText: (line: string) => ({ width: measure(line) }) }) }) });
+    const node = { ...makeNode('text', 10, 20), fontSize: 20, textWidth, text, w: textWidth === 'fixed' ? 50 : 240 };
+    const doc: Doc = new Map([[node.id, node]]), before = world(doc, node);
+    const { ops, id } = componentOps.create(doc, [node.id], sizeOf);
+    for (const op of ops) applyOp(doc, op);
+    expect(doc.get(id)).toMatchObject({ x: 10, y: 20, w, h });
+    expect(world(doc, doc.get(node.id)!)).toEqual(before);
+    expect(doc.get(node.id)).toMatchObject({ x: 0, y: 0, parent: id });
+});
 
 it.each(['abcdefgh', ''])('persists measured auto width when text becomes fixed, including reload and undo/redo (%j)', text => {
     const node = { ...makeNode('text', 0, 0), text, w: 240, fontSize: 20 };

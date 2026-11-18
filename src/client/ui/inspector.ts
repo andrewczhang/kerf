@@ -1,14 +1,18 @@
 import type { Store } from '../store';
 import type { Sync } from '../sync';
 import { styleControl, styleLibrary } from './styles';
-import { arrowheads, isOpenPath, isTextNode, maskEligible, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
+import { arrowheads, isOpenPath, maskEligible, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
+import { world } from '../geometry';
 import { exportControls } from './export-controls';
 import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
+import type { Viewport } from '../viewport';
+import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
+import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import { applyBoolean, booleanOps, canCombine } from '../boolean';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
@@ -33,9 +37,18 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
     }
 }
 
-export function inspector(el: HTMLElement, store: Store, sync: Sync) {
+export function refreshFocusedInspector(content: HTMLElement, nodes: Node[], active: Element | null): boolean {
+    const selection = JSON.stringify(nodes.map(n => n.id)), same = content.dataset.selection === selection;
+    content.dataset.selection = selection;
+    if (!active || !same) return false;
+    refreshNumericFields(content, nodes, active);
+    return true;
+}
+
+export function inspector(el: HTMLElement, store: Store, viewport: Viewport, sync?: Sync) {
     el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
+    const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
     const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
     const setTab = (codeActive: boolean) => {
         for (const id of ['design', 'code']) {
@@ -55,37 +68,89 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
     window.addEventListener('pointerup', () => { if (pressing) setTimeout(() => { pressing = false; if (stale) render(); }); }, true);
     el.addEventListener('focusout', e => { if (stale && !el.contains(e.relatedTarget as HTMLElement | null)) setTimeout(render); });
     const render = () => {
-        const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
-        if (pressing || editing()) {
+        const doc = expand(store.doc);
+        const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
+        if (refreshFocusedInspector(content, nodes, pressing || editing() ? document.activeElement ?? el : null)) {
             stale = true;
-            refreshNumericFields(content, nodes, document.activeElement);
             refreshLayoutGridFields(content, store, document.activeElement);
             return;
         }
         stale = false;
+        content.innerHTML = '';
+        const section = (title: string) => {
+            const s = document.createElement('section'), label = document.createElement('div');
+            label.className = 'section-label'; label.textContent = title; s.append(label); content.append(s); return s;
+        };
+        const button = (parent: HTMLElement, text: string, action: () => void) => {
+            const b = document.createElement('button'); b.className = 'component-action'; b.textContent = text; b.onclick = action; parent.append(b);
+        };
+        const insert = (main: Node, centered = false) => {
+            const canvas = document.querySelector('canvas')!;
+            const p = centered ? viewport.world({ x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }) : { x: main.x + main.w + 40, y: main.y };
+            const parent = centered ? null : main.parent;
+            const n = instanceNode(main, p.x, p.y, parent, between(children(store.doc, parent).at(-1)?.index ?? null));
+            store.commit([{ t: 'create', node: n }]); select(n.id);
+        };
+        const create = () => {
+            try { const { ops, id } = componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); if (!ops.length) return; store.commit(ops); select(id); } catch { }
+        };
+        const reset = (id: string, target?: string) => {
+            const ops: Op[] = [];
+            for (const [path, values] of Object.entries(store.doc.get(id)?.overrides ?? {}))
+                if (target === undefined || path === target)
+                    for (const key of Object.keys(values)) ops.push({ t: 'override', id, target: path, key: key as Key, value: undefined, clear: true });
+            store.commit(ops);
+        };
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div>' + shortcutList(12) + '<p class="path-hint">Press ? for every shortcut</p></section>';
-            styleLibrary(content, store, sync);
+            const page = section('Page');
+            page.innerHTML += '<div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div>';
+            const list = section('Components');
+            const mains = [...store.doc.values()].filter(n => n.component);
+            for (const main of mains) button(list, main.name, () => insert(main, true));
+            if (!mains.length) { const p = document.createElement('p'); p.className = 'component-note'; p.textContent = 'Select a frame or objects to create a component.'; list.append(p); }
+            const shortcuts = section('Shortcuts');
+            shortcuts.innerHTML += shortcutList(12) + '<p class="path-hint">Press ? for every shortcut</p>';
+            if (sync) styleLibrary(content, store, sync);
             return;
         }
-        content.innerHTML = '';
-        const head = document.createElement('section');
-        head.className = 'layer-heading';
-        const name = inputElement('Object name');
-        name.className = 'name-input';
-        name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
-        name.setAttribute('aria-label', 'Object name');
-        name.onchange = () => { store.begin(); for (const n of nodes)
-            store.set(n.id, { name: name.value }); store.end(); };
-        head.append(name);
-        content.append(head);
+        const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
+        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { page: 'Page', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path', group: 'Group' }[first.type]);
+        const write = (n: Node, key: Key, value: unknown) => {
+            const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
+            if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'rotation', 'name'].includes(key))
+                store.commit([{ t: 'override', id: v ? instance : n.id, target: v ? target : '', key, value }]);
+            else store.set(n.id, { [key]: value });
+        };
+        head.classList.add('layer-heading');
+        const name = inputElement('Object name'); name.className = 'name-input'; name.value = nodes.length === 1 ? first.name : 'Multiple selection'; name.setAttribute('aria-label', 'Object name');
+        name.onchange = () => { store.begin(); for (const n of nodes) write(n, 'name', name.value); store.end(); };
+        name.onblur = render; head.append(name);
+        if (nodes.length === 1 && virtual) {
+            const s = section('Instance layer');
+            button(s, 'Select instance', () => select(owner.instance));
+            button(s, 'Reset layer overrides', () => reset(owner.instance, owner.target));
+        }
+        else if (nodes.length === 1 && first.instanceOf) {
+            const main = store.doc.get(first.instanceOf), s = section('Instance of ' + (main?.name ?? 'missing component'));
+            if (main) button(s, 'Go to main', () => { viewport.x = 80 - main.x * viewport.zoom; viewport.y = 80 - main.y * viewport.zoom; viewport.changed(); select(main.id); });
+            button(s, 'Detach', () => store.commit(detachOps(store.doc, first.id)));
+            button(s, 'Reset overrides', () => reset(first.id));
+        }
+        else if (nodes.length === 1 && first.component) {
+            const count = [...store.doc.values()].filter(n => n.instanceOf === first.id).length;
+            const s = section('Component'), p = document.createElement('p'); p.className = 'component-note'; p.textContent = count + (count === 1 ? ' instance' : ' instances'); s.append(p);
+            button(s, 'Create instance', () => insert(first));
+        }
+        else {
+            try { componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); button(section('Component'), 'Create component', create); } catch { }
+        }
         alignSection(content, store);
         const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
         if (nodes.every(maskEligible)) {
             const section = document.createElement('section');
             section.innerHTML = '<div class="section-label">Mask</div><label class="path-closed"><input type="checkbox" aria-label="Use as mask"> Use as mask</label>';
             const box = section.querySelector('input')!; box.checked = nodes.every(n => n.mask); box.indeterminate = nodes.some(n => !!n.mask !== !!nodes[0].mask);
-            box.onchange = () => { store.begin(); for (const n of nodes) store.set(n.id, { mask: box.checked }); store.end(); box.blur(); };
+            box.onchange = () => { store.begin(); for (const n of nodes) write(n, 'mask', box.checked); store.end(); box.blur(); };
             content.append(section);
         }
         const choices: Partial<Record<Key, [string | number, string][]>> = {
@@ -100,12 +165,12 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             strokeEnd: named(arrowheads),
         };
         const strokeValues = nodes.map(strokeOptions);
-        const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const section = document.createElement('section'); if (target === true) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!;
-        if (target && target !== true && styleControl(section, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key));
-        for (const key of keys) {
-            const stroke = target === true;
+        const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const stroke = target === true, s = section(title); if (stroke) s.className = 'stroke-options'; const grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid); if (sync && target && target !== true && styleControl(s, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key)); for (const key of keys) {
             const label = document.createElement('label');
             label.className = 'field';
+            const overridden = nodes.some(n => { const { instance, target } = splitVirtual(n.id); return Object.hasOwn(store.doc.get(instance)?.overrides?.[target] ?? {}, key); });
+            label.classList.toggle('overridden', overridden);
+            if (overridden) label.title = 'Overridden';
             const span = document.createElement('span');
             const caption = ({ rotation: '°', strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width', strokeAlign: 'Align', strokeDash: 'Dash', strokeGap: 'Gap', strokeCap: 'Cap', strokeJoin: 'Join', strokeMiterLimit: 'Miter limit', strokeStart: 'Start', strokeEnd: 'End' } as Record<string, string>)[key] ?? key.toUpperCase();
             span.textContent = caption;
@@ -124,7 +189,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
                     const chosen = options.find(([value]) => String(value) === select.value);
                     if (!chosen) return;
                     store.begin();
-                    for (const node of nodes) store.set(node.id, { [key]: chosen[0], ...(['fontFamily', 'fontWeight'].includes(key) ? { textStyle: null } : {}) });
+                    for (const node of nodes) { write(node, key, chosen[0]); if (['fontFamily', 'fontWeight'].includes(key)) write(node, 'textStyle', null); }
                     store.end();
                     select.blur();
                     render();
@@ -155,13 +220,14 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
                     input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
                     if (color === undefined) return;
                     swatch.value = color ?? '#000000';
-                    for (const n of nodes) store.set(n.id, { [key]: color, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) });
+                    for (const n of nodes) { write(n, key, color); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); }
                 };
-                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) }); };
-                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) { write(n, key, swatch.value); write(n, key === 'stroke' ? 'strokeStyle' : 'fillStyle', null); } };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => expand(store.doc).get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
             }
+            input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
             input.type = 'number';
             input.dataset.key = key;
             input.step = stroke ? 'any' : key === 'opacity' ? '.05' : '1';
@@ -171,30 +237,36 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             input.value = key === 'strokeWidth' && noStroke ? '0' : mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
             if (key === 'strokeWidth') input.min = '0';
             let base = store.doc;
-            input.onfocus = () => { base = new Map(store.doc); store.begin(); };
-            input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, key === 'strokeWidth' && (store.doc.get(n.id) ?? n).stroke === null && Number(value) > 0 ? { stroke: '#000000', strokeWidth: value } : { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
+            input.onfocus = () => { if (!input.readOnly) { base = new Map(store.doc); store.begin(); } };
+            input.oninput = () => { if (input.readOnly || !input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
+                if (key === 'strokeWidth' && n.stroke === null && Number(value) > 0) write(n, 'stroke', '#000000');
+                if (key !== 'rotation' || n.type !== 'group') write(n, key, value); if (key === 'fontSize') write(n, 'textStyle', null);
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
             input.onblur = () => { store.commit(normalizeGroups(store.doc, sizeOf)); store.end(); render(); };
             label.append(span, input);
-            sizingControl(label, input, key, nodes, store);
+            if (!input.readOnly) sizingControl(label, input, key, nodes, store);
             grid.append(label);
-        } content.append(section); };
-        if (nodes.length === 1 && nodes[0].type === 'path') {
-            const n = nodes[0], section = document.createElement('section');
-            section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
-            const box = section.querySelector('input')!;
+        }
+        };
+        if (nodes.length === 1 && first.type === 'path') {
+            const s = section('Vector');
+            s.innerHTML += `<label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${first.points?.length ?? 0} points</span>${virtual ? '' : '<p class="path-hint">Double-click or Enter to edit points</p>'}`;
+            const box = s.querySelector('input')!;
             box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
-            box.checked = !!n.closed;
+            box.checked = !!first.closed;
             box.onchange = () => {
-                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 }, (n.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: n.w, h: n.h })));
-                const c = transform(inverse(parentMatrix(store.doc, n)), transform(worldMatrix(store.doc, n), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
                 box.blur();
-                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked }); store.end();
+                store.begin();
+                if (virtual) write(first, 'closed', box.checked);
+                else {
+                    const f = fit(toAbs(first.points ?? [], { x: 0, y: 0, w: first.w, h: first.h }), box.checked, { x: 0, y: 0 }, (first.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: first.w, h: first.h })));
+                    const c = transform(inverse(parentMatrix(store.doc, first)), transform(worldMatrix(store.doc, first), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
+                    store.set(first.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked });
+                }
+                store.end();
             };
-            content.append(section);
         }
         if (canCombine(store)) {
             const section = document.createElement('section'), mod = /Mac/.test(navigator.platform) ? '⌘⌥' : 'Ctrl+Alt+';
@@ -212,15 +284,15 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w', 'rotation'] : ['x', 'y', 'rotation']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
-            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);
             fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y', 'rotation'] : ['x', 'y', 'w', 'h', 'rotation']);
-            autoLayoutSection(content, nodes, store);
+            if (!virtual) autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fillsSection(content, store, nodes, section => sync ? styleControl(section, store, sync, nodes, 'fill') : false);
             fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
                 const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
@@ -242,13 +314,13 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             select.append(new Option('None', ''));
             for (const frame of topLevelFrames(store.doc)) select.append(new Option(frame.name, frame.id));
             select.value = nodes[0].link ?? '';
-            select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
+            select.onchange = () => write(first, 'link', select.value || null);
             section.append(select); content.append(section);
         }
         exportControls(content, store);
     };
     store.addEventListener('change', render);
-    sync.addEventListener('styles-change', render);
+    sync?.addEventListener('styles-change', render);
     el.addEventListener('focusout', () => setTimeout(render, 0));
     render();
 }
