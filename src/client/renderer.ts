@@ -2,6 +2,7 @@ import { children, type Node } from '../shared/doc';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { isAutoLayout, layoutInsertions } from './autolayout';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -46,6 +47,12 @@ export class Renderer {
             drawNode(n);
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
+        if (selected.length === 1 && isAutoLayout(selected[0])) {
+            const n = selected[0], r = world(store.doc, n);
+            c.save(); c.globalAlpha = .35;
+            outline({ x: r.x + (n.padLeft ?? 0), y: r.y + (n.padTop ?? 0), w: Math.max(0, r.w - (n.padLeft ?? 0) - (n.padRight ?? 0)), h: Math.max(0, r.h - (n.padTop ?? 0) - (n.padBottom ?? 0)) }, '#ff4f00', true);
+            c.restore();
+        }
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
             if (n)
@@ -61,6 +68,11 @@ export class Renderer {
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
+        }
+        const insertion = layoutInsertions.get(store);
+        if (insertion) {
+            c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / v.zoom;
+            c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
         }
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';

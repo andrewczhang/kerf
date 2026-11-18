@@ -1,6 +1,7 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
 import { bounds, contains, handles, hit, intersects, world, type Point, type Rect } from '../../shared/geometry';
 import type { Context, Tool } from './tool';
+import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -15,6 +16,7 @@ export class Select implements Tool {
         const { store, viewport } = this.ctx;
         this.start = p;
         this.moved = false;
+        layoutInsertions.delete(store);
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => world(store.doc, n))) : undefined;
         this.handle = this.box ? handles(this.box).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
@@ -80,6 +82,8 @@ export class Select implements Tool {
                 y = e.altKey ? b.y + (b.h - h) / 2 : hy === 0 ? b.y + b.h - h : b.y;
             }
             for (const n of this.original.values()) {
+                if ((hx !== .5 || e.shiftKey) && n.sizeW && n.sizeW !== 'fixed') ops.push({ t: 'set', id: n.id, key: 'sizeW', value: 'fixed' });
+                if ((hy !== .5 || e.shiftKey) && n.sizeH && n.sizeH !== 'fixed') ops.push({ t: 'set', id: n.id, key: 'sizeH', value: 'fixed' });
                 const r = world(store.doc, { ...n });
                 const parent = n.parent ? world(store.doc, store.doc.get(n.parent)!) : { x: 0, y: 0 };
                 const values = { x: x + (r.x - b.x) * w / b.w - parent.x, y: y + (r.y - b.y) * h / b.h - parent.y, w: n.w * w / b.w, h: n.h * h / b.h };
@@ -87,9 +91,14 @@ export class Select implements Tool {
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
             }
         }
-        else
+        else {
+            const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start);
+            if (insertion) layoutInsertions.set(store, insertion); else layoutInsertions.delete(store);
+            this.ctx.invalidate();
             for (const n of this.original.values())
-                ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
+                if (!isAutoLayout(store.doc.get(n.parent ?? '')))
+                    ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
+        }
         store.commit(ops);
     }
     onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
@@ -99,9 +108,13 @@ export class Select implements Tool {
         this.ctx.marquee = undefined;
     }
     else if (this.moved && this.handle < 0) {
+        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
+        else
         for (const id of this.original.keys()) {
             const n = store.doc.get(id)!;
-            const r = world(store.doc, n);
+            const original = this.original.get(id)!;
+            const r = isAutoLayout(store.doc.get(original.parent ?? '')) ? world(store.doc, { ...original, x: original.x + p.x - this.start!.x, y: original.y + p.y - this.start!.y }) : world(store.doc, n);
             const blocked = new Set([id, ...descendants(store.doc, id).map(n => n.id)]);
             const frames = [...store.doc.values()].filter(f => f.type === 'frame' && !blocked.has(f.id) && contains(world(store.doc, f), p));
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
@@ -110,7 +123,7 @@ export class Select implements Tool {
                 store.set(id, { parent: parent?.id ?? null, x: r.x - origin.x, y: r.y - origin.y, index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
-    } store.end(); this.start = undefined; store.changed(); }
+    } layoutInsertions.delete(store); store.end(); this.start = undefined; store.changed(); }
     onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected(); if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         store.commit(nodes.map(n => ({ t: 'delete', id: n.id })));

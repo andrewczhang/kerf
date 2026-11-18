@@ -1,9 +1,58 @@
-import { between, children, makeNode, type Node, type Op } from '../shared/doc';
-import { bounds, world } from '../shared/geometry';
+import { between, children, descendants, makeNode, type Doc, type Node, type Op } from '../shared/doc';
+import { bounds, contains, intersects, world, type Point } from '../shared/geometry';
 import type { Store } from './store';
 
 export function isAutoLayout(n: Node | undefined): boolean {
     return n?.type === 'frame' && (n.layout === 'horizontal' || n.layout === 'vertical');
+}
+
+export interface LayoutInsertion { parent: string; slot: number; from: Point; to: Point; }
+export const layoutInsertions = new WeakMap<Store, LayoutInsertion>();
+
+export function insertionSlot(doc: Doc, parent: Node, pointer: Point, moving: ReadonlySet<string> = new Set()): LayoutInsertion {
+    const items = children(doc, parent.id).filter(n => !moving.has(n.id));
+    const r = world(doc, parent), horizontal = parent.layout === 'horizontal';
+    const axis = horizontal ? 'x' : 'y', size = horizontal ? 'w' : 'h';
+    const local = pointer[axis] - r[axis];
+    let slot = items.findIndex(n => local < n[axis] + n[size] / 2);
+    if (slot < 0) slot = items.length;
+    const before = items[slot - 1], after = items[slot];
+    const position = before && after ? (before[axis] + before[size] + after[axis]) / 2 : before ? before[axis] + before[size] : after ? after[axis] : (horizontal ? parent.padLeft : parent.padTop) ?? 0;
+    const from = horizontal ? { x: r.x + position, y: r.y + (parent.padTop ?? 0) } : { x: r.x + (parent.padLeft ?? 0), y: r.y + position };
+    const to = horizontal ? { x: from.x, y: r.y + r.h - (parent.padBottom ?? 0) } : { x: r.x + r.w - (parent.padRight ?? 0), y: from.y };
+    return { parent: parent.id, slot, from, to };
+}
+
+export function dragInsertion(doc: Doc, nodes: Node[], pointer: Point, start: Point): LayoutInsertion | undefined {
+    const moving = new Set(nodes.flatMap(n => [n.id, ...descendants(doc, n.id).map(c => c.id)]));
+    const frames = [...doc.values()].filter(n => n.type === 'frame' && !moving.has(n.id) && contains(world(doc, n), pointer));
+    frames.sort((a, b) => descendants(doc, a.id).length - descendants(doc, b.id).length);
+    let parent = frames[0];
+    if (!isAutoLayout(parent) && nodes.length && nodes.every(n => n.parent === nodes[0].parent)) {
+        const origin = doc.get(nodes[0].parent ?? '');
+        if (isAutoLayout(origin) && nodes.some(n => {
+            const r = world(doc, n);
+            return intersects({ ...r, x: r.x + pointer.x - start.x, y: r.y + pointer.y - start.y }, world(doc, origin!));
+        })) parent = origin!;
+    }
+    return isAutoLayout(parent) ? insertionSlot(doc, parent, pointer, moving) : undefined;
+}
+
+export function reorderInAutoLayout(store: Store, nodes: Node[], insertion: LayoutInsertion): void {
+    const parent = store.doc.get(insertion.parent);
+    if (!isAutoLayout(parent) || !nodes.length || nodes.some(n => n.id === parent!.id || descendants(store.doc, n.id).some(c => c.id === parent!.id))) return;
+    const moving = new Set(nodes.map(n => n.id));
+    const items = children(store.doc, parent!.id).filter(n => !moving.has(n.id));
+    const slot = Math.max(0, Math.min(items.length, insertion.slot));
+    let index = items[slot - 1]?.index ?? null;
+    const next = items[slot]?.index ?? null;
+    const ordered = [...nodes].sort((a, b) => a.index < b.index ? -1 : a.index > b.index ? 1 : a.id.localeCompare(b.id));
+    const ops: Op[] = [];
+    for (const n of ordered) {
+        index = between(index, next);
+        ops.push({ t: 'set', id: n.id, key: 'parent', value: parent!.id }, { t: 'set', id: n.id, key: 'index', value: index });
+    }
+    grouped(store, ops);
 }
 
 function layoutOps(frame: Node, items: Node[]): Op[] {

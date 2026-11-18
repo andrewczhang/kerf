@@ -1,8 +1,10 @@
 import { expect, it } from 'vitest';
-import { addAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
+import { addAutoLayout, dragInsertion, insertionSlot, isAutoLayout, layoutInsertions, reorderInAutoLayout, wrapInAutoLayout } from '../src/client/autolayout';
 import { Store } from '../src/client/store';
-import { makeNode, type Node } from '../src/shared/doc';
+import { children, makeNode, type Node } from '../src/shared/doc';
 import { world } from '../src/shared/geometry';
+import { Select } from '../src/client/tools/select';
+import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
 
@@ -53,4 +55,70 @@ it('handles empty input, ancestor selection, mixed parents and wrapping existing
     expect(wrapInAutoLayout(s, [])).toBeUndefined(); expect(s.undoStack).toHaveLength(0);
     const f = wrapInAutoLayout(s, [p, a, b])!;
     expect(f.parent).toBeNull(); expect(s.doc.get(a.id)?.parent).toBe(p.id); expect(s.doc.get(p.id)?.parent).toBe(f.id);
+});
+
+function stack(direction: 'horizontal' | 'vertical' = 'horizontal') {
+    const p = { ...makeNode('frame', 100, 100), w: 300, h: 300, layout: direction, gap: 10, padLeft: 20, padTop: 20, padRight: 20, padBottom: 20 };
+    const items = ['A', 'B', 'C'].map(index => ({ ...makeNode('rect', 0, 0, index), parent: p.id, w: 50, h: 50 }));
+    const s = setup([p, ...items]); return { s, p: s.doc.get(p.id)!, items: items.map(n => s.doc.get(n.id)!) };
+}
+
+it.each(['horizontal', 'vertical'] as const)('computes %s slots in world space, excluding dragged items', direction => {
+    const { s, p, items } = stack(direction), horizontal = direction === 'horizontal';
+    const point = (v: number) => horizontal ? { x: v, y: 140 } : { x: 140, y: v };
+    expect(insertionSlot(s.doc, p, point(0)).slot).toBe(0);
+    expect(insertionSlot(s.doc, p, point(160)).slot).toBe(1);
+    expect(insertionSlot(s.doc, p, point(1000)).slot).toBe(3);
+    const insertion = insertionSlot(s.doc, p, point(210), new Set([items[1].id]));
+    expect(insertion.slot).toBe(1);
+    expect(insertion.from).toEqual(horizontal ? { x: 205, y: 120 } : { x: 120, y: 205 });
+    const empty = insertionSlot(s.doc, p, point(200), new Set(items.map(n => n.id)));
+    expect(empty.slot).toBe(0); expect(empty.from).toEqual({ x: 120, y: 120 });
+});
+
+it('reorders multiple children preserving their order, syncs indexes and undoes together', () => {
+    const { s, p, items } = stack();
+    const insertion = insertionSlot(s.doc, p, { x: 390, y: 130 }, new Set([items[0].id, items[1].id]));
+    reorderInAutoLayout(s, [items[1], items[0]], insertion);
+    expect(children(s.doc, p.id).map(n => n.id)).toEqual([items[2].id, items[0].id, items[1].id]);
+    expect(s.undoStack).toHaveLength(1); expect([...s.pending.values()].flat().some(o => o.t === 'set' && o.key === 'index')).toBe(true);
+    s.history(); expect(children(s.doc, p.id).map(n => n.id)).toEqual(items.map(n => n.id));
+    s.history(true); expect(s.doc.get(items[0].id)?.x).toBe(80);
+});
+
+it('inserts free nodes, ignores invalid destinations, and does not allow cycles', () => {
+    const { s, p, items } = stack(); const free = makeNode('rect', 500, 500); s.init([...s.doc.values(), free]);
+    reorderInAutoLayout(s, [free], insertionSlot(s.doc, p, { x: 160, y: 140 }));
+    expect(children(s.doc, p.id).map(n => n.id)).toEqual([items[0].id, free.id, items[1].id, items[2].id]);
+    const before = JSON.stringify([...s.doc]);
+    reorderInAutoLayout(s, [], insertionSlot(s.doc, p, { x: 0, y: 0 }));
+    reorderInAutoLayout(s, [p], insertionSlot(s.doc, p, { x: 0, y: 0 }));
+    reorderInAutoLayout(s, [free], { ...insertionSlot(s.doc, p, { x: 0, y: 0 }), parent: 'missing' });
+    expect(JSON.stringify([...s.doc])).toBe(before);
+});
+
+it('keeps dragged children in flow until drop, shows local insertion, and leaves only fully outside', () => {
+    const { s, p, items } = stack(); const first = items[0], start = { x: 140, y: 140 };
+    expect(dragInsertion(s.doc, [first], { x: 95, y: 140 }, start)?.parent).toBe(p.id);
+    expect(dragInsertion(s.doc, [first], { x: 0, y: 140 }, start)).toBeUndefined();
+    s.selection.add(first.id);
+    const tool = new Select({ store: s, viewport: { zoom: 1 }, invalidate() {} } as Context);
+    const event = { shiftKey: false, altKey: false } as PointerEvent;
+    tool.onPointerDown(start, event); tool.onPointerMove({ x: 350, y: 140 }, event);
+    expect(s.doc.get(first.id)?.x).toBe(20); expect(layoutInsertions.has(s)).toBe(true);
+    tool.onPointerUp({ x: 350, y: 140 });
+    expect(children(s.doc, p.id).at(-1)?.id).toBe(first.id); expect(layoutInsertions.has(s)).toBe(false);
+    const current = world(s.doc, s.doc.get(first.id)!); const nextStart = { x: current.x + 25, y: current.y + 25 };
+    tool.onPointerDown(nextStart, event); tool.onPointerMove({ x: 600, y: 140 }, event); tool.onPointerUp({ x: 600, y: 140 });
+    expect(s.doc.get(first.id)?.parent).toBeNull(); expect(world(s.doc, s.doc.get(first.id)!).x).toBe(575);
+});
+
+it('handle resizing switches only the resized axis from hug/fill to fixed in the drag group', () => {
+    const p = { ...makeNode('frame', 100, 100), layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const };
+    const s = setup([p]); s.selection.add(p.id);
+    const tool = new Select({ store: s, viewport: { zoom: 1 }, invalidate() {} } as Context), event = { shiftKey: false, altKey: false } as PointerEvent;
+    tool.onPointerDown({ x: 200, y: 150 }, event); tool.onPointerMove({ x: 250, y: 150 }, event); tool.onPointerUp({ x: 250, y: 150 });
+    expect(s.doc.get(p.id)).toMatchObject({ w: 150, h: 100, sizeW: 'fixed', sizeH: 'hug' });
+    expect(s.undoStack).toHaveLength(1); s.history(); expect(s.doc.get(p.id)).toMatchObject({ w: 100, sizeW: 'hug' });
+    expect(isAutoLayout(s.doc.get(p.id))).toBe(true);
 });
