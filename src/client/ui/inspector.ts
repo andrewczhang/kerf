@@ -1,19 +1,19 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
 export function inspector(el: HTMLElement, store: Store) {
-    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div><div class="panel-foot"><span>BUILT FOR TOGETHER</span><p>A little space for your next big thing.</p></div>';
+    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
         if (el.contains(document.activeElement))
             return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">PAGE</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section class="welcome"><span class="eyebrow">A BLANK CANVAS.</span><h2>Make room<br>for an idea.</h2><p>Draw a frame. Add a shape.<br>Invite someone in.</p><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
         }
         content.innerHTML = '';
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' OBJECTS' : nodes[0].type.toUpperCase()}</div>`;
+        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse' }[nodes[0].type]}</div>`;
         const name = document.createElement('input');
         name.className = 'name-input';
         name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
@@ -26,7 +26,7 @@ export function inspector(el: HTMLElement, store: Store) {
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
-            span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity' } as Record<string, string>)[key] ?? key.toUpperCase();
+            span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke' } as Record<string, string>)[key] ?? key.toUpperCase();
             const input = document.createElement('input');
             input.setAttribute('aria-label', key);
             const mixed = nodes.some(n => n[key] !== nodes[0][key]);
@@ -47,9 +47,9 @@ export function inspector(el: HTMLElement, store: Store) {
             label.append(span, input);
             grid.append(label);
         } content.append(section); };
-        fields('LAYOUT', ['x', 'y', 'w', 'h']);
-        fields('APPEARANCE', ['radius', 'opacity']);
-        fields('FILL & STROKE', ['fill', 'stroke', 'strokeWidth']);
+        fields('Layout', ['x', 'y', 'w', 'h']);
+        fields('Appearance', ['radius', 'opacity']);
+        fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
     };
     store.addEventListener('change', render);
     render();

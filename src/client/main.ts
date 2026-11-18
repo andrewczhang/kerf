@@ -13,8 +13,8 @@ import { people } from './ui/people';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
-document.querySelector('#app')!.innerHTML = '<header></header><main><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas><div class="canvas-caption"><span class="cross">+</span> UNLIMITED POSSIBILITIES. SHARED SPACE.</div><div class="canvas-bottom"><span id="tool-hint">Select an object, or drag to select</span><div><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></div></div><aside></aside></main><footer><span><b>KERF</b> / A space to make things, together.</span><span id="file-id"></span><span>V 0.1 <i></i> ALL SYSTEMS READY</span></footer>';
-document.querySelector('#file-id')!.textContent = 'FILE / ' + file.toUpperCase();
+document.querySelector('#app')!.innerHTML = '<header></header><main><div class="canvas-wrap"><canvas aria-label="Design canvas" tabindex="0"></canvas></div><aside></aside></main><footer><span id="file-id"></span><span id="connection">Connecting</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="zoom-value" aria-label="Reset zoom">100%</button><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>';
+document.querySelector('#file-id')!.textContent = 'File / ' + file;
 const canvas = document.querySelector('canvas')!, store = new Store();
 let renderer: Renderer;
 const viewport = new Viewport(() => { renderer?.invalidate(); document.querySelector('#zoom-value')!.textContent = Math.round(viewport.zoom * 100) + '%'; presence?.update(); });
@@ -34,7 +34,7 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { active = registry.get(id) ?? registry.get('select')!; canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); document.querySelector('#tool-hint')!.textContent = ({ select: 'Select an object, or drag to select', frame: 'Drag to create a frame', rect: 'Drag to draw a rectangle · Shift for a square', ellipse: 'Drag to draw an ellipse · Shift for a circle', hand: 'Drag to explore your canvas' } as Record<string, string>)[id]; }
+function choose(id: string) { active = registry.get(id) ?? registry.get('select')!; canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
