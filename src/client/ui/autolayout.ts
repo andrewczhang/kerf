@@ -52,6 +52,7 @@ export function autoLayoutSection(content: HTMLElement, nodes: Node[], store: St
         const label = document.createElement('label'); label.className = 'field';
         const span = document.createElement('span'); span.textContent = { gap: 'Gap', padTop: 'T', padRight: 'R', padBottom: 'B', padLeft: 'L' }[key];
         const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.step = '1'; input.setAttribute('aria-label', key === 'gap' ? 'Gap' : `Padding ${span.textContent}`);
+        input.dataset.key = key;
         const value = nodes[0][key] ?? 0, mixed = nodes.some(n => (n[key] ?? 0) !== value);
         input.value = mixed ? '' : String(value); input.placeholder = mixed ? 'Mixed' : '';
         input.onfocus = () => store.begin();

@@ -76,7 +76,7 @@ export class Renderer {
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
         }
-        const insertion = layoutInsertions.get(store);
+        const insertion = this.preview ? undefined : layoutInsertions.get(this.app.store);
         if (insertion) {
             c.strokeStyle = '#ff4f00'; c.lineWidth = 2 / v.zoom;
             c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
