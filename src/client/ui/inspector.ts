@@ -79,7 +79,9 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             strokeEnd: named(arrowheads),
         };
         const strokeValues = nodes.map(strokeOptions);
-        const fields = (title: string, keys: Key[], stroke = false) => { const section = document.createElement('section'); if (stroke) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!; for (const key of keys) {
+        const fields = (title: string, keys: Key[], target?: 'stroke' | 'text' | true) => { const section = document.createElement('section'); if (target === true) section.className = 'stroke-options'; section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!;
+        if (target && target !== true && styleControl(section, store, sync, nodes, target)) keys = keys.filter(key => !['stroke', 'fontFamily', 'fontSize', 'fontWeight'].includes(key));
+        for (const key of keys) {
             const label = document.createElement('label');
             label.className = 'field';
             const span = document.createElement('span');
@@ -165,21 +167,18 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
         }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
-            const linkedText = styleControl(content, store, sync, nodes, 'text');
-            fields('Typography', linkedText ? ['textAlign', 'textWidth'] : ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
+            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'], 'text');
             fields('Appearance', ['opacity']);
-            if (!styleControl(content, store, sync, nodes, 'fill')) fillsSection(content, store, nodes);
-            const linkedStroke = styleControl(content, store, sync, nodes, 'stroke');
-            fields('Stroke', linkedStroke ? ['strokeWidth'] : ['stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             effectsSection(content, store, nodes);
         }
         else {
             fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']);
             autoLayoutSection(content, nodes, store);
             fields('Appearance', ['radius', 'opacity']);
-            if (!styleControl(content, store, sync, nodes, 'fill')) fillsSection(content, store, nodes);
-            const linkedStroke = styleControl(content, store, sync, nodes, 'stroke');
-            fields('Stroke', linkedStroke ? ['strokeWidth'] : ['stroke', 'strokeWidth']);
+            fillsSection(content, store, nodes, section => styleControl(section, store, sync, nodes, 'fill'));
+            fields('Stroke', ['stroke', 'strokeWidth'], 'stroke');
             if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
                 const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
                 if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');

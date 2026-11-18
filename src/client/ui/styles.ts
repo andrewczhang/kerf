@@ -44,11 +44,35 @@ export function styleLibrary(parent: HTMLElement, store: Store, sync: Sync) {
 export function styleControl(parent: HTMLElement, store: Store, sync: Sync, nodes: Node[], target: 'fill' | 'stroke' | 'text'): boolean {
     const key = target === 'fill' ? 'fillStyle' : target === 'stroke' ? 'strokeStyle' : 'textStyle', kind = target === 'text' ? 'text' : 'color';
     const linked = sync.styles.find(s => s.kind === kind && s.id === nodes[0][key] && nodes.every(n => n[key] === s.id));
-    const section = document.createElement('section'); section.className = 'style-control';
-    const label = document.createElement('span'); label.textContent = target === 'text' ? 'Typography' : target === 'fill' ? 'Fill' : 'Stroke'; section.append(label);
     const apply = (style: Style) => { store.begin(); for (const n of nodes) if (target !== 'text' || isTextNode(n)) store.set(n.id, styleValues(style, target)); store.end(); };
-    const select = document.createElement('select'); select.setAttribute('aria-label', label.textContent + ' style'); select.append(new Option('Choose style', '')); for (const s of sync.styles.filter(s => s.kind === kind)) select.append(new Option(s.name, s.id)); select.value = linked?.id ?? ''; select.onchange = () => { const s = sync.styles.find(s => s.id === select.value); select.blur(); if (s) apply(s); }; section.append(select);
-    section.append(button('+', () => apply(create(sync, kind, nodes[0], target))));
-    if (linked) section.append(button('Detach', () => { store.begin(); for (const n of nodes) store.set(n.id, { [key]: null }); store.end(); }));
-    parent.append(section); return !!linked;
+    const heading = parent.firstElementChild as HTMLElement; heading.classList.add('style-section-heading');
+    const row = (style: Style, action: () => void) => {
+        const b = button('', action); b.className = 'style-row';
+        const sample = document.createElement('span'); sample.className = 'style-sample'; sample.setAttribute('aria-hidden', 'true');
+        if (style.kind === 'color') sample.style.backgroundColor = style.color;
+        else { sample.textContent = 'Ag'; sample.style.fontFamily = fonts[style.fontFamily]; sample.style.fontWeight = String(style.fontWeight); }
+        const name = document.createElement('span'); name.className = 'style-name'; name.textContent = style.name; b.append(sample, name); return b;
+    };
+    let picker: HTMLElement | undefined;
+    const toggle = () => {
+        if (picker?.isConnected) { picker.remove(); trigger.setAttribute('aria-expanded', 'false'); return; }
+        picker = document.createElement('div'); picker.className = 'style-picker'; picker.setAttribute('aria-label', 'Styles');
+        for (const s of sync.styles.filter(s => s.kind === kind)) picker.append(row(s, () => apply(s)));
+        if (!picker.childElementCount) { const empty = document.createElement('p'); empty.className = 'style-empty'; empty.textContent = 'No styles yet'; picker.append(empty); }
+        const add = button('Create style from current', () => apply(create(sync, kind, nodes[0], target))); add.className = 'style-create'; picker.append(add);
+        picker.onkeydown = e => { if (e.key === 'Escape') { e.stopPropagation(); picker?.remove(); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); } };
+        trigger.setAttribute('aria-expanded', 'true');
+        (linkedRow ?? heading).after(picker);
+    };
+    let linkedRow: HTMLElement | undefined;
+    const trigger = linked ? row(linked, toggle) : button('◇', toggle);
+    trigger.onclick = toggle;
+    trigger.title = 'Apply style'; trigger.setAttribute('aria-label', linked ? 'Apply style: ' + linked.name : 'Apply style'); trigger.setAttribute('aria-expanded', 'false');
+    if (linked) {
+        linkedRow = document.createElement('div'); linkedRow.className = 'style-linked';
+        const detach = button('×', () => { store.begin(); for (const n of nodes) store.set(n.id, { [key]: null }); store.end(); }); detach.title = 'Detach style'; detach.setAttribute('aria-label', 'Detach style');
+        linkedRow.append(trigger, detach); heading.after(linkedRow);
+        if (target === 'fill') heading.querySelector('button')?.remove();
+    } else { trigger.className = 'style-apply'; heading.append(trigger); }
+    return !!linked;
 }
