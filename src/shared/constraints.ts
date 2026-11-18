@@ -1,4 +1,5 @@
 import { children, type Doc, type Node, type Op } from './doc';
+import { applyLayout } from './layout';
 
 type Size = { w: number; h: number };
 type Mode = 'start' | 'end' | 'both' | 'center' | 'scale';
@@ -25,8 +26,18 @@ export function constrain(n: Node, from: Size, to: Size, scale = false): Pick<No
 /** Ops that lay out the subtree of `id` (as stored in `base`) after it is resized to `to`, skipping values `current` already holds. Frame children follow constraints; group children scale with the group; auto layout frames lay out their own children. */
 export function constraintOps(base: Doc, id: string, to: Size, skip: (id: string) => boolean = () => false, current: Doc = base): Op[] {
     const parent = base.get(id);
-    if (!parent || parent.layout === 'horizontal' || parent.layout === 'vertical') return [];
+    if (!parent) return [];
     const ops: Op[] = [];
+    if (parent.layout === 'horizontal' || parent.layout === 'vertical') {
+        const laid: Doc = new Map(base).set(id, { ...parent, ...to });
+        applyLayout(laid);
+        for (const c of children(base, id)) {
+            const n = laid.get(c.id)!;
+            if (!skip(c.id) && (c.type === 'frame' || c.type === 'group') && (n.w !== c.w || n.h !== c.h))
+                ops.push(...constraintOps(base, c.id, { w: n.w, h: n.h }, skip, current));
+        }
+        return ops;
+    }
     for (const c of children(base, id)) {
         if (skip(c.id)) continue;
         const next = constrain(c, parent, to, parent.type === 'group'), now = current.get(c.id);
