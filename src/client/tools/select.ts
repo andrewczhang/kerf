@@ -84,7 +84,8 @@ export class Select implements Tool {
                 const parent = n.parent ? world(store.doc, store.doc.get(n.parent)!) : { x: 0, y: 0 };
                 const left = Math.round(x + (r.x - b.x) * w / b.w - parent.x), top = Math.round(y + (r.y - b.y) * h / b.h - parent.y);
                 const right = Math.round(x + (r.x - b.x + n.w) * w / b.w - parent.x), bottom = Math.round(y + (r.y - b.y + n.h) * h / b.h - parent.y);
-                const values = { x: left, y: top, w: Math.max(1, right - left), h: Math.max(1, bottom - top) };
+                const keepX = x === b.x && w === b.w, keepY = y === b.y && h === b.h;
+                const values = { x: keepX ? n.x : left, y: keepY ? n.y : top, w: keepX ? n.w : Math.max(1, right - left), h: keepY ? n.h : Math.max(1, bottom - top) };
                 for (const [key, value] of Object.entries(values))
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
             }
