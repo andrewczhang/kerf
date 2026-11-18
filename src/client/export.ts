@@ -1,6 +1,8 @@
-import { children, type Doc, type Node } from '../shared/doc';
+import { children, nodeFills, type Doc, type Node } from '../shared/doc';
 import { bounds, world } from '../shared/geometry';
 import { drawNode } from './draw';
+import { loadAsset } from './assets';
+import { svgPaints } from './svg-paints';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -19,7 +21,9 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
         const r = world(doc, n), pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
-        return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+        let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
+        for (const e of n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
+        return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
     return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
@@ -29,6 +33,9 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
     if (!roots.length || !Number.isFinite(scale) || scale <= 0)
         throw new Error('Select objects and use a positive export scale.');
+    const file = typeof location === 'undefined' ? 'untitled' : location.pathname.split('/')[2] || 'untitled', images = new Set<string>();
+    const collect = (n: Node) => { for (const paint of nodeFills(n)) if (paint.visible && paint.type === 'image') images.add(paint.asset); if (n.type === 'frame') for (const child of children(doc, n.id)) collect(child); };
+    roots.forEach(collect); await Promise.all([...images].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
     canvas.width = r.w * scale;
     canvas.height = r.h * scale;
@@ -38,7 +45,7 @@ export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number):
     c.scale(scale, scale);
     c.translate(-r.x, -r.y);
     for (const n of roots)
-        drawNode(c, doc, n, { zoom: scale, labels: false });
+        drawNode(c, doc, n, { zoom: scale, scale, labels: false, file });
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
@@ -46,13 +53,19 @@ const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 
 export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
-    let clip = 0;
+    let clip = 0, paint = 0;
+    const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
     const render = (n: Node, alpha: number): string => {
         const r = world(doc, n), opacity = alpha * n.opacity;
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : 'rect';
+        if (n.fills !== undefined || n.effects !== undefined) {
+            let nested = '';
+            if (n.type === 'frame') { let id: string; do { id = `clip-${clip++}`; } while (doc.has(id)); nested = `<defs><clipPath id="${id}"><rect ${rect}/></clipPath></defs><g clip-path="url(#${id})">${children(doc, n.id).map(child => render(child, opacity)).join('')}</g>`; }
+            return svgPaints(n, r, tag, geometry, opacity, nested, paintId);
+        }
         const primitive = `<${tag} id="${escape(n.id)}" data-name="${escape(n.name)}" ${geometry} fill="${escape(n.fill)}"${opacity === 1 ? '' : ` fill-opacity="${opacity}"`}${n.stroke && n.strokeWidth > 0 ? ` stroke="${escape(n.stroke)}" stroke-width="${n.strokeWidth}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`}` : ''}/>`;
         if (n.type !== 'frame')
             return primitive;

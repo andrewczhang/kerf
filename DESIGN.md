@@ -45,6 +45,8 @@ Effects are drop-shadow/inner-shadow (x/y, nonnegative blur, spread, hex6 color,
 
 Paint/effect UI lives in `ui/fills.ts` and `ui/effects.ts`; editing state and legacy-fill writes in `paint-edit.ts`, canvas controls in `gradient-handles.ts`, clipboard/drop handling in `image-import.ts`. UI transactions write whole arrays through Store; no sync protocol changes are needed.
 
+Canvas and PNG export share `draw.ts`; PNG waits for image assets to decode and pads output bounds for drop shadows and layer blur. SVG preserves stacked solid/linear/radial paints, paint/stop opacity, drop shadows (including spread) and layer blur via SVG gradients/filters. SVG image paints use legacy fill, and inner-shadow/background-blur are omitted; use PNG for those features. Background blur in PNG samples only the exported selection underneath, not unselected page content.
+
 ## Sync (Figma-style property LWW, server authoritative)
 - Client applies ops optimistically, sends batches `{type:'ops', ops, seq}`.
 - Server applies in arrival order, broadcasts `{type:'ops', ops, from}` to others, acks sender `{type:'ack', seq}`.
