@@ -1,3 +1,4 @@
+import { isViewerCanvasShortcut } from './shortcuts';
 import './style.css';
 import { Store } from './store';
 import { addAutoLayout, isAutoLayout, wrapInAutoLayout } from './autolayout';
@@ -157,7 +158,7 @@ else {
 } }, { passive: false });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.stopFollowing())
     return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || ctx.editingText)
-    return; if (store.readOnly && !['v', 'h', 'c', 'p', 'Escape', ' '].includes(e.key)) { e.preventDefault(); return; } if (alignmentKey(e, store)) return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'g' || e.altKey && e.key.toLowerCase() === 'm')) { registry.get('select')!.onKey?.(e); return; } if (!store.readOnly && active.onKey?.(e))
+    return; if (store.readOnly && !isViewerCanvasShortcut(e, !!(e.target as HTMLElement).closest('button,a,summary,[role="button"]'))) return; if (alignmentKey(e, store)) return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'g' || e.altKey && e.key.toLowerCase() === 'm')) { registry.get('select')!.onKey?.(e); return; } if (!store.readOnly && active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));

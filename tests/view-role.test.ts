@@ -3,6 +3,17 @@ import { Store } from '../src/client/store';
 import { makeNode } from '../src/shared/doc';
 import { Sync } from '../src/client/sync';
 import { loadAsset } from '../src/client/assets';
+import { isViewerCanvasShortcut } from '../src/client/shortcuts';
+
+it('leaves focus navigation and control activation to the browser while excluding editor shortcuts', () => {
+    const event = (key: string) => ({ key, ctrlKey: false, metaKey: false, altKey: false });
+    for (const key of ['Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', 'r', 't', 'p'])
+        expect(isViewerCanvasShortcut(event(key), false)).toBe(false);
+    for (const key of ['Enter', ' ', 'Tab']) expect(isViewerCanvasShortcut(event(key), true)).toBe(false);
+    for (const key of ['v', 'h', 'c', 'Escape', ' ']) expect(isViewerCanvasShortcut(event(key), false)).toBe(true);
+    expect(isViewerCanvasShortcut({ ...event('v'), ctrlKey: true }, false)).toBe(false);
+    expect(isViewerCanvasShortcut({ ...event('h'), metaKey: true }, false)).toBe(false);
+});
 
 afterEach(() => vi.unstubAllGlobals());
 it('blocks local document mutations and undo in a read-only store, but accepts remote edits', () => {
