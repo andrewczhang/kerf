@@ -129,6 +129,24 @@ it('undoes and redoes nested detach override path remapping in the same transact
     const target = nested.id + '/' + child.id, parent = { ...instanceNode(outer, 200, 0), overrides: { [target]: { fill: '#123456' } } };
     s.init([main, child, outer, nested, parent]); s.commit(detachOps(s.doc, nested.id));
     expect(Object.keys(s.doc.get(parent.id)!.overrides!)).not.toContain(target);
+    const remapped = s.doc.get(parent.id)!.overrides!, key = Object.keys(remapped)[0];
+    s.commit([{ t: 'override', id: parent.id, target: key, key: 'fill', value: '#abcdef' }]);
+    s.history(); expect(s.doc.get(parent.id)?.overrides).toEqual(remapped);
+    expect(s.doc.get(parent.id)?.overrides).not.toBe(remapped);
     s.history(); expect(s.doc.get(parent.id)?.overrides).toEqual(parent.overrides);
     s.history(true); expect(Object.keys(s.doc.get(parent.id)!.overrides!)).not.toContain(target);
+    s.history(true); expect(s.doc.get(parent.id)?.overrides?.[key].fill).toBe('#abcdef');
+});
+it('compares override map history by value without overwriting remote changes', () => {
+    const s = new Store(), main = makeNode('frame', 0, 0), instance = instanceNode(main, 200, 0);
+    s.init([main, instance]);
+    s.set(instance.id, { overrides: { a: { fill: '#123456', opacity: .5 }, b: { radius: 2 } } });
+    s.pending.clear();
+    s.remote([{ t: 'set', id: instance.id, key: 'overrides', value: { b: { radius: 2 }, a: { opacity: .5, fill: '#123456' } } }]);
+    s.history(); expect(s.doc.get(instance.id)?.overrides).toBeUndefined();
+    s.history(true);
+    s.pending.clear();
+    const remote = { a: { fill: '#abcdef', opacity: .5 }, b: { radius: 2 } };
+    s.remote([{ t: 'set', id: instance.id, key: 'overrides', value: remote }]);
+    s.history(); expect(s.doc.get(instance.id)?.overrides).toEqual(remote);
 });

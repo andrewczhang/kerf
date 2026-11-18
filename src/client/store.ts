@@ -1,6 +1,12 @@
 import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
 import { detachOps, resizeFollowOps } from '../shared/components';
 function pendingKey(op: Op): string | undefined { return op.t === 'set' ? op.id + ':' + op.key : op.t === 'override' ? op.id + ':o:' + op.target + ':' + op.key : undefined; }
+function sameValue(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+    const entries = Object.entries(a);
+    return entries.length === Object.keys(b).length && entries.every(([key, value]) => Object.prototype.hasOwnProperty.call(b, key) && sameValue(value, (b as Record<string, unknown>)[key]));
+}
 type Change = {
     before: Op;
     after: Op;
@@ -98,7 +104,7 @@ export class Store extends EventTarget {
         return; const source = redo ? group : [...group].reverse(); const ops: Op[] = []; const shadow = new Map(this.doc); for (const c of source) {
         const expected = redo ? c.before : c.after, next = redo ? c.after : c.before;
         const n = expected.t === 'create' ? shadow.get(expected.node.id) : shadow.get(expected.id);
-        if (expected.t === 'set' && n?.[expected.key] !== expected.value)
+        if (expected.t === 'set' && !(expected.key === 'overrides' ? sameValue(n?.overrides, expected.value) : n?.[expected.key] === expected.value))
             continue;
         if (expected.t === 'override' && n?.overrides?.[expected.target]?.[expected.key] !== (expected.clear ? undefined : expected.value))
             continue;
