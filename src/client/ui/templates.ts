@@ -1,6 +1,6 @@
 import './templates.css';
 import { builtInTemplates, type Template } from '../../shared/templates';
-import { allTemplates, deleteTemplate, insertTemplate, saveTemplate, selectionTemplate } from '../templates';
+import { allTemplates, canEditTemplates, deleteTemplate, insertTemplate, saveTemplate, selectionTemplate } from '../templates';
 import { exportSVG } from '../export';
 import { nodeFills } from '../../shared/doc';
 import { assetURL } from '../assets';
@@ -44,6 +44,7 @@ export function homeTemplates() {
 }
 
 export function installTemplates(store: Store, viewport: Viewport, renderer: Renderer, sync: Sync, file: string) {
+    const enabled = () => canEditTemplates(store, renderer);
     const dialog = document.createElement('dialog'); dialog.className = 'templates-dialog'; dialog.setAttribute('aria-label', 'Templates');
     dialog.innerHTML = '<div class="templates-heading"><h1>Templates</h1><button class="template-save">Save selection as template</button><button class="template-close" aria-label="Close templates">Close ×</button></div><p class="templates-intro">A starting point, not a blank page. Every layer is yours to edit.</p><p class="template-error" role="alert"></p><div class="template-categories"></div>';
     document.body.append(dialog);
@@ -52,7 +53,7 @@ export function installTemplates(store: Store, viewport: Viewport, renderer: Ren
     let removeCommands: (() => void)[] = [];
     function updateCommands() {
         removeCommands.forEach(remove => remove());
-        removeCommands = allTemplates().map(t => registerCommand({ id: 'template-' + t.id, title: 'Insert template: ' + t.name, group: 'Edit', run: () => insert(t), enabled: () => !store.readOnly }));
+        removeCommands = allTemplates().map(t => registerCommand({ id: 'template-' + t.id, title: 'Insert template: ' + t.name, group: 'Edit', run: () => insert(t), enabled }));
     }
     function render() {
         updateCommands();
@@ -64,22 +65,22 @@ export function installTemplates(store: Store, viewport: Viewport, renderer: Ren
             if (items.length) container.append(templateGrid(items, t => void insert(t), id => { try { deleteTemplate(id); render(); } catch (e) { error(e); } }));
             else { const empty = document.createElement('p'); empty.textContent = 'Select layers on the canvas, then save them here.'; container.append(empty); }
         }
-        (dialog.querySelector('.template-save') as HTMLButtonElement).disabled = !store.selection.size || store.readOnly;
+        (dialog.querySelector('.template-save') as HTMLButtonElement).disabled = !store.selection.size || !enabled();
     }
-    function open() { if (store.readOnly) return; dialog.querySelector('.template-error')!.textContent = ''; render(); dialog.showModal(); }
-    function save() { try { saveTemplate(selectionTemplate(store.doc, store.selection, file)); if (!dialog.open) dialog.showModal(); render(); } catch (e) { if (!dialog.open) dialog.showModal(); error(e); } }
+    function open() { if (!enabled()) return; dialog.querySelector('.template-error')!.textContent = ''; render(); dialog.showModal(); }
+    function save() { if (!enabled()) return; try { saveTemplate(selectionTemplate(store.doc, store.selection, file)); if (!dialog.open) dialog.showModal(); render(); } catch (e) { if (!dialog.open) dialog.showModal(); error(e); } }
     (dialog.querySelector('.template-close') as HTMLButtonElement).onclick = () => dialog.close();
     (dialog.querySelector('.template-save') as HTMLButtonElement).onclick = save;
     dialog.addEventListener('click', e => { if (e.target === dialog) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
     const button = document.createElement('button'); button.textContent = 'Templates'; button.className = 'templates-trigger'; button.onclick = open; button.hidden = store.readOnly;
     document.querySelector('header')!.append(button);
-    registerCommand({ id: 'templates', title: 'Open Templates gallery', group: 'Edit', run: open, enabled: () => !store.readOnly });
-    registerCommand({ id: 'save-template', title: 'Save selection as template', group: 'Edit', run: save, enabled: () => !store.readOnly && store.selection.size > 0 });
+    registerCommand({ id: 'templates', title: 'Open Templates gallery', group: 'Edit', run: open, enabled });
+    registerCommand({ id: 'save-template', title: 'Save selection as template', group: 'Edit', run: save, enabled: () => enabled() && store.selection.size > 0 });
     updateCommands();
     window.addEventListener('storage', updateCommands);
     let inserting = false;
     const initial = async () => {
-        if (!sync.ready || inserting || store.readOnly) return;
+        if (!sync.ready || inserting || !enabled()) return;
         const url = new URL(location.href), id = url.searchParams.get('template'); if (!id) return;
         inserting = true;
         url.searchParams.delete('template'); history.replaceState(null, '', url);
