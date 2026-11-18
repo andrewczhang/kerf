@@ -30,7 +30,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
     function thread() {
         pop.replaceChildren(); pop.hidden = false;
         const root = sync.comments.find(c => c.id === open);
-        if (!root && !draft) { close(); return; }
+        if (!root && !draft || root?.resolved && !showResolved) { close(); return; }
         const head = document.createElement('h2'); head.textContent = draft ? 'New comment' : root?.resolved ? 'Resolved thread' : 'Comment thread'; pop.append(head);
         const replies = document.createElement('div'); replies.className = 'comment-replies'; pop.append(replies);
         if (root) for (const c of sync.comments.filter(c => c.id === root.id || c.thread === root.id)) {
