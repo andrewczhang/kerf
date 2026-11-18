@@ -32,7 +32,7 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
         if (n.type !== 'frame' || ctx.store.selection.has(n.id) || blocked(ctx.store.doc, n, false)) continue;
         const frame = world(ctx.store.doc, n);
         if (r.x < frame.x || r.y < frame.y || r.x > frame.x + frame.w || r.y > frame.y + frame.h) continue;
-        for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g));
+        for (const g of n.grids ?? []) if (g.visible) lines.push(...gridLines(frame, g, ctx.viewport.zoom));
     }
     let result: Rect;
     let spacing: Distance[] = [];

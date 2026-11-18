@@ -12,14 +12,15 @@ export function gridBands(r: Rect, g: LayoutGrid): Rect[] {
         : { x: r.x, y: r.y + g.margin + i * (size + g.gutter), w: r.w, h: size });
 }
 
-export function gridLines(r: Rect, g: LayoutGrid): RulerGuide[] {
+export function gridLines(r: Rect, g: LayoutGrid, zoom = 1): RulerGuide[] {
     if (g.type !== 'grid') return gridBands(r, g).flatMap<RulerGuide>(b => g.type === 'columns'
         ? [{ axis: 'x' as const, position: b.x }, { axis: 'x' as const, position: b.x + b.w }]
         : [{ axis: 'y' as const, position: b.y }, { axis: 'y' as const, position: b.y + b.h }]);
     const lines: RulerGuide[] = [];
-    if (!Number.isFinite(g.size) || g.size <= 0) return lines;
+    if (!Number.isFinite(g.size) || g.size < 2 || g.size > 10000 || !Number.isFinite(zoom) || zoom <= 0 || g.size * zoom < 2) return lines;
     for (const axis of ['x', 'y'] as const) {
         const span = axis === 'x' ? r.w : r.h;
+        if (!Number.isFinite(span) || Math.floor(span / g.size) + 1 > 1000) continue;
         for (let i = 0; i <= Math.floor(span / g.size); i++) lines.push({ axis, position: r[axis] + i * g.size });
     }
     return lines;

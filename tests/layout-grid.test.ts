@@ -35,6 +35,20 @@ it('validates grids strictly and restricts them to frames', () => {
     applyOp(doc, { t: 'set', id: frame.id, key: 'grids', value: [] }); expect(doc.get(frame.id)?.grids).toEqual([]);
     applyOp(doc, { t: 'set', id: frame.id, key: 'grids', value: [{ ...grid, count: 0 }] }); expect(doc.get(frame.id)?.grids).toEqual([]);
 });
+it('bounds square grid size and skips overly dense axes at the current zoom', () => {
+    const square = { ...grid, type: 'grid' as const, size: 2 };
+    for (const size of [2, 10000]) expect(validNode({ ...makeNode('frame', 0, 0), grids: [{ ...square, size }] })).toBe(true);
+    for (const size of [1.99, 10001]) {
+        expect(validNode({ ...makeNode('frame', 0, 0), grids: [{ ...square, size }] })).toBe(false);
+        expect(gridLines(rect, { ...square, size })).toEqual([]);
+    }
+    expect(gridLines({ ...rect, w: 1998, h: 1998 }, square)).toHaveLength(2000);
+    const lines = gridLines({ ...rect, w: 1e300, h: 20 }, square);
+    expect(lines).toHaveLength(11); expect(lines.every(l => l.axis === 'y')).toBe(true);
+    expect(gridLines(rect, square, .5)).toEqual([]);
+    expect(gridLines(rect, square, 1)).toHaveLength(1002);
+    expect(gridLines(rect, square, 0)).toEqual([]);
+});
 it('snaps moves and resizes to column edges with guides', () => {
     const lines = gridLines(rect, grid), moving = { x: 122, y: 80, w: 30, h: 20 };
     expect(snapRect(moving, [], 6, false, lines).dx).toBe(2);

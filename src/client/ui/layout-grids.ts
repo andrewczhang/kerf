@@ -1,5 +1,6 @@
 import type { LayoutGrid, Node } from '../../shared/doc';
 import type { Store } from '../store';
+import './layout-grids.css';
 
 export function layoutGridsSection(content: HTMLElement, store: Store, node: Node) {
     const section = document.createElement('section');
@@ -11,14 +12,14 @@ export function layoutGridsSection(content: HTMLElement, store: Store, node: Nod
         add.onclick = () => commit([...grids, { type: 'columns', count: 12, size: 20, gutter: 20, margin: 24, color: '#ff4f00', opacity: .1, visible: true }]);
         section.append(add);
         grids.forEach((g, i) => {
-            const fields = document.createElement('div'); fields.className = 'field-grid';
+            const fields = document.createElement('div'); fields.className = 'field-grid layout-grid-fields';
             const update = (key: keyof LayoutGrid, value: unknown) => commit(grids.map((v, j) => j === i ? { ...v, [key]: value } : v));
             const label = (caption: string, input: HTMLElement) => { const l = document.createElement('label'); l.className = 'field'; const s = document.createElement('span'); s.textContent = caption; input.setAttribute('aria-label', 'Grid ' + caption.toLowerCase()); l.append(s, input); fields.append(l); };
             const type = document.createElement('select');
             for (const [value, title] of [['columns', 'Columns'], ['rows', 'Rows'], ['grid', 'Grid']]) type.append(new Option(title, value));
             type.value = g.type; type.onchange = () => update('type', type.value); label('Type', type);
             for (const key of [g.type === 'grid' ? 'size' : 'count', 'gutter', 'margin', 'opacity'] as const) {
-                const input = document.createElement('input'); input.type = 'number'; input.value = String(g[key]); input.min = key === 'count' ? '1' : key === 'size' ? '.01' : '0'; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'count') input.max = '100'; if (key === 'opacity') input.max = '1';
+                const input = document.createElement('input'); input.type = 'number'; input.value = String(g[key]); input.min = key === 'count' ? '1' : key === 'size' ? '2' : '0'; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'count') input.max = '100'; if (key === 'size') input.max = '10000'; if (key === 'opacity') input.max = '1';
                 input.onchange = () => { if (input.value && input.checkValidity()) update(key, Number(input.value)); }; label(key[0].toUpperCase() + key.slice(1), input);
             }
             const color = document.createElement('input'); color.type = 'color'; color.value = g.color; color.onchange = () => update('color', color.value); label('Color', color);
