@@ -37,13 +37,13 @@ it('restores a hug frame and cross-axis fill child after bottom-handle resize un
     tool.onPointerMove({ x: 300, y: 430 }, event);
     tool.onPointerMove({ x: 300, y: 466.67 }, event);
     tool.onPointerUp({ x: 300, y: 466.67 });
-    expect(s.doc.get(p.id)?.sizeH).toBe('fixed'); expect(s.doc.get(p.id)?.h).toBeCloseTo(366.67);
-    expect(s.doc.get(child.id)?.h).toBeCloseTo(326.67);
+    expect(s.doc.get(p.id)?.sizeH).toBe('fixed'); expect(s.doc.get(p.id)?.h).toBe(367);
+    expect(s.doc.get(child.id)?.h).toBe(327);
     s.history();
     expect(s.doc.get(p.id)).toMatchObject({ sizeH: 'hug', h: 300 });
     expect(s.doc.get(child.id)?.h).toBe(260);
     expect(peer.doc.get(p.id)).toMatchObject({ sizeH: 'hug', h: 300 }); expect(peer.doc.get(child.id)?.h).toBe(260);
-    s.history(true); expect(s.doc.get(p.id)).toMatchObject({ sizeH: 'fixed' }); expect(s.doc.get(p.id)?.h).toBeCloseTo(366.67);
+    s.history(true); expect(s.doc.get(p.id)).toMatchObject({ sizeH: 'fixed' }); expect(s.doc.get(p.id)?.h).toBe(367);
 });
 
 it('undoes and redoes all geometry derived by adding auto layout without sending derived ops', () => {
