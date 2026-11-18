@@ -133,7 +133,7 @@ it('draws open path arrowheads along endpoint tangents and includes their ink in
     expect(svg).toContain('viewBox="-3 -18 111 29"');
     expect(svg).toContain('stroke-width="5" stroke-linecap="butt" stroke-linejoin="bevel"');
     expect(svg).toContain('<polyline points="0,8 0,-8"');
-    expect(svg).toContain('<polygon points="92,-17.5 100,0 108,-17.5"');
+    expect(svg).toContain('<polygon points="108,-17.5 100,0 92,-17.5"');
     expect(svg).not.toContain('<mask');
     const closed = { ...line, closed: true };
     expect(exportSVG(docOf(closed), [line.id])).not.toMatch(/<(polyline|polygon)/);
