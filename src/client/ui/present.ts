@@ -3,13 +3,13 @@ import { contains, inverse, transform, type Point } from '../../shared/geometry'
 import { aabb, hit, worldMatrix } from '../geometry';
 import { drawNode } from '../draw';
 import type { Store } from '../store';
-export function present(store: Store) {
+export function present(store: Store, initial?: string) {
     const overlay = document.createElement('div'); overlay.className = 'present-overlay';
     overlay.innerHTML = '<canvas aria-label="Presentation"></canvas><div class="present-footer"><span></span><span>← → Navigate · Backspace Back</span><button>Exit · Esc</button></div>';
     document.body.append(overlay);
     const canvas = overlay.querySelector('canvas')!, c = canvas.getContext('2d')!, label = overlay.querySelector('span')!;
     const frames = () => children(store.doc, null).filter(n => n.type === 'frame');
-    let selected = [...store.selection].map(id => store.doc.get(id)).find(n => n?.type === 'frame' && !n.parent);
+    let selected = (initial ? [store.doc.get(initial)] : [...store.selection].map(id => store.doc.get(id))).find(n => n?.type === 'frame' && !n.parent);
     let id = selected?.id ?? frames()[0]?.id, history: string[] = [], zoom = 1, ox = 0, oy = 0, flash = false, timer = 0;
     function draw() {
         const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1;

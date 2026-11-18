@@ -1,4 +1,7 @@
 .feature-button { padding: 0 12px; height: 30px; border: 1px solid #d6d4ce; background: transparent; white-space: nowrap; }
+.share-controls { display: flex; align-items: center; gap: 8px; }
+.share-controls > span { white-space: nowrap; color: #77766f; }
+.share-controls input { width: 260px; }
 header .feature-button.active { background: #ff4f00; color: #fff; border-color: #ff4f00; }
 [hidden] { display: none !important; }
 header { gap: 10px; }

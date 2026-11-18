@@ -14,6 +14,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
         panel.replaceChildren();
         const head = document.createElement('section'); head.innerHTML = '<h2>Version history</h2><input aria-label="Version name" placeholder="Name this version"><button class="feature-button">Save version</button>';
         head.querySelector('button')!.onclick = () => { sync.send({ type: 'version-save', name: head.querySelector('input')!.value || 'Saved version' }); };
+        if (sync.role === 'view') { head.querySelector('button')!.hidden = true; head.querySelector('input')!.hidden = true; }
         panel.append(head);
         head.querySelector('input')!.onkeydown = e => e.stopPropagation();
         head.querySelector('input')!.value = value;
@@ -34,6 +35,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
         const restore = document.createElement('button'); restore.className = 'feature-button'; restore.textContent = 'Restore'; restore.onclick = () => { if (confirm('Restore this version for everyone? Current work will be saved first.')) sync.send({ type: 'version-restore', id: previewId }); };
         const back = document.createElement('button'); back.className = 'feature-button'; back.textContent = 'Back to current'; back.onclick = current;
         banner.append(text, restore, back); banner.hidden = false; render(); restore.focus();
+        if (sync.role === 'view') { restore.hidden = true; back.focus(); }
     });
     sync.addEventListener('change', () => { if (!panel.contains(document.activeElement)) render(); }); sync.addEventListener('restored', current);
     sync.addEventListener('versions-change', render);

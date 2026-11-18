@@ -50,7 +50,7 @@ export function comments(sync: Sync, ctx: Context, canvas: HTMLCanvasElement, ch
         };
         input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } };
         button('Post', post);
-        if (root) { button(root.resolved ? 'Reopen' : 'Resolve', () => { sync.send({ type: 'comment-edit', id: root.id, resolved: !root.resolved }); close(); }); button('Delete', () => { sync.send({ type: 'comment-delete', id: root.id }); close(); }); }
+        if (root && sync.role === 'edit') { button(root.resolved ? 'Reopen' : 'Resolve', () => { sync.send({ type: 'comment-edit', id: root.id, resolved: !root.resolved }); close(); }); button('Delete', () => { sync.send({ type: 'comment-delete', id: root.id }); close(); }); }
         button('Close', close); render(); input.focus();
     }
     registry.set('comment', { id: 'comment', cursor: 'crosshair', onPointerDown(p) {
