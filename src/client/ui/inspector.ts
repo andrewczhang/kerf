@@ -71,7 +71,7 @@ export function inspector(el: HTMLElement, store: Store) {
                 input.value = mixed ? '' : String(Math.round(Number(nodes[0][key]) * 100) / 100);
             }
             input.onfocus = () => store.begin();
-            input.oninput = () => { if (!input.value || !input.validity.valid) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
+            input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
                 store.set(n.id, { [key]: value }); };
             input.onblur = () => { store.end(); render(); };
             label.append(span, input);
