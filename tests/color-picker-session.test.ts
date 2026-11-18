@@ -51,3 +51,18 @@ it('does not commit an unchanged picker session', () => {
     const { source, escape } = setup(); const commit = vi.fn(); source.addEventListener('change', commit);
     escape(); expect(commit).not.toHaveBeenCalled();
 });
+it('lets square arrow keys reach the target before containing them at the panel', () => {
+    const { fields, source, panel, escape } = setup();
+    const square = fields.find(f => f.className === 'color-square')!;
+    const key = Object.assign(new Event('keydown', { cancelable: true }), { key: 'ArrowLeft', shiftKey: false }) as KeyboardEvent;
+    Object.defineProperty(key, 'target', { value: square });
+    const stop = vi.spyOn(key, 'stopPropagation');
+    dom.dispatchEvent(key);
+    expect(stop).not.toHaveBeenCalled();
+    square.onkeydown!(key);
+    expect(source.value).not.toBe('#ff4f00');
+    expect(key.defaultPrevented).toBe(true);
+    panel.onkeydown!(key);
+    expect(stop).toHaveBeenCalledOnce();
+    escape();
+});

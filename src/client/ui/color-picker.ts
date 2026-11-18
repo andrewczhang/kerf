@@ -60,7 +60,8 @@ export function installColorPicker(store: Store, sync: Sync) {
         const EyeDropper = (window as unknown as { EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
         if (EyeDropper) fields.append(button('Sample screen', () => { void new EyeDropper().open().then(result => { if (panel.isConnected) apply(result.sRGBHex); }).catch(() => {}); }));
         const outside = (e: PointerEvent) => { if (!panel.contains(e.target as Node) && e.target !== source) close?.(); };
-        const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close?.(); } else if (panel.contains(e.target as Node)) e.stopPropagation(); };
+        panel.onkeydown = e => e.stopPropagation();
+        const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close?.(); } };
         close = () => { close = undefined; document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', key, true); document.removeEventListener('blur', stopBlur, true); if (changed) { try { localStorage.setItem('kerf-colors', JSON.stringify([color, ...recentColors().filter(c => c !== color)].slice(0, 16))); } catch {} source.value = color; source.dispatchEvent(new Event('change', { bubbles: true })); } source.dispatchEvent(new FocusEvent('blur')); panel.remove(); };
         (source.closest('aside') ?? document.body).append(panel); const r = source.getBoundingClientRect(); panel.style.left = `${Math.max(8, Math.min(window.innerWidth - 296, r.left - 292))}px`; panel.style.top = `${Math.max(8, Math.min(window.innerHeight - 600, r.top))}px`;
         refresh(); hex.focus(); document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', key, true);
