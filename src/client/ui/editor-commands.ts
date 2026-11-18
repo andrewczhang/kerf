@@ -17,7 +17,7 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
     add('create-component', 'Create component', 'Layers', () => {
         const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf);
         if (!ops.length) return;
-        store.commit(ops); store.selection = new Set([id]); store.changed();
+        store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed();
     }, 'Ctrl/⌘ Alt K', () => { try { return componentOps.create(store.doc, [...store.selection], sizeOf).ops.length > 0; } catch { return false; } });
     add('detach-instance', 'Detach instance', 'Layers', () => { store.commit(detachOps(store.doc, [...store.selection])); }, 'Ctrl/⌘ Alt B', () => [...store.selection].some(id => !!store.doc.get(id)?.instanceOf));
     for (const format of ['png', 'svg'] as const) add('export-' + format, 'Export selection ' + format.toUpperCase(), 'Export', () => downloadSelection(store.doc, store.selection, format, format === 'png' ? 2 : 1), undefined, () => exportRoots(expand(store.doc), store.selection).length > 0);

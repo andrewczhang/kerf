@@ -35,8 +35,10 @@ describe('editor palette commands', () => {
         editorCommands({ store, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn());
         expect(commands.get('create-component')!.enabled!()).toBe(false);
         expect(commands.get('detach-instance')!.enabled!()).toBe(false);
+        const selection = store.selection;
         store.selection.add(rect.id); commands.get('create-component')!.run();
         const main = store.doc.get([...store.selection][0])!;
+        expect(store.selection).toBe(selection); expect([...selection]).toEqual([main.id]);
         expect(main.component).toBe(true);
         const instance = { ...makeNode('frame', 200, 0), instanceOf: main.id };
         store.commit([{ t: 'create', node: instance }]); store.selection = new Set([instance.id]);
