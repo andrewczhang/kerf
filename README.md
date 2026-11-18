@@ -26,7 +26,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo. History contains only local transactions and skips properties overwritten remotely.
 - The inspector edits live. Click a collaborator's avatar to jump to their view.
 - Click the zoom percentage to reset to 100%.
-- Object/pixel snapping is always on; hold Ctrl/Cmd during a drag to bypass it. Orange guides and gap labels appear while moving/resizing/creating. Alt-hover measures the selection to a node (or its parent frame on empty canvas).
+- Object/pixel snapping is always on; hold Ctrl/Cmd during a drag to bypass it. Moving also snaps to equal gaps between neighbors or extends a row/column's spacing. Orange guides and gap labels appear while moving/resizing/creating. Alt-hover measures the selection to a node (or its parent frame on empty canvas).
 - Shift+R toggles rulers; drag from a ruler to create a local guide, drag a guide to move it or back onto a ruler to delete it. Rulers and grid preferences persist locally; ruler guides are local to each file.
 - “Snap to grid” in the footer or Ctrl/Cmd+' toggles the 8px grid. Selection size is shown below its bounds.
 

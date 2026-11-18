@@ -25,8 +25,9 @@ export function snapped(ctx: Context, r: Rect, e: PointerEvent, edges?: Edges, c
     if (!ctx.snap || e.ctrlKey || e.metaKey) { clearSnap(ctx); return r; }
     const ts = targets(ctx), state = ctx.snap;
     let result: Rect;
+    let spacing: Distance[] = [];
     if (edges) { const s = resizeSnap(r, ts, 6 / ctx.viewport.zoom, edges, state.grid, state.lines, { center, aspect: e.shiftKey }); result = s.rect; state.guides = s.guides; }
-    else { const s = snapRect(r, ts, 6 / ctx.viewport.zoom, state.grid, state.lines); result = { ...r, x: r.x + s.dx, y: r.y + s.dy }; state.guides = s.guides; }
-    state.measure = nearestDistances(result, ts);
+    else { const s = snapRect(r, ts, 6 / ctx.viewport.zoom, state.grid, state.lines); result = { ...r, x: r.x + s.dx, y: r.y + s.dy }; state.guides = s.guides; spacing = s.spacing; }
+    state.measure = [...spacing, ...nearestDistances(result, ts).filter(d => !spacing.some(s => d.x1 === s.x1 && d.x2 === s.x2 && d.y1 === s.y1 && d.y2 === s.y2))];
     return result;
 }
