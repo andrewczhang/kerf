@@ -8,14 +8,14 @@ import type { Store } from '../store';
 
 function highlight(target: HTMLElement, code: string) {
     target.replaceChildren();
-    const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|-?(?:\d+\.?\d*|\.\d+)|[a-zA-Z_$][\w$-]*|[^\w\s]/g;
+    const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|=\s*(?:"[^"]*"|'[^']*')|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|-?(?:\d+\.?\d*|\.\d+)|[a-zA-Z_$][\w$-]*|[^\w\s]/g;
     let end = 0, match: RegExpExecArray | null;
     while ((match = tokens.exec(code))) {
         target.append(document.createTextNode(code.slice(end, match.index)));
         const text = match[0], span = document.createElement('span');
         const before = code.slice(0, match.index), after = code.slice(tokens.lastIndex);
         span.className = text.startsWith('//') || text.startsWith('/*') ? 'syntax-comment'
-            : /^["']/.test(text) ? 'syntax-string'
+            : /^(?:=\s*)?["']/.test(text) ? 'syntax-string'
             : /^-?[\d.]/.test(text) ? 'syntax-number'
             : /<\/?\s*$/.test(before) ? 'syntax-tag'
             : /^\s*[=:]/.test(after) ? 'syntax-attr' : 'syntax-punctuation';

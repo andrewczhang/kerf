@@ -18,6 +18,18 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it('round-trips literal backslashes, quotes and entities in names', () => {
+        const doc = fixture();
+        doc.get('frame')!.name = String.raw`icons\navigation "quoted" & icons\primary`;
+        doc.get('rect')!.name = String.raw`Sam's icons\primary` + '\\';
+        const code = toReact(doc, 'frame');
+        expect(code).toContain('&quot;quoted&quot; &amp;');
+        expect(code).toContain('Sam&#39;s');
+        const parsed = tree(code);
+        expect(parsed.attrs['data-name']).toBe(doc.get('frame')!.name);
+        expect(parsed.children[0].children[0].attrs['data-name']).toBe(doc.get('rect')!.name);
+        expect(diffCode(doc, 'frame', parsed)).toEqual([]);
+    });
     it('rejects oversized batches before sending or mutating, while accepting the limit and empty edits', () => {
         const store = new Store(), node = makeNode('rect', 0, 0);
         store.init([node]);
@@ -117,8 +129,9 @@ describe('code generation and document diff', () => {
 });
 describe('constrained JSX parser', () => {
     it('accepts comments, fragments, both quote styles, escapes, numbers and self-closing tags', () => {
-        const result = tree(`/* start */ export function Test() { return (<> {/* child */}<div data-name='Sam\\'s' style={{ left: -12.5, top: .25, background: "#ff4f00", }} /></>); } // end`);
+        const result = tree(`/* start */ export function Test() { return (<> {/* child */}<div data-name='Sam&#39;s' style={{ left: -12.5, top: .25, background: "\\u0023ff4f00", }} /></>); } // end`);
         expect(result.children[0].attrs['data-name']).toBe("Sam's");
+        expect(result.children[0].style.background).toBe('#ff4f00');
         expect(result.children[0].style.left).toBe(-12.5);
     });
     it('reports exact line and column for missing style values and mismatched closing tags', () => {

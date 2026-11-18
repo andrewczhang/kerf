@@ -31,12 +31,13 @@ function tokenize(source: string): Token[] {
         const start = { line, col };
         const ch = source[i];
         if (ch === '"' || ch === "'") {
+            const attribute = tokens.at(-1)?.value === '=';
             const quote = take(); let value = '', closed = false;
             while (i < source.length) {
                 const c = take();
                 if (c === quote) { closed = true; break; }
-                if (c === '\n' || c === '\r') fail('unterminated string');
-                if (c !== '\\') { value += c; continue; }
+                if (!attribute && (c === '\n' || c === '\r')) fail('unterminated string');
+                if (attribute || c !== '\\') { value += c; continue; }
                 if (i === source.length) fail('unterminated escape');
                 const escaped = take();
                 if (escaped === 'u') {
