@@ -1,11 +1,76 @@
 import { expect, it, vi } from 'vitest';
 import { layoutText, measureTextNode } from '../src/client/text-layout';
-import { makeNode, type Doc, type TextNode } from '../src/shared/doc';
+import { makeNode, type Doc, type Op, type TextNode } from '../src/shared/doc';
 import { applyLayout } from '../src/shared/layout';
 import { Store } from '../src/client/store';
 import { wrapInAutoLayout } from '../src/client/autolayout';
 
 const measure = (text: string) => text.length * 10;
+
+it.each(['abcdefgh', ''])('persists measured auto width when text becomes fixed, including reload and undo/redo (%j)', text => {
+    const node = { ...makeNode('text', 0, 0), text, w: 240, fontSize: 20 };
+    const client = new Store(n => layoutText(n, measure)), worker = new Store();
+    client.init([node]); worker.init([node]);
+    const width = Math.max(1, text.length * 10), sent: Op[][] = [];
+    expect(client.doc.get(node.id)?.w).toBe(width);
+    expect(worker.doc.get(node.id)?.w).toBe(240);
+    client.send = ops => { sent.push(ops); worker.remote(ops); };
+    client.set(node.id, { textWidth: 'fixed' });
+    expect(sent).toEqual([[
+        { t: 'set', id: node.id, key: 'w', value: width },
+        { t: 'set', id: node.id, key: 'textWidth', value: 'fixed' },
+    ]]);
+    expect(client.undoStack).toHaveLength(1);
+    expect(worker.doc.get(node.id)).toMatchObject({ w: width, textWidth: 'fixed' });
+    const late = new Store(n => layoutText(n, measure)); late.init([...worker.doc.values()]);
+    expect(late.doc.get(node.id)).toEqual(client.doc.get(node.id));
+    client.pending.clear(); client.init([...worker.doc.values()]);
+    expect(client.doc.get(node.id)?.w).toBe(width);
+    client.history(); expect(client.doc.get(node.id)?.textWidth).toBe('auto');
+    expect(worker.doc.get(node.id)?.textWidth).toBe('auto');
+    client.history(true);
+    expect(worker.doc.get(node.id)).toMatchObject({ textWidth: 'fixed', w: width });
+    expect(client.doc.get(node.id)?.w).toBe(width);
+});
+
+it('retains explicit widths during fixed-width transitions and ignores non-text width mode ops', () => {
+    const node = { ...makeNode('text', 0, 0), text: 'abcdefgh', w: 240 };
+    const client = new Store(n => layoutText(n, measure)), sent: Op[][] = [];
+    client.init([node]); client.send = ops => sent.push(ops);
+    client.commit([]); expect(sent).toEqual([]);
+    client.set(node.id, { textWidth: 'fixed', w: 50 });
+    expect(sent[0]).toHaveLength(2);
+    expect(client.doc.get(node.id)?.w).toBe(50);
+    client.set(node.id, { textWidth: 'fixed' });
+    expect(sent[1]).toEqual([{ t: 'set', id: node.id, key: 'textWidth', value: 'fixed' }]);
+    const rect = makeNode('rect', 0, 0); client.doc.set(rect.id, rect);
+    client.set(rect.id, { textWidth: 'fixed' });
+    expect(sent[2]).toEqual([{ t: 'set', id: rect.id, key: 'textWidth', value: 'fixed' }]);
+    expect(client.doc.get(rect.id)).toBe(rect);
+    client.set('missing', { textWidth: 'fixed' });
+    expect(client.doc.has('missing')).toBe(false);
+});
+
+it('persists measured hug-frame height and fill-text width when layout sizing becomes fixed', () => {
+    const frame = { ...makeNode('frame', 0, 0), w: 50, h: 100, layout: 'vertical' as const, sizeH: 'hug' as const };
+    const text = { ...makeNode('text', 0, 0), parent: frame.id, textWidth: 'fixed' as const, sizeW: 'fill' as const, fontSize: 20, text: 'abcdefghij', w: 240, h: 29 };
+    const client = new Store(n => layoutText(n, measure)), worker = new Store(), sent: Op[][] = [];
+    client.init([frame, text]); worker.init([frame, text]);
+    client.send = ops => { sent.push(ops); worker.remote(ops); };
+    expect(client.doc.get(frame.id)?.h).toBe(48); expect(worker.doc.get(frame.id)?.h).toBe(29);
+    client.set(frame.id, { sizeH: 'fixed' });
+    expect(sent[0]).toEqual([{ t: 'set', id: frame.id, key: 'h', value: 48 }, { t: 'set', id: frame.id, key: 'sizeH', value: 'fixed' }]);
+    expect(worker.doc.get(frame.id)?.h).toBe(48);
+    client.set(text.id, { sizeW: 'fixed' });
+    expect(sent[1]).toEqual([{ t: 'set', id: text.id, key: 'w', value: 50 }, { t: 'set', id: text.id, key: 'sizeW', value: 'fixed' }]);
+    const late = new Store(n => layoutText(n, measure)); late.init([...worker.doc.values()]);
+    expect(late.doc.get(frame.id)).toEqual(client.doc.get(frame.id));
+    expect(late.doc.get(text.id)).toEqual(client.doc.get(text.id));
+    client.set(frame.id, { w: 200 });
+    expect(client.doc.get(text.id)?.w).toBe(50);
+    client.set(frame.id, { sizeH: 'hug' }); client.set(frame.id, { sizeH: 'fixed', h: 80 });
+    expect(sent.at(-1)).toEqual([{ t: 'set', id: frame.id, key: 'sizeH', value: 'fixed' }, { t: 'set', id: frame.id, key: 'h', value: 80 }]);
+});
 
 it.each(['fixed', 'fill'] as const)('uses measured multiline height instead of text %s height in a vertical hug stack', sizeH => {
     const frame = { ...makeNode('frame', 0, 0), layout: 'vertical' as const, sizeH: 'hug' as const, gap: 7, padTop: 3, padBottom: 5 };

@@ -1,4 +1,4 @@
-import { applyOp, descendants, type Doc, type Op, type Key } from '../shared/doc';
+import { applyOp, descendants, isTextNode, type Doc, type Op, type Key } from '../shared/doc';
 import { applyLayout, type MeasureText } from '../shared/layout';
 type Change = {
     before: Op;
@@ -35,7 +35,27 @@ export class Store extends EventTarget {
         this.undoStack.push(merged);
         this.redoStack = [];
     } this.group = null; }
-    commit(ops: Op[], record = true) { const changes: Change[] = []; for (const op of ops) {
+    commit(ops: Op[], record = true) {
+        if (record) {
+            const explicit = new Set(ops.flatMap(op => op.t === 'set' ? [op.id + ':' + op.key] : []));
+            ops = ops.flatMap(op => {
+                if (op.t !== 'set') return [op];
+                const n = this.doc.get(op.id);
+                if (!n) return [op];
+                const geometry: Op[] = [];
+                const freeze = (key: 'w' | 'h', value: number) => {
+                    if (!explicit.has(n.id + ':' + key)) geometry.push({ t: 'set', id: n.id, key, value });
+                };
+                if (isTextNode(n) && op.key === 'textWidth' && op.value === 'fixed' && n.textWidth !== 'fixed')
+                    freeze('w', this.measureText?.(n).w ?? n.w);
+                if (op.value === 'fixed') {
+                    if (op.key === 'sizeW' && (n.sizeW === 'hug' || n.sizeW === 'fill')) freeze('w', n.w);
+                    if (op.key === 'sizeH' && (n.sizeH === 'hug' || n.sizeH === 'fill') && !isTextNode(n)) freeze('h', n.h);
+                }
+                return [...geometry, op];
+            });
+        }
+        const changes: Change[] = []; for (const op of ops) {
         const n = op.t === 'create' ? undefined : this.doc.get(op.id);
         if (op.t === 'create')
             changes.push({ before: { t: 'delete', id: op.node.id }, after: op });
