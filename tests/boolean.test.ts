@@ -51,6 +51,7 @@ describe('boolean ops on repeated and aligned edges', () => {
         close(Math.abs(regionArea(combine([A, r(10, 0, 10, 10), r(5, 0, 10, 10)], 'exclude'))), 100);
         close(Math.abs(regionArea(combine([r(0, 0, 20, 10), r(10, 0, 20, 10), r(5, 0, 20, 10)], 'exclude'))), 200);
         close(Math.abs(regionArea(combine([r(0, 0, 20, 20), r(5, 5, 10, 10), r(5, 0, 10, 20)], 'exclude'))), 300);
+        close(Math.abs(regionArea(combine([r(0, 0, 30, 30), r(5, 0, 20, 20), r(10, 0, 10, 10)], 'exclude'))), 600);
     });
 });
 

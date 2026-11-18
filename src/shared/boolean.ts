@@ -131,18 +131,39 @@ function despike(poly: Polygon, tol: number): Polygon {
 function merge(region: Region, tol: number): Region {
     if (!region.length) return region;
     const q = tol / 10, key = (p: Point) => `${p.x},${p.y}`;
+    const segDist = (p: Point, a: Point, b: Point) => { const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); };
+    /** A point just inside poly next to an edge no other contour runs along, so shared edges cannot fake containment. */
+    const interior = (poly: Polygon, others: Region): Point => {
+        const s = -Math.sign(area(poly));
+        for (let i = 0; i < poly.length; i++) {
+            const a = poly[i], b = poly[(i + 1) % poly.length], l = Math.hypot(b.x - a.x, b.y - a.y);
+            if (l < 4 * q) continue;
+            const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            if (others.some(o => o.some((c, j) => segDist(m, c, o[(j + 1) % o.length]) < 2 * q))) continue;
+            const d = s * Math.min(q, l / 4);
+            return { x: m.x - (b.y - a.y) / l * d, y: m.y + (b.x - a.x) / l * d };
+        }
+        return probe(poly);
+    };
     const oriented = region.map(poly => {
-        const depth = region.filter(o => o !== poly && inside([o], probe(poly))).length;
+        const others = region.filter(o => o !== poly), p = interior(poly, others);
+        const depth = others.filter(o => inside([o], p)).length;
         return (area(poly) < 0) === (depth % 2 === 0) ? poly : [...poly].reverse();
     });
     const boxes = oriented.map(poly => { const xs = poly.map(p => p.x), ys = poly.map(p => p.y); return { x0: Math.min(...xs) - q, y0: Math.min(...ys) - q, x1: Math.max(...xs) + q, y1: Math.max(...ys) + q }; });
-    const near = boxes.map((m, i) => oriented.filter((_, j) => boxes[j].x0 <= m.x1 && m.x0 <= boxes[j].x1 && boxes[j].y0 <= m.y1 && m.y0 <= boxes[j].y1).flat());
+    const all = oriented.flat(), X0 = Math.min(...boxes.map(b => b.x0)), Y0 = Math.min(...boxes.map(b => b.y0));
+    const cell = Math.max(q, Math.hypot(Math.max(...boxes.map(b => b.x1)) - X0, Math.max(...boxes.map(b => b.y1)) - Y0) / Math.sqrt(all.length));
+    const grid = new Map<string, Point[]>();
+    for (const v of all) { const g = `${Math.floor((v.x - X0) / cell)},${Math.floor((v.y - Y0) / cell)}`; (grid.get(g) ?? grid.set(g, []).get(g)!).push(v); }
     const edges: [Point, Point][] = [];
-    oriented.forEach((poly, k) => poly.forEach((a, i) => {
+    oriented.forEach(poly => poly.forEach((a, i) => {
         const b = poly[(i + 1) % poly.length], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy, l = Math.sqrt(l2);
         const x0 = Math.min(a.x, b.x) - q, x1 = Math.max(a.x, b.x) + q, y0 = Math.min(a.y, b.y) - q, y1 = Math.max(a.y, b.y) + q;
         const on: { v: Point; t: number }[] = [];
-        for (const v of near[k]) {
+        const near: Point[] = [];
+        if ((x1 - x0) * (y1 - y0) / (cell * cell) > all.length) near.push(...all);
+        else for (let gx = Math.floor((x0 - X0) / cell); gx <= Math.floor((x1 - X0) / cell); gx++) for (let gy = Math.floor((y0 - Y0) / cell); gy <= Math.floor((y1 - Y0) / cell); gy++) near.push(...grid.get(`${gx},${gy}`) ?? []);
+        for (const v of near) {
             if (v.x < x0 || v.x > x1 || v.y < y0 || v.y > y1) continue;
             const t = ((v.x - a.x) * dx + (v.y - a.y) * dy) / l2;
             if (t > 1e-9 && t < 1 - 1e-9 && Math.abs((v.x - a.x) * dy - (v.y - a.y) * dx) / l < q / 2) on.push({ v, t });
