@@ -12,8 +12,12 @@ export const textFonts = ['sans', 'serif', 'mono'] as const;
 export const textWeights = [400, 700] as const;
 export const textAlignments = ['left', 'center', 'right'] as const;
 export const textWidths = ['auto', 'fixed'] as const;
-export const maxTextLength = 4000;
+export const maxTextLength = 100000;
 export const maxFontSize = 512;
+export const strokeAlignments = ['inside', 'center', 'outside'] as const;
+export const strokeCaps = ['butt', 'round', 'square'] as const;
+export const strokeJoins = ['miter', 'round', 'bevel'] as const;
+export const arrowheads = ['none', 'line', 'triangle', 'circle', 'bar'] as const;
 
 interface TextProperties {
     text: string;
@@ -24,7 +28,18 @@ interface TextProperties {
     textWidth: typeof textWidths[number];
 }
 
-export interface Node extends Partial<TextProperties> {
+interface StrokeProperties {
+    strokeAlign: typeof strokeAlignments[number];
+    strokeDash: number;
+    strokeGap: number;
+    strokeCap: typeof strokeCaps[number];
+    strokeJoin: typeof strokeJoins[number];
+    strokeMiterLimit: number;
+    strokeStart: typeof arrowheads[number];
+    strokeEnd: typeof arrowheads[number];
+}
+
+export interface Node extends Partial<TextProperties & StrokeProperties> {
     grids?: LayoutGrid[];
     link?: string | null;
     id: string;
@@ -74,6 +89,20 @@ const layoutEnums: Record<'layout' | 'justify' | 'align' | 'sizeW' | 'sizeH', re
 export type TextNode = Node & TextProperties & { type: 'text' };
 export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
 const textKeys: (keyof TextProperties)[] = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'];
+const strokeKeys: (keyof StrokeProperties)[] = ['strokeAlign', 'strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin', 'strokeMiterLimit', 'strokeStart', 'strokeEnd'];
+export const isOpenPath = (node: Node) => node.type === 'path' && !node.closed;
+export function strokeOptions(node: Node): StrokeProperties {
+    return {
+        strokeAlign: isOpenPath(node) ? 'center' : node.strokeAlign ?? 'center',
+        strokeDash: node.strokeDash ?? 0,
+        strokeGap: node.strokeGap ?? 0,
+        strokeCap: node.strokeCap ?? (node.type === 'path' ? 'round' : 'butt'),
+        strokeJoin: node.strokeJoin ?? (node.type === 'path' ? 'round' : 'miter'),
+        strokeMiterLimit: node.strokeMiterLimit ?? 10,
+        strokeStart: node.strokeStart ?? 'none',
+        strokeEnd: node.strokeEnd ?? 'none',
+    };
+}
 export type Doc = Map<string, Node>;
 export interface LayoutGrid { type: 'columns' | 'rows' | 'grid'; count: number; size: number; gutter: number; margin: number; color: string; opacity: number; visible: boolean }
 function validGrid(g: LayoutGrid): boolean {
@@ -163,7 +192,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', 'points', 'closed', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if (textKeys.some(key => key === op.key) && n.type !== 'text')
         return;
@@ -223,6 +252,7 @@ function validOverrides(value: unknown): boolean {
     return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
+    if ((strokeKeys as string[]).includes(key)) return validStroke({ [key]: value } as unknown as Node);
     if (key === 'fills') return value === undefined || Array.isArray(value) && value.length <= 12 && value.every(validPaint);
     if (key === 'effects') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validEffect);
     if (key === 'grids') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validGrid);
@@ -253,7 +283,16 @@ function validProperty(key: string, value: unknown): boolean {
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false }; }
-export function validNode(n: Node): boolean { return !!n && (n.grids === undefined || n.type === 'frame') && validLayout(n) && ['grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { return !!n && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+function validStroke(n: Node): boolean {
+    const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
+    return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))
+        && (n.strokeCap === undefined || strokeCaps.includes(n.strokeCap))
+        && (n.strokeJoin === undefined || strokeJoins.includes(n.strokeJoin))
+        && (n.strokeStart === undefined || arrowheads.includes(n.strokeStart))
+        && (n.strokeEnd === undefined || arrowheads.includes(n.strokeEnd))
+        && length(n.strokeDash, 0) && length(n.strokeGap, 0) && length(n.strokeMiterLimit, 1);
+}
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {

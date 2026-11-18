@@ -1,9 +1,9 @@
 import { between, children, descendants, type Node, type Op } from '../../shared/doc';
 import { expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
-import { bounds, contains, handles, intersects, type Point, type Rect } from '../../shared/geometry';
+import { bounds, handles, intersects, type Point, type Rect } from '../../shared/geometry';
 import { hit, world } from '../geometry';
 import type { Context, Tool } from './tool';
-import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
+import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
@@ -129,23 +129,22 @@ export class Select implements Tool {
         }
         store.commit(ops);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx; if (this.ctx.marquee) {
+    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start && !this.original.size) return; const { store } = this.ctx, start = this.start ?? p; if (this.ctx.marquee) {
         for (const n of store.doc.values())
             if (!blocked(store.doc, n) && intersects(world(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
     }
     else if (this.moved && this.handle < 0) {
-        const insertion = dragInsertion(store.doc, [...this.original.values()], p, this.start!);
+        const insertion = dragInsertion(store.doc, [...this.original.values()], p, start);
         if (insertion) reorderInAutoLayout(store, [...this.original.values()], insertion);
         else
         for (const id of this.original.keys()) {
             const n = store.doc.get(id)!;
             if (n.parent && store.doc.get(n.parent)?.type === 'group') continue;
             const original = this.original.get(id)!;
-            const r = isAutoLayout(store.doc.get(original.parent ?? '')) ? world(store.doc, { ...original, x: original.x + p.x - this.start!.x, y: original.y + p.y - this.start!.y }) : world(store.doc, n);
-            const blocked = new Set([id, ...descendants(store.doc, id).map(n => n.id)]);
-            const frames = [...store.doc.values()].filter(f => f.type === 'frame' && !f.instanceOf && !blocked.has(f.id) && contains(world(store.doc, f), p));
+            const r = isAutoLayout(store.doc.get(original.parent ?? '')) ? world(store.doc, { ...original, x: original.x + p.x - start.x, y: original.y + p.y - start.y }) : world(store.doc, n);
+            const frames = eligibleDropFrames(store.doc, [original], p, start, [...this.original.values()]).filter(f => !f.instanceOf);
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
@@ -153,7 +152,11 @@ export class Select implements Tool {
             }
         }
     } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
-    onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    onKey(e: KeyboardEvent) { const { store } = this.ctx; const nodes = this.selected().filter(n => !blocked(store.doc, n)); if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault(); store.selection.clear();
+        for (const n of children(store.doc, null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
+        store.changed(); return;
+    } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id)); } }
         else { const ops = groupOps(store.doc, nodes.map(n => n.id)); const create = ops.find(op => op.t === 'create'); if (create?.t === 'create') selection.push(create.node.id); store.commit(ops); }

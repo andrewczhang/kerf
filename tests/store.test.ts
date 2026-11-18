@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { Store } from '../src/client/store';
-import { makeNode } from '../src/shared/doc';
+import { makeNode, strokeOptions } from '../src/shared/doc';
 import type { Op } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode } from '../src/shared/components';
 import { applyOp } from '../src/shared/doc';
@@ -293,4 +293,17 @@ it('compares override map history by value without overwriting remote changes', 
     const remote = { a: { fill: '#abcdef', opacity: .5 }, b: { radius: 2 } };
     s.remote([{ t: 'set', id: instance.id, key: 'overrides', value: remote }]);
     s.history(); expect(s.doc.get(instance.id)?.overrides).toEqual(remote);
+});
+
+it('syncs stroke properties independently and undoes them back to legacy defaults', () => {
+    const local = new Store(), remote = new Store(), n = makeNode('path', 0, 0);
+    local.init([n]); remote.init([n]);
+    local.send = ops => remote.remote(JSON.parse(JSON.stringify(ops)));
+    local.begin(); local.set(n.id, { strokeDash: 6, strokeGap: 2, strokeCap: 'square', strokeEnd: 'bar' }); local.end();
+    expect(strokeOptions(remote.doc.get(n.id)!)).toMatchObject({ strokeDash: 6, strokeGap: 2, strokeCap: 'square', strokeEnd: 'bar' });
+    local.history();
+    expect(strokeOptions(remote.doc.get(n.id)!)).toEqual(strokeOptions(n));
+    local.history(true);
+    remote.remote([{ t: 'set', id: n.id, key: 'strokeGap', value: -1 }, { t: 'set', id: n.id, key: 'strokeMiterLimit', value: 0 }]);
+    expect(strokeOptions(remote.doc.get(n.id)!)).toEqual(strokeOptions(local.doc.get(n.id)!));
 });

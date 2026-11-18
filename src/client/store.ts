@@ -137,7 +137,7 @@ export class Store extends EventTarget {
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().map(pendingKey).filter(Boolean)); for (const op of ops)
         if (!pendingKey(op) || !keys.has(pendingKey(op)))
             applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
-    init(nodes: import('../shared/doc').Node[]) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of this.pending.values())
+    init(nodes: import('../shared/doc').Node[], replayPending = true) { this.doc = new Map(nodes.map(n => [n.id, normalizeNode(n)])); for (const ops of replayPending ? this.pending.values() : [])
         for (const op of ops)
             applyOp(this.doc, op); applyLayout(this.doc, this.measureText); this.changed(); }
     history(redo = false) { const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack; const group = from.pop(); if (!group)

@@ -62,6 +62,37 @@ it('does not reparent on a deep-selection pointerup or drop shapes into instance
 
 const layerKey = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
 const setupLayers = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
+const key = (tool: Select, key: string, extra = {}) => tool.onKey({ key, preventDefault() {}, ...extra } as KeyboardEvent);
+const setupCanvas = () => { const store = new Store(), tool = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }); return { store, tool }; };
+it('selects selectable top-level objects with Ctrl/Cmd+A, including an empty canvas', () => {
+    const { store, tool } = setupCanvas(); key(tool, 'a', { ctrlKey: true }); expect(store.selection.size).toBe(0);
+    const frame = makeNode('frame', 0, 0), child = { ...makeNode('rect', 0, 0), parent: frame.id }, hidden = { ...makeNode('rect', 0, 0), hidden: true };
+    store.init([frame, child, hidden]); let prevented = false;
+    key(tool, 'A', { metaKey: true, preventDefault() { prevented = true; } });
+    expect(prevented).toBe(true); expect([...store.selection]).toEqual([frame.id]);
+});
+it('keeps overlapping sibling frames as siblings but allows fully contained drops', () => {
+    const { store, tool } = setupCanvas(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0);
+    store.init([a, b]); tool.original.set(a.id, a); tool.moved = true;
+    tool.onPointerUp({ x: 125, y: 50 }); expect(store.doc.get(a.id)?.parent).toBe(null);
+    store.set(b.id, { x: 0, w: 300, h: 300 }); tool.onPointerUp({ x: 125, y: 50 });
+    expect(store.doc.get(a.id)?.parent).toBe(b.id);
+});
+it('never reparents into another dragged frame or its descendants', () => {
+    const { store, tool } = setupCanvas(), a = makeNode('frame', 50, 0), b = { ...makeNode('frame', 0, 0), w: 300, h: 300 }, child = { ...makeNode('frame', 0, 0), parent: b.id, w: 250, h: 250 };
+    store.init([a, b, child]); tool.original.set(a.id, a); tool.original.set(b.id, b); tool.moved = true;
+    tool.onPointerUp({ x: 125, y: 50 });
+    expect(store.doc.get(a.id)?.parent).toBe(null); expect(store.doc.get(b.id)?.parent).toBe(null);
+    expect(store.doc.get(child.id)?.parent).toBe(b.id);
+});
+it('keeps a shape in its current parent when a co-dragged overlapping frame cannot nest there', () => {
+    const { store, tool } = setupCanvas(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0), shape = { ...makeNode('rect', 10, 10), parent: b.id };
+    store.init([a, b, shape]); tool.original.set(a.id, a); tool.original.set(shape.id, shape);
+    tool.moved = true; tool.start = { x: 120, y: 40 };
+    tool.onPointerUp({ x: 125, y: 50 });
+    expect(store.doc.get(a.id)?.parent).toBe(null);
+    expect(store.doc.get(shape.id)?.parent).toBe(b.id);
+});
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
     const { store, tool } = setupLayers(), a = makeNode('rect', 20, 30), b = { ...makeNode('ellipse', 200, 50), index: 'z' }; store.init([a, b]); store.selection.add(a.id); store.selection.add(b.id);
     layerKey(tool, 'g', { ctrlKey: true }); const g = store.doc.get([...store.selection][0])!; expect(g.type).toBe('group'); expect(store.undoStack).toHaveLength(1);

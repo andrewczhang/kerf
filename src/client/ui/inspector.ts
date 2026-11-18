@@ -1,4 +1,5 @@
 import type { Store } from '../store';
+import { arrowheads, isOpenPath, strokeAlignments, strokeCaps, strokeJoins, strokeOptions } from '../../shared/doc';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
@@ -10,15 +11,17 @@ import { between, children, isTextNode, maxFontSize, type Node, type Key, type O
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection } from './layout-grids';
+import { codepanel } from './codepanel';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
     for (const input of content.querySelectorAll<HTMLInputElement>('input[type="number"][data-key]')) {
         if (input === active) continue;
         const key = input.dataset.key as Key;
-        const value = nodes[0][key] ?? 0;
-        const mixed = nodes.some(n => (n[key] ?? 0) !== value);
-        input.value = mixed ? '' : formatNumber(Number(value));
+        const stroke = key === 'strokeDash' || key === 'strokeGap' || key === 'strokeMiterLimit';
+        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : n[key] ?? 0);
+        const mixed = values.some(value => value !== values[0]);
+        input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
         input.placeholder = mixed ? 'Mixed' : '';
     }
 }
@@ -32,9 +35,22 @@ export function refreshFocusedInspector(content: HTMLElement, nodes: Node[], act
 }
 
 export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
-    el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading" role="tablist" aria-label="Inspector"><button class="active" id="design-tab" role="tab" aria-selected="true" aria-controls="properties">Design</button><button id="code-tab" role="tab" aria-selected="false" aria-controls="code-panel">Code</button></div><div id="properties" role="tabpanel" aria-labelledby="design-tab"></div><div id="code-panel" role="tabpanel" aria-labelledby="code-tab" hidden></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
+    const code = codepanel(el.querySelector<HTMLElement>('#code-panel')!, store);
+    const setTab = (codeActive: boolean) => {
+        for (const id of ['design', 'code']) {
+            const button = el.querySelector<HTMLButtonElement>(`#${id}-tab`)!;
+            const active = (id === 'code') === codeActive;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+        }
+        content.hidden = codeActive;
+        code.activate(codeActive);
+    };
+    el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
+    el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
     const render = () => {
         const doc = expand(store.doc);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
@@ -106,34 +122,52 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
         else {
             try { componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); button(section('Component'), 'Create component', create); } catch { }
         }
+        const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
             fontWeight: [[400, 'Regular'], [700, 'Bold']],
             textAlign: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']],
             textWidth: [['auto', 'Auto'], ['fixed', 'Fixed']],
+            strokeAlign: named(strokeAlignments),
+            strokeCap: named(strokeCaps),
+            strokeJoin: named(strokeJoins),
+            strokeStart: named(arrowheads),
+            strokeEnd: named(arrowheads),
         };
-        const fields = (title: string, keys: Key[]) => {
-            const s = section(title), grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid);
-            for (const key of keys) {
-                const label = document.createElement('label'); label.className = 'field';
-                const span = document.createElement('span'); span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width' } as Record<string, string>)[key] ?? key.toUpperCase();
-                const overridden = nodes.some(n => { const { instance, target } = splitVirtual(n.id); return Object.hasOwn(store.doc.get(instance)?.overrides?.[target] ?? {}, key); });
-                label.classList.toggle('overridden', overridden);
-                if (overridden) label.title = 'Overridden';
-                const mixed = nodes.some(n => n[key] !== first[key]), options = choices[key];
-                if (options) {
-                    const select = document.createElement('select'); select.setAttribute('aria-label', span.textContent);
-                    if (mixed) select.append(new Option('Mixed', '', true, true));
-                    for (const [value, title] of options) select.append(new Option(title, String(value), false, !mixed && first[key] === value));
-                    select.onchange = () => {
-                        const chosen = options.find(([value]) => String(value) === select.value);
-                        if (!chosen) return;
-                        store.begin(); for (const n of nodes) write(n, key, chosen[0]); store.end(); select.blur(); render();
-                    };
-                    label.append(span, select); grid.append(label); continue;
-                }
-            const input = inputElement(key === 'fontSize' ? 'Font size' : key);
-            input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
+        const strokeValues = nodes.map(strokeOptions);
+        const fields = (title: string, keys: Key[], stroke = false) => { const s = section(title); if (stroke) s.className = 'stroke-options'; const grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid); for (const key of keys) {
+            const label = document.createElement('label');
+            label.className = 'field';
+            const overridden = nodes.some(n => { const { instance, target } = splitVirtual(n.id); return Object.hasOwn(store.doc.get(instance)?.overrides?.[target] ?? {}, key); });
+            label.classList.toggle('overridden', overridden);
+            if (overridden) label.title = 'Overridden';
+            const span = document.createElement('span');
+            const caption = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width', strokeAlign: 'Align', strokeDash: 'Dash', strokeGap: 'Gap', strokeCap: 'Cap', strokeJoin: 'Join', strokeMiterLimit: 'Miter limit', strokeStart: 'Start', strokeEnd: 'End' } as Record<string, string>)[key] ?? key.toUpperCase();
+            span.textContent = caption;
+            const values = stroke ? strokeValues.map(n => n[key as keyof typeof n]) : nodes.map(n => n[key]);
+            const mixed = values.some(value => value !== values[0]);
+            const options = choices[key];
+            if (options) {
+                const select = document.createElement('select');
+                select.setAttribute('aria-label', caption);
+                if (mixed)
+                    select.append(new Option('Mixed', '', true, true));
+                for (const [value, title] of options)
+                    select.append(new Option(title, String(value), false, !mixed && values[0] === value));
+                select.onchange = () => {
+                    const chosen = options.find(([value]) => String(value) === select.value);
+                    if (!chosen) return;
+                    store.begin();
+                    for (const node of nodes) write(node, key, chosen[0]);
+                    store.end();
+                    select.blur();
+                    render();
+                };
+                label.append(span, select);
+                grid.append(label);
+                continue;
+            }
+            const input = inputElement(stroke ? caption : key === 'fontSize' ? 'Font size' : key);
             input.placeholder = mixed ? 'Mixed' : '';
             if (key === 'fill' || key === 'stroke') {
                 label.classList.add('color-field');
@@ -158,10 +192,11 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
             input.type = 'number';
             input.dataset.key = key;
-            input.step = key === 'opacity' ? '.05' : '1';
+            input.step = stroke ? 'any' : key === 'opacity' ? '.05' : '1';
             if (key === 'fontSize') input.max = String(maxFontSize);
             if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
-            input.value = mixed ? '' : formatNumber(Number(nodes[0][key]));
+            if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
+            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(nodes[0][key]));
             input.onfocus = () => { if (!input.readOnly) store.begin(); };
             input.oninput = () => { if (input.readOnly || !input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
                 write(n, key, value); };
@@ -202,6 +237,13 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             fields('Appearance', ['radius', 'opacity']);
             fillsSection(content, store, nodes);
             fields('Stroke', ['stroke', 'strokeWidth']);
+            if (nodes.every(n => n.type !== 'text' && n.type !== 'group')) {
+                const keys: Key[] = ['strokeDash', 'strokeGap', 'strokeCap', 'strokeJoin'];
+                if (nodes.every(n => !isOpenPath(n))) keys.unshift('strokeAlign');
+                if (strokeValues.some(n => n.strokeJoin === 'miter')) keys.push('strokeMiterLimit');
+                if (nodes.every(isOpenPath)) keys.push('strokeStart', 'strokeEnd');
+                fields('Stroke options', keys, true);
+            }
             effectsSection(content, store, nodes);
         }
         if (nodes.length === 1 && nodes[0].type === 'frame') layoutGridsSection(content, store, nodes[0]);
