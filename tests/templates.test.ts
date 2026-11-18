@@ -6,8 +6,17 @@ import { instanceNode } from '../src/shared/components';
 import { Store } from '../src/client/store';
 import { Viewport } from '../src/client/viewport';
 import type { Renderer } from '../src/client/renderer';
+import { aabb } from '../src/shared/geometry';
 
 afterEach(() => vi.unstubAllGlobals());
+it('keeps the landing hero headline column clear of both rotated book covers', () => {
+    const template = builtInTemplates.find(t => t.id === 'landing')!;
+    const doc: Doc = new Map(template.nodes.map(n => [n.id, n]));
+    const headline = template.nodes.find(n => n.text?.startsWith('Independent books.'))!;
+    for (const cover of template.nodes.filter(n => n.type === 'rect' && n.rotation)) {
+        expect(headline.x + headline.w + 32).toBeLessThanOrEqual(aabb(doc, cover).x);
+    }
+});
 it.each(builtInTemplates)('$name is a valid connected tree with unique ids', template => {
     const doc: Doc = new Map();
     for (const n of template.nodes) {

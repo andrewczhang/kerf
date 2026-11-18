@@ -35,7 +35,7 @@ export const builtInTemplates: Template[] = [
     }),
     design('landing', 'Landing page', 'Digital', 1440, 1024, '#f5f5f2', b => {
         b.text('Common Press', 64, 36, 500, 30, '#202921', 700); b.text('Editions     About     Visit the shop ↗', 900, 44, 480, 20);
-        b.rect(64, 108, 1312, 2, '#202921'); b.text('Independent books.\nUncommon ideas.', 64, 162, 850, 88, '#202921', 700);
+        b.rect(64, 108, 1312, 2, '#202921'); b.text('Independent books.\nUncommon ideas.', 64, 162, 800, 76, '#202921', 700);
         b.text('A small publishing house for people who look closer.\nArt, architecture and everyday life, in print.', 68, 405, 750, 26);
         b.rect(68, 520, 284, 64, '#df4629'); b.text('Explore the editions →', 88, 539, 260, 20, '#ffffff', 700);
         b.rect(962, 170, 350, 432, '#1e594e', { rotation: 8 }); b.rect(918, 186, 330, 418, '#f3b634', { rotation: -6 });
@@ -54,7 +54,7 @@ export const builtInTemplates: Template[] = [
     design('social', 'Social post', 'Editorial', 1080, 1080, '#e8ed30', b => {
         b.text('Studio Openhouse', 54, 44, 850, 30, '#144632', 700); b.rect(54, 108, 972, 3, '#144632');
         b.text('Objects\nwith a\nsecond life.', 48, 152, 990, 130, '#144632', 700);
-        b.circle(688, 526, 300, '#144632'); b.circle(748, 586, 180, '#e8ed30'); b.rect(676, 676, 340, 24, '#e8ed30', { rotation: -35 });
+        b.circle(734, 566, 260, '#144632'); b.circle(786, 618, 156, '#e8ed30'); b.rect(724, 686, 280, 20, '#e8ed30', { rotation: -35 });
         b.rect(54, 876, 972, 3, '#144632'); b.text('Repair workshop\nSaturday 24 October, 11–17h', 54, 910, 700, 30, '#144632'); b.text('Bring it.\nFix it.', 830, 910, 210, 30, '#144632', 700);
     }),
     design('poster', 'Poster', 'Print', 1240, 1754, '#e93f2d', b => {
