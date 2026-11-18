@@ -75,6 +75,18 @@ it('renumbers the entire unsent queue in order when it crosses the server receip
     expect(server.get(node.id)?.x).toBe(90);
     store.set(node.id, { y: 80 }); expect(store.seq).toBe(5);
 });
+it('durably saves renumbered replay and its snapshot before the first socket send', () => {
+    const { store, sync, socket } = setup(), node = makeNode('rect', 0, 0);
+    store.commit([{ t: 'create', node }]); store.set(node.id, { x: 90 });
+    const send = vi.spyOn(socket, 'send').mockImplementation(() => {
+        const saved = JSON.parse(localStorage.getItem(sync.storageKey)!);
+        expect(saved.seq).toBe(4); expect(saved.pending.map(([seq]: [number]) => seq)).toEqual([3, 4]);
+        const snapshot = JSON.parse(localStorage.getItem(sync.storageKey + ':nodes')!);
+        expect(snapshot.seq).toBe(4); expect(snapshot.nodes[0].x).toBe(90);
+    });
+    socket.receive({ type: 'init', nodes: [], peers: [], comments: [], versions: [], ackSeq: 1 });
+    expect(send).toHaveBeenCalledTimes(2);
+});
 it('gives a duplicated live tab a fresh identity and sequence without claiming the original queue', () => {
     const { store, sync } = setup();
     store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);

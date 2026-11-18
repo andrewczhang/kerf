@@ -121,6 +121,7 @@ export class Sync extends EventTarget {
         this.ready = true;
         this.status = 'Live';
         this.retry = 500;
+        this.persist(true);
         for (const [seq, ops] of this.store.pending)
             this.send({ type: 'ops', seq, ops });
     }
