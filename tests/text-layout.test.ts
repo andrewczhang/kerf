@@ -9,6 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 it.each([
     ['auto', 'Wide\nHi\n\nEnd', 40, 96],
+    ['auto', '', 1, 24],
     ['fixed', 'Alpha beta\ngamma', 50, 72],
 ] as const)('wraps %s text using its measured multiline bounds', (textWidth, text, w, h) => {
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText: (line: string) => ({ width: measure(line) }) }) }) });

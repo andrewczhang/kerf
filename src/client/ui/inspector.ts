@@ -30,7 +30,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             store.commit([{ t: 'create', node: n }]); select(n.id);
         };
         const create = () => {
-            try { const { ops, id } = componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); store.commit(ops); select(id); } catch { }
+            try { const { ops, id } = componentOps.create(store.doc, nodes.map(n => n.id), sizeOf); if (!ops.length) return; store.commit(ops); select(id); } catch { }
         };
         const reset = (id: string, target?: string) => {
             const ops: Op[] = [];

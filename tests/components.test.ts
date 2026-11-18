@@ -11,6 +11,29 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it('clamps fractional wrapping bounds to one unit without moving selected nodes', () => {
+        const text = { ...makeNode('text', .8, .8), text: '' }, doc: Doc = new Map([[text.id, text]]);
+        const { ops, id } = componentOps.create(doc, [text.id], () => ({ w: 1, h: 1 }));
+        expect(ops).toHaveLength(4);
+        apply(doc, ops);
+        const frame = doc.get(id)!, child = doc.get(text.id)!;
+        expect(validNode(frame)).toBe(true);
+        expect(frame).toMatchObject({ x: .8, y: .8, w: 1, h: 1 });
+        expect(child.parent).toBe(id);
+        expect(frame.x + child.x).toBe(text.x);
+        expect(frame.y + child.y).toBe(text.y);
+    });
+    it('emits no moves when the wrapping frame would be rejected', () => {
+        const n = makeNode('rect', .8, .8), doc: Doc = new Map([[n.id, n]]);
+        for (const size of [{ w: NaN, h: 1 }, { w: 1, h: NaN }, { w: Infinity, h: 1 }, { w: 1, h: Infinity }]) {
+            const { ops } = componentOps.create(doc, [n.id], () => size);
+            expect(ops).toEqual([]); apply(doc, ops);
+            expect(doc.get(n.id)).toBe(n);
+        }
+        const orphan = { ...n, parent: 'missing' }; doc.set(n.id, orphan);
+        expect(componentOps.create(doc, [n.id]).ops).toEqual([]);
+        expect(doc.get(n.id)).toBe(orphan);
+    });
     it('validates every embedded override and rejects invalid direct overrides', () => {
         const { doc, instance } = setup();
         for (const values of [{ strokeWidth: '2' }, { strokeWidth: Infinity }, { fill: 123 }, { stroke: {} }, { opacity: 2 }, { x: 10 }, { unknown: 1 }]) {

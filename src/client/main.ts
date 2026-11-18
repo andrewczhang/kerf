@@ -136,7 +136,7 @@ window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches(
     if (key === 'k' || key === 'b') {
         e.preventDefault();
         if (key === 'k') {
-            try { const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf); store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
+            try { const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf); if (!ops.length) return; store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
         }
         else store.commit(detachOps(store.doc, [...store.selection]));
         return;
