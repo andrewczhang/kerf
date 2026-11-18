@@ -125,9 +125,9 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
                     input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
                     if (color === undefined) return;
                     swatch.value = color ?? '#000000';
-                    for (const n of nodes) store.set(n.id, { [key]: color });
+                    for (const n of nodes) store.set(n.id, { [key]: color, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) });
                 };
-                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value }); };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value, ...(key === 'stroke' ? { strokeStyle: null } : { fillStyle: null }) }); };
                 input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
                 value.append(swatch, input); label.append(span, value); grid.append(label);
                 continue;
