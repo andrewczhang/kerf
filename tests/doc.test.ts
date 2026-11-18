@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyOp, between, makeNode, nodeFills, validNode, type Paint, type Effect, type Doc } from '../src/shared/doc';
+import { applyOp, between, makeNode, maxTextLength, nodeFills, validNode, type Paint, type Effect, type Doc } from '../src/shared/doc';
 describe('paints and effects', () => {
     const solid: Paint = { type: 'solid', color: '#123abc', opacity: .5, visible: true }, gradient: Paint = { type: 'radial', from: { x: -2, y: 0 }, to: { x: 3, y: 1 }, stops: [{ pos: 1, color: '#ffffff', opacity: 1 }, { pos: 0, color: '#000000', opacity: 0 }], opacity: 1, visible: true }, shadow: Effect = { type: 'drop-shadow', x: -4, y: 2, blur: 3, spread: -1, color: '#000000', opacity: .4, visible: true };
     it('accepts all paints, effects and empty lists', () => { const n = makeNode('rect', 0, 0); expect(validNode({ ...n, fills: [solid, gradient, { ...gradient, type: 'linear' }, { type: 'image', asset: 'a'.repeat(64), fit: 'tile', w: 32, h: 16, opacity: 1, visible: false }], effects: [shadow, { ...shadow, type: 'inner-shadow' }, { type: 'layer-blur', radius: 0, visible: true }, { type: 'background-blur', radius: 4, visible: false }] })).toBe(true); expect(validNode({ ...n, fills: [], effects: [] })).toBe(true); });
@@ -7,6 +7,31 @@ describe('paints and effects', () => {
     it('sets validated arrays and preserves legacy fallback', () => { const n = makeNode('rect', 0, 0), doc: Doc = new Map([[n.id, n]]); expect(nodeFills(n)).toEqual([{ type: 'solid', color: n.fill, opacity: 1, visible: true }]); applyOp(doc, { t: 'set', id: n.id, key: 'fills', value: [solid] }); applyOp(doc, { t: 'set', id: n.id, key: 'effects', value: [shadow] }); applyOp(doc, { t: 'set', id: n.id, key: 'fills', value: [{ ...solid, color: 'red' }] }); expect(nodeFills(doc.get(n.id)!)).toEqual([solid]); expect(doc.get(n.id)!.effects).toEqual([shadow]); expect(nodeFills({ ...n, fills: [] })).toEqual([]); });
 });
 describe('document operations', () => {
+    it('accepts text content and typography as independent properties', () => {
+        const doc: Doc = new Map(), node = makeNode('text', 12, 30);
+        applyOp(doc, { t: 'create', node });
+        applyOp(doc, { t: 'set', id: node.id, key: 'text', value: 'Made together\nSecond line' });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontFamily', value: 'serif' });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontSize', value: 32 });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontWeight', value: 700 });
+        applyOp(doc, { t: 'set', id: node.id, key: 'textAlign', value: 'center' });
+        applyOp(doc, { t: 'set', id: node.id, key: 'textWidth', value: 'fixed' });
+        expect(doc.get(node.id)).toMatchObject({ text: 'Made together\nSecond line', fontFamily: 'serif', fontSize: 32, fontWeight: 700, textAlign: 'center', textWidth: 'fixed' });
+    });
+    it('rejects invalid typography and incomplete text nodes', () => {
+        const doc: Doc = new Map(), node = makeNode('text', 0, 0), shape = makeNode('rect', 0, 0);
+        applyOp(doc, { t: 'create', node });
+        applyOp(doc, { t: 'create', node: shape });
+        applyOp(doc, { t: 'create', node: { ...shape, id: 'incomplete', type: 'text' } });
+        applyOp(doc, { t: 'set', id: node.id, key: 'text', value: 'x'.repeat(maxTextLength + 1) });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontFamily', value: 'unknown' });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontSize', value: Infinity });
+        applyOp(doc, { t: 'set', id: node.id, key: 'fontWeight', value: 22 });
+        applyOp(doc, { t: 'set', id: shape.id, key: 'text', value: 'not a text layer' });
+        expect(doc.size).toBe(2);
+        expect(doc.get(node.id)).toEqual(node);
+        expect(doc.get(shape.id)).toEqual(shape);
+    });
     it('creates and updates immutable node values', () => { const doc: Doc = new Map(), n = makeNode('rect', 0, 0); applyOp(doc, { t: 'create', node: n }); applyOp(doc, { t: 'set', id: n.id, key: 'x', value: 40 }); expect(doc.get(n.id)?.x).toBe(40); expect(n.x).toBe(0); });
     it('deletes a frame and nested descendants', () => { const doc: Doc = new Map(), a = makeNode('frame', 0, 0), b = { ...makeNode('frame', 1, 1), parent: a.id }, c = { ...makeNode('rect', 2, 2), parent: b.id }; for (const node of [a, b, c])
         applyOp(doc, { t: 'create', node }); applyOp(doc, { t: 'delete', id: a.id }); expect(doc.size).toBe(0); });

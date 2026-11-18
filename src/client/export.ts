@@ -1,8 +1,10 @@
-import { children, nodeFills, type Doc, type Node } from '../shared/doc';
-import { bounds, world } from '../shared/geometry';
+import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
+import { bounds } from '../shared/geometry';
+import { world } from './geometry';
 import { drawNode } from './draw';
 import { loadAsset } from './assets';
 import { svgPaints } from './svg-paints';
+import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -20,7 +22,12 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
-        const r = world(doc, n), pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        const r = world(doc, n);
+        if (isTextNode(n)) {
+            const ink = textPaintBounds(n);
+            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+        }
+        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         let left = pad, top = pad, right = pad, bottom = pad, blur = 0;
         for (const e of n.effects ?? []) if (e.visible) { if (e.type === 'drop-shadow') { const size = Math.max(0, e.spread) + e.blur * 2; left = Math.max(left, size - e.x); top = Math.max(top, size - e.y); right = Math.max(right, size + e.x); bottom = Math.max(bottom, size + e.y); } else if (e.type === 'layer-blur') blur += e.radius * 3; }
         return { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 };
@@ -57,6 +64,12 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     const paintId = () => { let id: string; do { id = `paint-${paint++}`; } while (doc.has(id)); return id; };
     const render = (n: Node, alpha: number): string => {
         const r = world(doc, n), opacity = alpha * n.opacity;
+        if (isTextNode(n)) {
+            const { lines, leading, baseline, offset } = measureTextNode(n);
+            const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
+            const runs = lines.map((line, i) => `<tspan x="${r.x + offset}" y="${r.y + baseline + i * leading}">${escape(line)}</tspan>`).join('');
+            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${fontFamilies[n.fontFamily]}" font-size="${n.fontSize}" font-weight="${n.fontWeight}" text-anchor="${anchor}">${runs}</text>`;
+        }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
