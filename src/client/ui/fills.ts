@@ -1,7 +1,7 @@
 import './paints.css';
 import { nodeFills, type Node, type Paint } from '../../shared/doc';
 import type { Store } from '../store';
-import { convertPaint, copyFills, editingPaint, paintColor, writeFills } from '../paint-edit';
+import { convertPaint, copyFills, editingPaint, gradientAngle, gradientEndpoints, paintColor, writeFills } from '../paint-edit';
 import { uploadAsset } from '../assets';
 import { button, eye, field, select, transaction } from './paint-controls';
 import { uploadStatus } from '../image-import';
@@ -36,7 +36,7 @@ export function fillsSection(parent: HTMLElement, store: Store, nodes: Node[]) {
                 strip.onpointerdown = e => { if (e.target !== strip || p.stops.length >= 16) return; act(() => { const pos = Math.max(0, Math.min(1, (e.clientX - strip.getBoundingClientRect().left) / strip.clientWidth)); p.stops.push(interpolatedStop(p.stops, pos)); selectedStop.set(store, p.stops.length - 1); setStops(); }); };
                 p.stops.forEach((stop, j) => { const marker = button('Gradient stop ' + (j + 1), () => {}); marker.className = j === at ? 'active' : ''; marker.style.left = stop.pos * 100 + '%'; marker.style.background = stop.color; marker.onpointerdown = e => { e.stopPropagation(); e.preventDefault(); selectedStop.set(store, j); marker.focus(); store.begin(); marker.setPointerCapture(e.pointerId); marker.onpointermove = move => { stop.pos = Math.max(0, Math.min(1, (move.clientX - strip.getBoundingClientRect().left) / strip.clientWidth)); marker.style.left = stop.pos * 100 + '%'; setStops(); preview(); }; marker.onpointerup = marker.onpointercancel = () => { marker.onpointermove = null; store.end(); render(); section.querySelector<HTMLButtonElement>(`[aria-label="Gradient stop ${j + 1}"]`)?.focus(); }; }; marker.onkeydown = e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); selectedStop.set(store, j); if (p.stops.length > 2) act(() => { p.stops.splice(j, 1); setStops(); }); } }; strip.append(marker); });
                 const stop = p.stops[at]; field(editor, 'Stop color', stop.color, 'color', store, value => { stop.color = value; setStops(); preview(); }, render); field(editor, 'Stop opacity %', Math.round(stop.opacity * 100), 'number', store, value => { stop.opacity = Number(value) / 100; setStops(); preview(); }, render, 0, 100); field(editor, 'Position %', Math.round(stop.pos * 100), 'number', store, value => { stop.pos = Number(value) / 100; setStops(); }, render, 0, 100); editor.append(button('− Stop', remove));
-                if (p.type === 'linear') field(editor, 'Angle °', Math.round(Math.atan2(p.to.y - p.from.y, p.to.x - p.from.x) * 180 / Math.PI), 'number', store, value => { const a = Number(value) * Math.PI / 180, x = Math.cos(a) / 2, y = Math.sin(a) / 2; update(i, { ...p, from: { x: .5 - x, y: .5 - y }, to: { x: .5 + x, y: .5 + y } }); }, render);
+                if (p.type === 'linear') field(editor, 'Angle °', Math.round(gradientAngle(p, first)), 'number', store, value => { for (const n of nodes) { const current = store.doc.get(n.id); if (current) { const next = copyFills(current); next[i] = { ...p, ...gradientEndpoints(Number(value), current) }; writeFills(store, n.id, next); } } }, render);
                 editor.append(button('Reverse', () => act(() => update(i, { ...p, stops: p.stops.map(s => ({ ...s, pos: 1 - s.pos })) }))));
             }
         }
