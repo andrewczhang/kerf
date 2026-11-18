@@ -1,5 +1,7 @@
 const cache = new Map<string, { image?: ImageBitmap; promise: Promise<ImageBitmap>; listeners: Set<() => void> }>();
-export function loadAsset(file: string, hash: string): Promise<ImageBitmap> { const key = file + '/' + hash, cached = cache.get(key); if (cached) return cached.promise; const listeners = new Set<() => void>(), entry = { image: undefined as ImageBitmap | undefined, listeners, promise: fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`).then(r => { if (!r.ok) throw Error('Asset unavailable'); return r.blob(); }).then(createImageBitmap).then(image => { entry.image = image; for (const notify of listeners) notify(); listeners.clear(); return image; }) }; entry.promise.catch(() => { listeners.clear(); cache.delete(key); }); cache.set(key, entry); return entry.promise; }
+const assetRoute = () => typeof location !== 'undefined' && location.pathname?.startsWith('/v/') ? 'v' : 'f';
+export const assetURL = (file: string, hash: string) => `/${assetRoute()}/${encodeURIComponent(file)}/assets/${hash}`;
+export function loadAsset(file: string, hash: string): Promise<ImageBitmap> { const key = file + '/' + hash, cached = cache.get(key); if (cached) return cached.promise; const listeners = new Set<() => void>(), entry = { image: undefined as ImageBitmap | undefined, listeners, promise: fetch(assetURL(file, hash)).then(r => { if (!r.ok) throw Error('Asset unavailable'); return r.blob(); }).then(createImageBitmap).then(image => { entry.image = image; for (const notify of listeners) notify(); listeners.clear(); return image; }) }; entry.promise.catch(() => { listeners.clear(); cache.delete(key); }); cache.set(key, entry); return entry.promise; }
 export function assetImage(file: string, hash: string, invalidate: () => void): ImageBitmap | undefined { void loadAsset(file, hash).catch(() => {}); const entry = cache.get(file + '/' + hash)!; if (!entry.image) entry.listeners.add(invalidate); return entry.image; }
 export async function uploadAsset(file: string, blob: Blob): Promise<{ hash: string; w: number; h: number }> {
     const image = await createImageBitmap(blob), scale = Math.min(1, 2048 / Math.max(image.width, image.height)), canvas = document.createElement('canvas');
@@ -13,4 +15,8 @@ export async function uploadAsset(file: string, blob: Blob): Promise<{ hash: str
     const bytes = await encoded.arrayBuffer(), hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
     const response = await fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`, { method: 'PUT', headers: { 'content-type': encoded.type }, body: bytes }); if (!response.ok) throw Error(`Asset upload failed: ${response.status}`);
     return { hash, w: canvas.width, h: canvas.height };
+}
+export async function copyAsset(from: string, to: string, hash: string) {
+    const source = await fetch(`/f/${encodeURIComponent(from)}/assets/${hash}`); if (!source.ok) throw Error('Asset unavailable');
+    const blob = await source.blob(), target = await fetch(`/f/${encodeURIComponent(to)}/assets/${hash}`, { method: 'PUT', headers: { 'content-type': blob.type }, body: blob }); if (!target.ok) throw Error(`Asset copy failed: ${target.status}`);
 }

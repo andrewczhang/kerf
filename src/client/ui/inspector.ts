@@ -1,14 +1,15 @@
 import type { Store } from '../store';
 import type { Sync } from '../sync';
 import { styleControl, styleLibrary } from './styles';
-import { arrowheads, isOpenPath, isTextNode, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
+import { arrowheads, isOpenPath, isTextNode, maskEligible, maxFontSize, strokeAlignments, strokeCaps, strokeJoins, strokeOptions, horizontalConstraints, verticalConstraints, type Node, type Key } from '../../shared/doc';
 import { constraintOps } from '../../shared/constraints';
 import { autoLayoutSection, sizingControl } from './autolayout';
 import { fillsSection } from './fills';
 import { effectsSection } from './effects';
-import { downloadSelection } from '../export';
+import { exportControls } from './export-controls';
 import { isAutoLayout } from '../autolayout';
 import { fit, toAbs } from '../../shared/path';
+import { applyBoolean, booleanOps, canCombine } from '../boolean';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
 import { inverse, parentMatrix, transform } from '../../shared/geometry';
@@ -16,6 +17,7 @@ import { formatNumber, inputElement, parseColor, refreshColorField } from './val
 import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 import { alignSection } from './align';
+import { shortcutList } from './shortcuts';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -23,7 +25,7 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
         if (input === active) continue;
         const key = input.dataset.key as Key;
         const stroke = key === 'strokeDash' || key === 'strokeGap' || key === 'strokeMiterLimit';
-        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : n[key] ?? 0);
+        const values = nodes.map(n => stroke ? strokeOptions(n)[key] : key === 'strokeWidth' && n.stroke === null ? 0 : n[key] ?? 0);
         const mixed = values.some(value => value !== values[0]);
         input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
         input.placeholder = mixed ? 'Mixed' : '';
@@ -46,15 +48,22 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
     };
     el.querySelector<HTMLButtonElement>('#design-tab')!.onclick = () => setTab(false);
     el.querySelector<HTMLButtonElement>('#code-tab')!.onclick = () => setTab(true);
+    let pressing = false, stale = false;
+    const editing = () => !!document.activeElement?.closest('input,select,textarea') && el.contains(document.activeElement);
+    el.addEventListener('pointerdown', () => { pressing = true; }, true);
+    window.addEventListener('pointerup', () => { if (pressing) setTimeout(() => { pressing = false; if (stale) render(); }); }, true);
+    el.addEventListener('focusout', e => { if (stale && !el.contains(e.relatedTarget as HTMLElement | null)) setTimeout(render); });
     const render = () => {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
-        if (el.contains(document.activeElement)) {
+        if (pressing || editing()) {
+            stale = true;
             refreshNumericFields(content, nodes, document.activeElement);
             refreshLayoutGridFields(content, store, document.activeElement);
             return;
         }
+        stale = false;
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd><span>Duplicate while moving</span><kbd>Alt/Option-drag</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div>' + shortcutList(12) + '<p class="path-hint">Press ? for every shortcut</p></section>';
             styleLibrary(content, store, sync);
             return;
         }
@@ -71,6 +80,13 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
         content.append(head);
         alignSection(content, store);
         const named = (values: readonly string[]): [string, string][] => values.map(value => [value, value[0].toUpperCase() + value.slice(1)]);
+        if (nodes.every(maskEligible)) {
+            const section = document.createElement('section');
+            section.innerHTML = '<div class="section-label">Mask</div><label class="path-closed"><input type="checkbox" aria-label="Use as mask"> Use as mask</label>';
+            const box = section.querySelector('input')!; box.checked = nodes.every(n => n.mask); box.indeterminate = nodes.some(n => !!n.mask !== !!nodes[0].mask);
+            box.onchange = () => { store.begin(); for (const n of nodes) store.set(n.id, { mask: box.checked }); store.end(); box.blur(); };
+            content.append(section);
+        }
         const choices: Partial<Record<Key, [string | number, string][]>> = {
             fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
             fontWeight: [[400, 'Regular'], [700, 'Bold']],
@@ -120,11 +136,16 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
             if (key === 'rotation') input.disabled = nodes.every(n => n.type === 'group');
             input.placeholder = mixed ? 'Mixed' : '';
+            const noStroke = nodes.every(n => n.stroke === null);
             if (key === 'fill' || key === 'stroke') {
                 label.classList.add('color-field');
                 const value = document.createElement('div'); value.className = 'color-value';
                 const swatch = inputElement(`${key} color`); swatch.type = 'color'; swatch.className = 'color-swatch';
                 swatch.value = String(nodes[0][key] ?? '#000000');
+                if (key === 'stroke' && noStroke) {
+                    swatch.classList.add('is-none');
+                    swatch.title = 'No stroke. Pick a color or set a weight to add one.';
+                }
                 input.value = mixed ? '' : (nodes[0][key]?.toUpperCase() ?? 'None');
                 input.spellcheck = false;
                 input.onfocus = swatch.onfocus = () => store.begin();
@@ -146,11 +167,12 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             if (key === 'fontSize') input.max = String(maxFontSize);
             if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
             if (stroke) input.min = key === 'strokeMiterLimit' ? '1' : '0';
-            input.value = mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
+            input.value = key === 'strokeWidth' && noStroke ? '0' : mixed ? '' : stroke ? String(values[0]) : formatNumber(Number(values[0]));
+            if (key === 'strokeWidth') input.min = '0';
             let base = store.doc;
             input.onfocus = () => { base = new Map(store.doc); store.begin(); };
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes) {
-                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
+                if (key !== 'rotation' || n.type !== 'group') store.set(n.id, key === 'strokeWidth' && (store.doc.get(n.id) ?? n).stroke === null && Number(value) > 0 ? { stroke: '#000000', strokeWidth: value } : { [key]: value, ...(key === 'fontSize' ? { textStyle: null } : {}) });
                 const old = base.get(n.id);
                 if (old?.type === 'frame' && (key === 'w' || key === 'h') && value as number >= 1) store.commit(constraintOps(base, n.id, { w: old.w, h: old.h, [key]: value }, id => nodes.some(s => s.id === id), store.doc));
             } };
@@ -166,11 +188,23 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
             box.checked = !!n.closed;
             box.onchange = () => {
-                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 });
+                const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 }, (n.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: n.w, h: n.h })));
                 const c = transform(inverse(parentMatrix(store.doc, n)), transform(worldMatrix(store.doc, n), { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
                 box.blur();
-                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
+                store.begin(); store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), closed: box.checked }); store.end();
             };
+            content.append(section);
+        }
+        if (canCombine(store)) {
+            const section = document.createElement('section'), mod = /Mac/.test(navigator.platform) ? '⌘⌥' : 'Ctrl+Alt+';
+            section.innerHTML = '<div class="section-label">Boolean</div><div class="boolean-buttons"></div>';
+            for (const [op, label, key] of booleanOps) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.title = `${label} (${mod}${key})`;
+                button.onclick = () => { button.blur(); applyBoolean(store, op); };
+                section.querySelector('.boolean-buttons')!.append(button);
+            }
             content.append(section);
         }
         if (nodes.every(isTextNode)) {
@@ -210,20 +244,7 @@ export function inspector(el: HTMLElement, store: Store, sync: Sync) {
             select.onchange = () => store.set(nodes[0].id, { link: select.value || null });
             section.append(select); content.append(section);
         }
-        const exports = document.createElement('section');
-        exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
-        for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {
-            const button = document.createElement('button');
-            button.textContent = label;
-            button.onclick = () => {
-                exports.querySelector('.export-error')!.textContent = '';
-                void downloadSelection(store.doc, store.selection, format, scale).catch(() => {
-                    exports.querySelector('.export-error')!.textContent = 'Export failed. Please try again.';
-                });
-            };
-            exports.querySelector('.export-buttons')!.append(button);
-        }
-        content.append(exports);
+        exportControls(content, store);
     };
     store.addEventListener('change', render);
     sync.addEventListener('styles-change', render);

@@ -51,10 +51,17 @@ export function curveBounds(points: PathPoint[], closed: boolean): Rect {
 const round = (v: number) => Math.round(v * 1e6) / 1e6;
 
 /** Absolute points -> parent-relative box plus points normalized to it. */
-export function fit(abs: PathPoint[], closed: boolean, origin: Point) {
-    const b = curveBounds(abs, closed), w = Math.max(1, b.w), h = Math.max(1, b.h);
-    const X = (v: number) => round((v - b.x) / w), Y = (v: number) => round((v - b.y) / h);
-    return { x: round(b.x - origin.x), y: round(b.y - origin.y), w: round(w), h: round(h), points: abs.map(p => ({ x: X(p.x), y: Y(p.y), ix: X(p.ix), iy: Y(p.iy), ox: X(p.ox), oy: Y(p.oy) })) };
+export function fit(abs: PathPoint[], closed: boolean, origin: Point, extra: PathPoint[][] = []) {
+    const all = [flatten(abs, closed), ...extra.map(c => flatten(c, true))].flat(), xs = all.map(p => p.x), ys = all.map(p => p.y);
+    const bx = Math.min(...xs), by = Math.min(...ys), w = Math.max(1, Math.max(...xs) - bx), h = Math.max(1, Math.max(...ys) - by);
+    const X = (v: number) => round((v - bx) / w), Y = (v: number) => round((v - by) / h);
+    const norm = (ps: PathPoint[]) => ps.map(p => ({ x: X(p.x), y: Y(p.y), ix: X(p.ix), iy: Y(p.iy), ox: X(p.ox), oy: Y(p.oy) }));
+    return { x: round(bx - origin.x), y: round(by - origin.y), w: round(w), h: round(h), points: norm(abs), ...(extra.length ? { contours: extra.map(norm) } : {}) };
+}
+
+/** Every contour of a path node in world space: the editable points first, then compound contours. */
+export function contoursAbs(n: { points?: PathPoint[]; contours?: PathPoint[][] }, r: Rect): PathPoint[][] {
+    return [toAbs(n.points ?? [], r), ...(n.contours ?? []).map(c => toAbs(c, r))];
 }
 
 export interface PathSink { moveTo(x: number, y: number): void; bezierCurveTo(a: number, b: number, c: number, d: number, e: number, f: number): void; closePath(): void }
@@ -101,17 +108,28 @@ export function split(abs: PathPoint[], seg: number, t: number): PathPoint[] {
     return out;
 }
 
-export function hitPath(abs: PathPoint[], closed: boolean, p: Point, tol: number): boolean {
-    const poly = flatten(abs, closed);
-    if (poly.length === 1) return Math.hypot(p.x - poly[0].x, p.y - poly[0].y) <= tol;
-    for (let i = 1; i < poly.length; i++) if (segmentDistance(p, poly[i - 1], poly[i]).d <= tol) return true;
+export function hitPath(abs: PathPoint[], closed: boolean, p: Point, tol: number, extra: PathPoint[][] = []): boolean {
+    const polys = [flatten(abs, closed), ...extra.map(c => flatten(c, true))];
+    if (polys.length === 1 && polys[0].length === 1) return Math.hypot(p.x - polys[0][0].x, p.y - polys[0][0].y) <= tol;
+    for (const poly of polys) for (let i = 1; i < poly.length; i++) if (segmentDistance(p, poly[i - 1], poly[i]).d <= tol) return true;
     if (!closed) return false;
     let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    for (const poly of polys) for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
         const a = poly[i], b = poly[j];
         if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
     }
     return inside;
+}
+export function containsPath(abs: PathPoint[], p: Point): boolean {
+    const poly = flatten(abs, true); let winding = 0;
+    for (let i = 1; i < poly.length; i++) {
+        const a = poly[i - 1], b = poly[i];
+        if (segmentDistance(p, a, b).d <= 1e-9) return true;
+        const side = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+        if (a.y <= p.y && b.y > p.y && side > 0) winding++;
+        else if (a.y > p.y && b.y <= p.y && side < 0) winding--;
+    }
+    return winding !== 0;
 }
 
 /** Snap p to the nearest 45° ray from a. */

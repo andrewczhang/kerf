@@ -8,17 +8,18 @@ import { isAutoLayout, layoutInsertions } from './autolayout';
 import { drawGradientHandles } from './gradient-handles';
 import { blocked } from '../shared/layers';
 import { drawGuides, drawSnapGrid } from './guides';
-import { drawNode } from './draw';
+import { drawChildren } from './draw';
 import type { Doc } from '../shared/doc';
-import { toAbs, trace } from '../shared/path';
+import { contoursAbs, toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
-import { pageDocument, pageRoots, pages } from '../shared/pages';
+import { pageDocument, pages } from '../shared/pages';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
     width = 0;
     height = 0;
     preview: Doc | null = null;
+    previewName = '';
     showLinks = false;
     inspectOverlay?: (c: CanvasRenderingContext2D) => void;
     constructor(public canvas: HTMLCanvasElement, public app: Context, public sync: Sync) { this.ctx = canvas.getContext('2d')!; new ResizeObserver(() => this.resize()).observe(canvas); requestAnimationFrame(() => this.loop()); }
@@ -41,8 +42,8 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        for (const n of pageRoots(store.doc, this.app.store.currentPage))
-            drawNode(c, store.doc, n, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate });
+        const viewport = { x: -v.x / v.zoom, y: -v.y / v.zoom, w: this.width / v.zoom, h: this.height / v.zoom };
+        drawChildren(c, store.doc, this.app.store.currentPage ?? null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, viewport });
         if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, store.doc, v.zoom);
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
@@ -58,7 +59,7 @@ export class Renderer {
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const nodeOutline = (n: Node, color: string, dash = false) => { const ps = worldCorners(store.doc, n); c.beginPath(); ps.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.stroke(); c.setLineDash([]); };
         const curve = (n: Node, color: string) => { if (n.type !== 'path')
-            return; const m = worldMatrix(store.doc, n); c.beginPath(); trace(c, toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }).map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
+            return; const m = worldMatrix(store.doc, n); c.beginPath(); contoursAbs(n, { x: 0, y: 0, w: n.w, h: n.h }).forEach((abs, k) => trace(c, abs.map(p => { const a = transform(m, p), i = transform(m, { x: p.ix, y: p.iy }), o = transform(m, { x: p.ox, y: p.oy }); return { ...a, ix: i.x, iy: i.y, ox: o.x, oy: o.y }; }), k > 0 || !!n.closed)); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n && !blocked(store.doc, n, false));
         if (selected.length === 1 && isAutoLayout(selected[0])) {
             const n = selected[0];
@@ -66,7 +67,7 @@ export class Renderer {
             outline({ x: n.padLeft ?? 0, y: n.padTop ?? 0, w: Math.max(0, n.w - (n.padLeft ?? 0) - (n.padRight ?? 0)), h: Math.max(0, n.h - (n.padTop ?? 0) - (n.padBottom ?? 0)) }, '#ff4f00', true);
             c.restore();
         }
-        if (this.app.hover && !store.selection.has(this.app.hover)) {
+        if (!this.preview && this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
             if (n && !blocked(store.doc, n, false) && n.id !== this.app.editingText)
                 n.type === 'path' ? curve(n, '#ff4f00') : nodeOutline(n, '#ff4f00');
@@ -90,8 +91,8 @@ export class Renderer {
             c.beginPath(); c.moveTo(insertion.from.x, insertion.from.y); c.lineTo(insertion.to.x, insertion.to.y); c.stroke();
         }
         if (!this.preview) drawGradientHandles(c, this.app);
-        this.app.active?.draw?.(c, v.zoom);
-        if (this.app.marquee) {
+        if (!this.preview) this.app.active?.draw?.(c, v.zoom);
+        if (!this.preview && this.app.marquee) {
             c.fillStyle = '#ff4f0012';
             const r = this.app.marquee;
             c.fillRect(r.x, r.y, r.w, r.h);
@@ -131,7 +132,7 @@ export class Renderer {
             c.fillText(peer.name, 19, 33);
             c.restore();
         }
-        drawGuides(c, this.app, this.width, this.height);
-        this.inspectOverlay?.(c);
+        if (!this.preview) drawGuides(c, this.app, this.width, this.height);
+        if (!this.preview) this.inspectOverlay?.(c);
     }
 }

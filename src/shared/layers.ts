@@ -1,4 +1,4 @@
-import { applyOp, between, children, descendants, makeNode, type Doc, type Node, type Op } from './doc';
+import { applyOp, between, children, descendants, makeNode, maskEligible, type Doc, type Node, type Op } from './doc';
 import { bounds, center, identity, inverse, localMatrix, matrixAngle, parentMatrix, transform, transformedBounds, worldMatrix, type Point, type SizeOf } from './geometry';
 
 export function blocked(doc: Doc, n: Node, lock = true): boolean { return !!n.hidden || lock && !!n.locked || !!n.parent && !!doc.get(n.parent) && blocked(doc, doc.get(n.parent)!, lock); }
@@ -56,4 +56,13 @@ export function ungroupOps(doc: Doc, id: string, sizeOf: SizeOf = n => n): Op[] 
     let index = g.index; const ops: Op[] = [], shadow = new Map(doc);
     for (const n of children(doc, id)) { ops.push(...relocate(doc, shadow, n, g.parent, sizeOf), ...set(n.id, { index })); index = between(index, next); }
     ops.push({ t: 'delete', id }); return normalized(doc, ops, sizeOf);
+}
+export function maskOps(doc: Doc, ids: string[], sizeOf: SizeOf = n => n): Op[] {
+    const unique = [...new Set(ids)];
+    if (unique.length === 1) { const n = doc.get(unique[0]); return n && maskEligible(n) ? set(n.id, { mask: !n.mask }) : []; }
+    const ops = groupOps(doc, unique, sizeOf), group = ops.find(op => op.t === 'create');
+    if (!group || group.t !== 'create') return [];
+    const shadow = new Map(doc); for (const op of ops) applyOp(shadow, op);
+    const bottom = children(shadow, group.node.id)[0];
+    return bottom && maskEligible(bottom) ? [...ops, ...set(bottom.id, { mask: true })] : [];
 }

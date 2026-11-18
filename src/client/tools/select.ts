@@ -1,13 +1,31 @@
-import { between, children, descendants, type Node, type Op } from '../../shared/doc';
-import { bounds, handles, intersects, inverse, matrixAngle, parentMatrix, transform, type Point, type Rect } from '../../shared/geometry';
-import { aabb, hit, nodeHandles, sizeOf, worldMatrix } from '../geometry';
+import { between, children, descendants, nodeFills, type Node, type Op } from '../../shared/doc';
+import { bounds, handles, intersects, inverse, matrixAngle, multiply, parentMatrix, transform, type Mat, type Point, type Rect } from '../../shared/geometry';
+import { aabb, hit, nodeHandles, sizeOf, world, worldMatrix } from '../geometry';
+import type { Store } from '../store';
+import { copyAsset } from '../assets';
 import type { Context, Tool } from './tool';
-import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
+import { blocked, groupOps, maskOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, eligibleDropFrames, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
+
 import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 import { duplicateNodes } from './duplicate';
 import { constraintOps } from '../../shared/constraints';
+type Clipboard = { roots: string[]; nodes: Node[]; pastes: number; file?: string; matrices?: Record<string, Mat> };
+const currentFile = () => typeof location === 'undefined' ? '' : location.pathname.split('/')[2] || 'untitled';
+let memoryClipboard: Clipboard | null = null, copyPending = false;
+export const layerCopyPending = () => { const pending = copyPending; copyPending = false; return pending; };
+function writeClipboard(clip: Omit<Clipboard, 'pastes'> & { pastes?: number }) {
+    memoryClipboard = { pastes: 0, ...clip };
+    try { localStorage.setItem('kerf:clipboard', JSON.stringify(memoryClipboard)); } catch { }
+}
+function readClipboard(): Clipboard | null {
+    try {
+        const stored = JSON.parse(localStorage.getItem('kerf:clipboard') ?? 'null') as Clipboard | null;
+        if (stored && Array.isArray(stored.nodes) && Array.isArray(stored.roots)) return { ...stored, pastes: Number(stored.pastes) || 0 };
+    } catch { }
+    return memoryClipboard;
+}
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -32,8 +50,28 @@ export class Select implements Tool {
         if (this.start && this.moved) this.onPointerMove(this.lastPoint, { ...this.modifiers, altKey: alt, buttons: 1 } as PointerEvent);
         this.updateCursor(this.lastPoint, alt);
     }
+    private resized = new Map<string, Partial<Node>>();
     lastClick?: { time: number; x: number; y: number };
-    constructor(public ctx: Context) { }
+    constructor(public ctx: Context) {
+        ctx.store.addEventListener('change', () => {
+            if (this.start && [...this.original.keys()].some(id => !ctx.store.pageDoc.has(id))) this.cancelGesture();
+        });
+    }
+    cancelGesture() {
+        gradientUp(this.ctx);
+        if (!this.start) return;
+        this.start = undefined;
+        const copies = this.copies;
+        this.copies = undefined;
+        this.original.clear();
+        this.resized.clear();
+        layoutInsertions.delete(this.ctx.store);
+        this.ctx.marquee = undefined;
+        clearSnap(this.ctx);
+        if (copies) this.ctx.store.commit([...copies.values()].filter(n => this.ctx.store.doc.has(n.id)).map(n => ({ t: 'delete', id: n.id })), false);
+        this.ctx.store.end();
+        this.ctx.invalidate();
+    }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.pageDoc.get(id)).filter((n): n is Node => !!n); }
     selectionHandles(nodes = this.selected()) { const doc = this.ctx.store.doc; return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
@@ -43,6 +81,7 @@ export class Select implements Tool {
         this.start = p;
         this.moved = false;
         layoutInsertions.delete(store);
+        this.resized.clear();
         const nodes = this.selected();
         this.box = nodes.length ? bounds(nodes.map(n => aabb(store.doc, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
@@ -85,7 +124,7 @@ export class Select implements Tool {
         this.lastPoint = p;
         this.modifiers = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
         this.updateCursor(p, e.altKey);
-        if (gradientMove(this.ctx, p)) return;
+        if (e.buttons !== 0 && gradientMove(this.ctx, p)) return;
         const { store, viewport } = this.ctx;
         if (!this.start) {
             this.ctx.hover = hit(store.pageDoc, p, 4 / viewport.zoom)?.id;
@@ -109,9 +148,10 @@ export class Select implements Tool {
                 store.commit([...this.copies.values()].map(node => ({ t: 'create', node })), false);
                 this.original = new Map([...this.sources.keys()].map(id => { const n = this.copies!.get(id)!; return [n.id, n]; }));
             } else {
-                store.commit([...this.original.keys()].map(id => ({ t: 'delete', id })), false);
+                const copies = this.original;
                 this.copies = undefined;
                 this.original = new Map(this.sources);
+                store.commit([...copies.keys()].map(id => ({ t: 'delete', id })), false);
             }
             store.selection.clear();
             for (const id of this.original.keys()) store.selection.add(id);
@@ -165,11 +205,22 @@ export class Select implements Tool {
                 if (n.type !== 'text' && Math.abs(n.rotation ?? 0) < 1e-8 && Math.abs(matrixAngle(parentMatrix(this.snapshot, n))) < 1e-8) {
                     const left = roundUnlessSnapped(this.ctx, values.x), top = roundUnlessSnapped(this.ctx, values.y), right = roundUnlessSnapped(this.ctx, values.x + nw), bottom = roundUnlessSnapped(this.ctx, values.y + nh);
                     const keepX = x === b.x && w === b.w, keepY = y === b.y && h === b.h;
-                    values.x = keepX ? n.x : left; values.y = keepY ? n.y : top; values.w = keepX ? n.w : Math.max(1, right - left); values.h = keepY ? n.h : Math.max(1, bottom - top);
+                    values.x = keepX || Math.abs(values.x - n.x) <= 1e-9 ? n.x : left; values.y = keepY || Math.abs(values.y - n.y) <= 1e-9 ? n.y : top; values.w = keepX ? n.w : Math.max(1, right - left); values.h = keepY ? n.h : Math.max(1, bottom - top);
                 }
                 resized.set(n.id, { ...n, ...values });
-                for (const [key, value] of Object.entries(values))
-                    ops.push({ t: 'set', id: n.id, key: key as 'x', value });
+                const current = store.doc.get(n.id)!;
+                const previous = this.resized.get(n.id) ?? {};
+                for (const key of ['x', 'y', 'w', 'h'] as const) {
+                    const value = values[key];
+                    if (Math.abs(value - n[key]) > 1e-9) {
+                        if (current[key] !== value) ops.push({ t: 'set', id: n.id, key, value });
+                        previous[key] = value;
+                    } else {
+                        if (previous[key] !== undefined && current[key] === previous[key]) ops.push({ t: 'set', id: n.id, key, value: n[key] });
+                        delete previous[key];
+                    }
+                }
+                this.resized.set(n.id, previous);
                 if (n.type === 'frame')
                     ops.push(...constraintOps(this.snapshot, n.id, values, id => this.original.has(id), store.doc));
             }
@@ -187,8 +238,8 @@ export class Select implements Tool {
         }
         store.commit(ops, !this.copies);
     }
-    onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
-        for (const n of store.pageDoc.values())
+    onPointerUp(p: Point) { if (gradientUp(this.ctx) || !this.start) return; const { store } = this.ctx; try { if (this.ctx.marquee) {
+        if (this.moved) for (const n of store.pageDoc.values())
             if (n.type !== 'page' && !blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
                 store.selection.add(outerGroup(store.doc, n).id);
         this.ctx.marquee = undefined;
@@ -229,7 +280,13 @@ export class Select implements Tool {
         e.preventDefault(); store.selection.clear();
         for (const n of children(store.doc, store.currentPage ?? null)) if (!blocked(store.doc, n)) store.selection.add(n.id);
         store.changed(); return;
-    } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    }
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault(); const ops = maskOps(store.doc, nodes.map(n => n.id), sizeOf); store.begin(); store.commit(ops);
+        const group = ops.find(op => op.t === 'create'); if (group?.t === 'create') { store.selection.clear(); store.selection.add(group.node.id); }
+        store.end(); store.changed(); return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault(); store.begin(); const selection: string[] = [];
         if (e.shiftKey) { for (const n of nodes) if (n.type === 'group') { selection.push(...children(store.doc, n.id).map(c => c.id)); store.commit(ungroupOps(store.doc, n.id, sizeOf)); } }
         else { const ops = groupOps(store.doc, nodes.map(n => n.id), sizeOf); const create = ops.find(op => op.t === 'create'); if (create?.t === 'create') selection.push(create.node.id); store.commit(ops); }
@@ -250,6 +307,17 @@ export class Select implements Tool {
             store.set(n.id, { x: round(n.x + b.x - a.x), y: round(n.y + b.y - a.y) }); }
         if (nodes.length) store.commit(normalizeGroups(store.doc, sizeOf));
         store.end();
+    } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c' && nodes.length) {
+        copyPending = true;
+        const roots = nodes.filter(n => !nodes.some(o => o !== n && descendants(store.doc, o.id).includes(n)));
+        const copied = new Map<string, Node>();
+        for (const n of roots)
+            for (const c of [n, ...descendants(store.doc, n.id)])
+                copied.set(c.id, { ...c });
+        writeClipboard({ roots: roots.map(n => n.id), nodes: [...copied.values()], file: currentFile(), matrices: Object.fromEntries(roots.map(n => [n.id, worldMatrix(store.doc, n)])) });
+        return true;
+    } if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v') {
+        return hasLayerClipboard();
     } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
         const copies = duplicateNodes(store.doc, nodes, 20);
@@ -259,4 +327,44 @@ export class Select implements Tool {
             store.selection.add(copies.get(n.id)!.id);
         store.changed();
     } }
+}
+
+export const hasLayerClipboard = () => !!readClipboard()?.nodes.length;
+export async function pasteLayers(store: Store, file = currentFile()) {
+    const clip = readClipboard();
+    if (!clip?.nodes.length) return;
+    clip.pastes++;
+    writeClipboard(clip);
+    if (clip.file && clip.file !== file) {
+        const hashes = new Set(clip.nodes.flatMap(n => nodeFills(n).flatMap(p => p.type === 'image' ? [p.asset] : [])));
+        await Promise.allSettled([...hashes].map(hash => copyAsset(clip.file!, file, hash)));
+    }
+    const ids = new Map(clip.nodes.map(n => [n.id, crypto.randomUUID()]));
+    const target = (id: string) => { const original = store.doc.get(id), parent = original?.parent ? store.doc.get(original.parent) : undefined; return parent && !blocked(store.doc, parent) ? parent : undefined; };
+    const created: Node[] = [];
+    for (const n of clip.nodes) {
+        const copy: Node = { ...n, id: ids.get(n.id)! };
+        if (clip.roots.includes(n.id)) {
+            const parent = target(n.id);
+            copy.parent = parent?.id ?? null;
+            const m = clip.matrices?.[n.id];
+            if (parent || !m) {
+                copy.x = n.x + 20 * clip.pastes;
+                copy.y = n.y + 20 * clip.pastes;
+            } else {
+                const local: Mat = [m[0], m[1], m[2], m[3], m[4] + 20 * clip.pastes, m[5] + 20 * clip.pastes];
+                const { w, h } = n.type === 'group' ? { w: 0, h: 0 } : sizeOf(n), c = local[0], sn = local[1];
+                if (n.type !== 'group') copy.rotation = matrixAngle(local);
+                copy.x = local[4] - w / 2 + c * w / 2 - sn * h / 2;
+                copy.y = local[5] - h / 2 + sn * w / 2 + c * h / 2;
+            }
+            copy.index = between([...children(store.doc, copy.parent), ...created.filter(c => c.parent === copy.parent)].map(c => c.index).sort().at(-1) ?? null);
+        }
+        else copy.parent = ids.get(n.parent ?? '') ?? null;
+        created.push(copy);
+    }
+    store.commit(created.map(node => ({ t: 'create', node })));
+    store.selection.clear();
+    for (const id of clip.roots) store.selection.add(ids.get(id)!);
+    store.changed();
 }

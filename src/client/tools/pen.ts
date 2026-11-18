@@ -32,9 +32,9 @@ export class Pen implements Tool {
     abs(n: Node) { return mapped(toAbs(n.points!, { x: 0, y: 0, w: n.w, h: n.h }), worldMatrix(this.ctx.store.doc, n)); }
     write(n: Node, abs: PathPoint[], closed = !!n.closed) {
         if (abs.length > MAX_POINTS) return false;
-        const doc = this.ctx.store.doc, m = worldMatrix(doc, n), f = fit(mapped(abs, inverse(m)), closed, { x: 0, y: 0 });
+        const doc = this.ctx.store.doc, m = worldMatrix(doc, n), f = fit(mapped(abs, inverse(m)), closed, { x: 0, y: 0 }, (n.contours ?? []).map(c => toAbs(c, { x: 0, y: 0, w: n.w, h: n.h })));
         const c = transform(inverse(parentMatrix(doc, n)), transform(m, { x: f.x + f.w / 2, y: f.y + f.h / 2 }));
-        this.ctx.store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(closed !== !!n.closed ? { closed } : {}) });
+        this.ctx.store.set(n.id, { x: c.x - f.w / 2, y: c.y - f.h / 2, w: f.w, h: f.h, points: f.points, ...(f.contours ? { contours: f.contours } : {}), ...(closed !== !!n.closed ? { closed } : {}) });
         return true;
     }
     /** Handles are shown for the selected anchor, its neighbours and the anchor being drawn. */
@@ -57,6 +57,7 @@ export class Pen implements Tool {
 
     activate() { this.drawing = false; this.sel = -1; if (this.ctx.store.selection.size && !this.path()) { this.ctx.store.selection.clear(); this.ctx.store.changed(); } }
     deactivate() { this.finish(); this.sel = -1; this.drag = undefined; this.hover = undefined; }
+    cancelGesture() { this.drawing = false; this.drag = undefined; this.hover = undefined; this.sel = -1; this.ctx.store.end(); }
     /** Stop appending; a path left with a single anchor is removed. */
     finish() {
         if (!this.drawing) return;

@@ -1,6 +1,7 @@
 import type { Node, Op } from './doc';
 import type { Point } from './geometry';
 export const MAX_OPS = 1000;
+export type Role = 'edit' | 'view';
 import type { FeatureClientMsg, FeatureServerMsg } from './features-protocol';
 import type { Comment } from './comments';
 import type { Style } from './styles';
@@ -19,7 +20,7 @@ export interface Peer {
         zoom: number;
     };
 }
-export type ClientMsg = FeatureClientMsg | {
+export type ClientMsg = FeatureClientMsg | { type: 'share-view' } | {
     type: 'rename';
     name: string;
 } | {
@@ -28,10 +29,11 @@ export type ClientMsg = FeatureClientMsg | {
     type: 'ops';
     ops: Op[];
     seq: number;
+    epoch?: number;
 } | ({
     type: 'presence';
 } & Omit<Peer, 'id' | 'color'>);
-export type ServerMsg = FeatureServerMsg | {
+export type ServerMsg = FeatureServerMsg | { type: 'share-view'; key: string } | { type: 'error'; request: string; message: string } | {
     type: 'name';
     name: string;
 } | {
@@ -43,12 +45,14 @@ export type ServerMsg = FeatureServerMsg | {
     type: 'init';
     name: string;
     ackSeq?: number;
+    role: Role;
     nodes: Node[];
     comments: Comment[];
     styles: Style[];
     versions: Version[];
     peers: Peer[];
     you: Peer;
+    epoch?: number;
 } | {
     type: 'ops';
     ops: Op[];
@@ -56,6 +60,7 @@ export type ServerMsg = FeatureServerMsg | {
 } | {
     type: 'ack';
     seq: number;
+    text?: Op[];
 } | {
     type: 'presence';
     peer: Peer;

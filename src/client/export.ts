@@ -1,12 +1,12 @@
 import { children, nodeFills, isTextNode, type Doc, type Node } from '../shared/doc';
-import { bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
+import { activeMask, ancestorMasks, bounds, inverse, multiply, transformedBounds, type Mat } from '../shared/geometry';
 import { world, worldMatrix } from './geometry';
-import { drawNode } from './draw';
-import { loadAsset } from './assets';
+import { clipMask, drawNode } from './draw';
+import { assetURL, loadAsset } from './assets';
 import { svgPaints, svgStroke } from './svg-paints';
 import { blocked } from '../shared/layers';
 import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
-import { toAbs, trace, type PathPoint } from '../shared/path';
+import { contoursAbs, toAbs, trace, type PathPoint } from '../shared/path';
 import { arrowBounds, strokeBounds, strokeShadowCaster } from '../shared/stroke';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
@@ -27,7 +27,7 @@ export function exportRoots(doc: Doc, ids: Iterable<string>): Node[] {
 }
 
 export function exportBounds(doc: Doc, roots: Node[]) {
-    const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
+    const visible: Node[] = [], collect = (n: Node) => { if (blocked(doc, n, false)) return; if (n.mask) { if (roots.some(root => root.id === n.id) || children(doc, n.parent).some(s => !s.hidden && ancestorMasks(doc, s).some(m => m.id === n.id))) visible.push(n); return; } if (n.type === 'group') { const cs = children(doc, n.id).filter(c => !c.hidden); if (cs.length) cs.forEach(collect); else visible.push(n); } else visible.push(n); };
     roots.forEach(collect);
     const r = bounds(visible.map(n => {
         let r = { x: 0, y: 0, w: n.w, h: n.h };
@@ -36,10 +36,10 @@ export function exportBounds(doc: Doc, roots: Node[]) {
             r = ink;
         }
         const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
-        if (n.type !== 'group')
+        if (!n.mask && n.type !== 'group')
             r = strokeBounds(n, r, points);
         let left = 0, top = 0, right = 0, bottom = 0, blur = 0;
-        for (const e of n.type === 'group' ? [] : n.effects ?? []) if (e.visible) {
+        for (const e of n.mask || n.type === 'group' ? [] : n.effects ?? []) if (e.visible) {
             if (e.type === 'drop-shadow') {
                 const feather = e.blur * 2, size = Math.max(0, e.spread) + feather;
                 left = Math.max(left, size - e.x); top = Math.max(top, size - e.y);
@@ -54,10 +54,12 @@ export function exportBounds(doc: Doc, roots: Node[]) {
                 }
             } else if (e.type === 'layer-blur') blur += e.radius * 3;
         }
-        return transformedBounds(worldMatrix(doc, n), { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 });
-    }));
-    const x = Math.floor(r.x), y = Math.floor(r.y);
-    return { x, y, w: Math.ceil(r.x + r.w) - x, h: Math.ceil(r.y + r.h) - y };
+        let result = transformedBounds(worldMatrix(doc, n), { x: r.x - left - blur, y: r.y - top - blur, w: r.w + left + right + blur * 2, h: r.h + top + bottom + blur * 2 });
+        for (const mask of ancestorMasks(doc, n)) { const m = transformedBounds(worldMatrix(doc, mask), { x: 0, y: 0, w: mask.w, h: mask.h }), x = Math.max(result.x, m.x), y = Math.max(result.y, m.y); result = { x, y, w: Math.max(0, Math.min(result.x + result.w, m.x + m.w) - x), h: Math.max(0, Math.min(result.y + result.h, m.y + m.h) - y) }; }
+        return result;
+    }).filter(r => r.w > 0 && r.h > 0));
+    const snap = (v: number) => Math.round(v * 1e6) / 1e6;
+    return { x: snap(r.x), y: snap(r.y), w: Math.ceil(snap(r.w)), h: Math.ceil(snap(r.h)) };
 }
 
 function exportImages(doc: Doc, ids: Iterable<string>) {
@@ -68,7 +70,7 @@ const exportFile = () => typeof location === 'undefined' ? 'untitled' : location
 export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Promise<string> {
     const selection = [...ids], file = exportFile(), images = new Map<string, string>();
     await Promise.all([...exportImages(doc, selection)].map(async hash => {
-        const response = await fetch(`/f/${encodeURIComponent(file)}/assets/${hash}`); if (!response.ok) throw Error('Asset unavailable');
+        const response = await fetch(assetURL(file, hash)); if (!response.ok) throw Error('Asset unavailable');
         const blob = await response.blob(); if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) throw Error('Unsupported image asset');
         const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
         images.set(hash, `data:${blob.type};base64,${btoa(binary)}`);
@@ -78,19 +80,18 @@ export async function exportSVGWithAssets(doc: Doc, ids: Iterable<string>): Prom
 
 export async function exportPNG(doc: Doc, ids: Iterable<string>, scale: number): Promise<Blob> {
     const roots = exportRoots(doc, ids), r = exportBounds(doc, roots);
-    if (!roots.length || !Number.isFinite(scale) || scale <= 0)
-        throw new Error('Select objects and use a positive export scale.');
+    if (!roots.length || !validExportScale(scale))
+        throw new Error('Select objects and use a positive export scale (0.5–4 in steps of 0.5).');
     const file = exportFile(); await Promise.all([...exportImages(doc, roots.map(n => n.id))].map(hash => loadAsset(file, hash)));
     const canvas = document.createElement('canvas');
-    canvas.width = r.w * scale;
-    canvas.height = r.h * scale;
+    canvas.width = Math.max(1, Math.ceil(r.w * scale));
+    canvas.height = Math.max(1, Math.ceil(r.h * scale));
     const c = canvas.getContext('2d');
     if (!c)
         throw new Error('Canvas rendering is unavailable.');
     c.scale(scale, scale);
     c.translate(-r.x, -r.y);
-    for (const n of roots)
-        drawNode(c, doc, n, { zoom: scale, scale, labels: false, file });
+    for (const n of roots) { c.save(); for (const mask of ancestorMasks(doc, n)) clipMask(c, doc, mask); drawNode(c, doc, n, { zoom: scale, scale, labels: false, file }); c.restore(); }
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
 }
 
@@ -121,13 +122,28 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
     };
     const extendBackdrop = (below: string, content: string) => { const id = paintId(); definitions.push(`<g id="${id}">${below}${content}</g>`); return `<use href="#${id}"/>`; };
     const clipped = (content: string, clips: Clip[]) => clips.reduceRight((body, clip) => wrapped(`<g clip-path="url(#${clip.id})">${wrapped(body, clip.applied && inverse(clip.applied))}</g>`, clip.applied), content);
-    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat): string => {
+    const renderList = (nodes: Node[], alpha: number, backdrop: string, plain = false, clips: Clip[] = [], applied?: Mat, roots = false): string => {
         let output = '', below = backdrop;
-        for (const n of nodes) { if (n.hidden) continue; if (!plain && !hasBackdrop) { output += render(n, alpha, '', false, false, clips, applied); continue; } const original = plainRef(n, alpha); if (plain) output += wrapped(original, applied && inverse(applied)); else { output += render(n, alpha, below, false, false, clips, applied); below = extendBackdrop(below, clipped(original, clips)); } }
+        for (const n of nodes) {
+            if (n.hidden || n.mask) continue;
+            const siblingMask = activeMask(doc, n), scopeMasks = roots ? ancestorMasks(doc, n) : siblingMask ? [siblingMask] : [];
+            const masks = scopeMasks.map(mask => {
+                let id: string; do { id = `mask-${clip++}`; } while (doc.has(id));
+                const r = { x: 0, y: 0, w: mask.w, h: mask.h }, m = worldMatrix(doc, mask), relative = applied ? multiply(inverse(applied), m) : m;
+                const shape = mask.type === 'ellipse' ? `<ellipse cx="${r.w / 2}" cy="${r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : mask.type === 'path' ? `<path d="${pathData(toAbs(mask.points ?? [], r), true)}"` : `<rect x="0" y="0" width="${r.w}" height="${r.h}" rx="${Math.min(mask.radius, r.w / 2, r.h / 2)}"`;
+                definitions.push(`<clipPath id="${id}">${shape}${matrix(relative)}/></clipPath>`);
+                return { id, applied };
+            });
+            const allClips = [...clips, ...masks], wrap = (body: string) => masks.reduce((content, mask) => `<g clip-path="url(#${mask.id})">${content}</g>`, body);
+            if (!plain && !hasBackdrop) { output += wrap(render(n, alpha, '', false, false, allClips, applied)); continue; }
+            const original = plainRef(n, alpha);
+            if (plain) output += wrap(wrapped(original, applied && inverse(applied)));
+            else { output += wrap(render(n, alpha, below, false, false, allClips, applied)); below = extendBackdrop(below, clipped(original, allClips)); }
+        }
         return output;
     };
     const render = (n: Node, alpha: number, backdrop: string, plain = false, shell = false, clips: Clip[] = [], applied?: Mat): string => {
-        if (n.hidden)
+        if (n.hidden || n.mask)
             return '';
         if (n.type === 'group')
             return renderList(children(doc, n.id), alpha, backdrop, plain, clips, applied);
@@ -145,7 +161,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
-        const geometry = n.type === 'path' ? `d="${pathData(points, !!n.closed)}"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
+        const geometry = n.type === 'path' ? `d="${contoursAbs(n, r).map((abs, i) => pathData(abs, i > 0 || !!n.closed)).join('')}"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
@@ -159,14 +175,29 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const id = clipId();
         return `${wrapped(primitive, relative)}<defs><clipPath id="${id}"><rect${transform} ${rect}/></clipPath></defs><g clip-path="url(#${id})">${renderList(children(doc, n.id), opacity, plain || !hasBackdrop ? '' : extendBackdrop(backdrop, clipped(plainRef(n, alpha, true), clips)), plain, [...clips, { id, applied }], applied)}</g>`;
     };
-    const content = renderList(roots, 1, '');
+    const content = renderList(roots, 1, '', false, [], undefined, true);
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r.x} ${r.y} ${r.w} ${r.h}" width="${r.w}" height="${r.h}">${definitions.length ? `<defs>${definitions.join('')}</defs>` : ''}${content}</svg>`;
 }
 
 export function exportFilename(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1): string {
     const roots = exportRoots(doc, ids);
     const name = (roots.length === 1 ? roots[0].name : 'Export').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').trim() || 'Export';
-    return `${name}${format === 'png' && scale === 2 ? '@2x' : ''}.${format}`;
+    return `${name}${format === 'png' && scale !== 1 ? '@' + scale + 'x' : ''}.${format}`;
+}
+
+export function validExportScale(scale: number) { return Number.isFinite(scale) && scale >= .5 && scale <= 4 && Number.isInteger(scale * 2); }
+
+export function exportJobs(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1, mode: 'combined' | 'each' = 'combined') {
+    if (format === 'png' && !validExportScale(scale)) throw Error('PNG scale must be 0.5–4 in steps of 0.5.');
+    const roots = exportRoots(doc, ids), selections = mode === 'each' ? roots.map(n => [n.id]) : roots.length ? [roots.map(n => n.id)] : [];
+    const used = new Set<string>();
+    return selections.map(selection => {
+        const filename = exportFilename(doc, selection, format, scale), stem = filename.slice(0, -(format.length + 1));
+        let unique = filename, count = 2;
+        while (used.has(unique.toLowerCase())) unique = `${stem} (${count++}).${format}`;
+        used.add(unique.toLowerCase());
+        return { ids: selection, filename: unique, bounds: exportBounds(doc, exportRoots(doc, selection)) };
+    });
 }
 
 export function download(blob: Blob, filename: string) {
@@ -177,11 +208,9 @@ export function download(blob: Blob, filename: string) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1) {
-    const selection = [...ids];
-    if (!exportRoots(doc, selection).length)
-        return;
-    const filename = exportFilename(doc, selection, format, scale);
-    const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, selection)], { type: 'image/svg+xml' }) : await exportPNG(doc, selection, scale);
-    download(blob, filename);
+export async function downloadSelection(doc: Doc, ids: Iterable<string>, format: 'png' | 'svg', scale = 1, mode: 'combined' | 'each' = 'combined') {
+    for (const job of exportJobs(doc, ids, format, scale, mode)) {
+        const blob = format === 'svg' ? new Blob([await exportSVGWithAssets(doc, job.ids)], { type: 'image/svg+xml' }) : await exportPNG(doc, job.ids, scale);
+        download(blob, job.filename);
+    }
 }

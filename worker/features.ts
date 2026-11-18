@@ -1,6 +1,7 @@
 import type { DurableObjectStorage } from '@cloudflare/workers-types';
 import { validComment, type Comment } from '../src/shared/comments';
-import { applyOp, type Doc, type Node } from '../src/shared/doc';
+import { applyOp, type Node } from '../src/shared/doc';
+import type { StoredDocument } from './document';
 import type { FeatureClientMsg, FeatureServerMsg } from '../src/shared/features-protocol';
 import { versionDiff, type Version } from '../src/shared/versions';
 import type { Peer } from '../src/shared/protocol';
@@ -9,11 +10,13 @@ export class Features {
     styles: Style[] = [];
     comments: Comment[] = [];
     versions: Version[] = [];
-    constructor(private storage: DurableObjectStorage, private doc: Doc, private broadcast: (m: FeatureServerMsg) => void) {}
+    epoch = 0;
+    constructor(private storage: DurableObjectStorage, private doc: StoredDocument, private broadcast: (m: FeatureServerMsg) => void) {}
     async load() {
         this.styles = await this.storage.get<Style[]>('styles') ?? [];
         this.comments = await this.storage.get<Comment[]>('comments') ?? [];
         this.versions = await this.storage.get<Version[]>('versions') ?? [];
+        this.epoch = await this.storage.get<number>('epoch') ?? 0;
     }
     async save(name: string, author: string, auto: boolean) {
         const v: Version = { id: crypto.randomUUID(), name: name.trim().slice(0, 100) || 'Autosave', at: Date.now(), author, nodeCount: this.doc.size, auto };
@@ -40,7 +43,7 @@ export class Features {
             this.styles = this.styles.filter(s => s.id !== id);
             if (m.type === 'style-upsert') this.styles.push(m.style);
             for (const op of ops) applyOp(this.doc, op);
-            await this.storage.put({ styles: this.styles, nodes: [...this.doc.values()] });
+            await this.doc.persist(this.storage, { styles: this.styles });
             this.broadcast({ type: 'styles', styles: this.styles });
             this.broadcast({ type: 'ops', ops, from: peer.id });
             if (ops.length) await this.changed(peer.name);
@@ -71,8 +74,9 @@ export class Features {
                 await this.save('Before restore', peer.name, true);
                 const ops = versionDiff(this.doc, new Map(nodes.map(n => [n.id, n])));
                 for (const op of ops) applyOp(this.doc, op);
-                await this.storage.put('nodes', [...this.doc.values()]);
-                this.broadcast({ type: 'restored', ops });
+                const restored = [...this.doc.values()];
+                await this.doc.persist(this.storage, { epoch: ++this.epoch });
+                this.broadcast({ type: 'restored', ops, epoch: this.epoch, nodes: restored });
             }
             return;
         } else return;
