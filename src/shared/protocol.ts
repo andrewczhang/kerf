@@ -19,6 +19,9 @@ export interface Peer {
     };
 }
 export type ClientMsg = FeatureClientMsg | {
+    type: 'rename';
+    name: string;
+} | {
     type: 'ping';
 } | {
     type: 'ops';
@@ -28,9 +31,13 @@ export type ClientMsg = FeatureClientMsg | {
     type: 'presence';
 } & Omit<Peer, 'id' | 'color'>);
 export type ServerMsg = FeatureServerMsg | {
+    type: 'name';
+    name: string;
+} | {
     type: 'pong';
 } | {
     type: 'init';
+    name: string;
     ackSeq?: number;
     nodes: Node[];
     comments: Comment[];

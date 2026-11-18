@@ -15,6 +15,7 @@ export class Sync extends EventTarget {
     versions: Version[] = [];
     clientId: string = crypto.randomUUID();
     ready = false;
+    name = '';
     lastMessage = Date.now();
     storageError = false;
     private snapshotTimer?: ReturnType<typeof setTimeout>;
@@ -110,6 +111,8 @@ export class Sync extends EventTarget {
     }
     connect() { this.lastMessage = Date.now(); const ws = this.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/f/${this.file}/ws?clientId=${encodeURIComponent(this.clientId)}`); ws.onmessage = e => { if (ws !== this.socket) return; this.lastMessage = Date.now(); const m = JSON.parse(e.data) as ServerMsg; if (m.type === 'pong') return; if (m.type === 'init') {
         this.you = m.you;
+        this.name = m.name ?? '';
+        this.dispatchEvent(new Event('name-change'));
         this.comments = m.comments;
         this.styles = m.styles ?? [];
         this.dispatchEvent(new Event('styles-change'));
@@ -130,6 +133,7 @@ export class Sync extends EventTarget {
             this.send({ type: 'ops', seq, ops });
     }
     else if (m.type === 'styles') { this.styles = m.styles; this.dispatchEvent(new Event('styles-change')); }
+    else if (m.type === 'name') { this.name = m.name; this.dispatchEvent(new Event('name-change')); }
     else if (m.type === 'comments') { this.comments = m.comments; this.dispatchEvent(new Event('comments-change')); }
     else if (m.type === 'versions') { this.versions = m.versions; this.dispatchEvent(new Event('versions-change')); }
     else if (m.type === 'version-preview') this.dispatchEvent(new CustomEvent('preview', { detail: m }));

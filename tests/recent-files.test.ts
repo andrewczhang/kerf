@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { fileId, readRecent, recordRecent, removeRecent } from '../src/client/recent-files';
 function storage(initial: string | null = null) { let value = initial; return { getItem: () => value, setItem: (_: string, next: string) => { value = next; } }; }
 describe('recent files', () => {
+    it('updates known names without changing opened time or thumbnail', () => {
+        const s = storage(); recordRecent({ id: 'a', opened: 123, thumbnail: 'data:image/png;base64,abc' }, s);
+        recordRecent({ id: 'a', name: 'Layout study' }, s);
+        expect(readRecent(s)).toEqual([{ id: 'a', name: 'Layout study', opened: 123, thumbnail: 'data:image/png;base64,abc' }]);
+        recordRecent({ id: 'a', name: 'Untitled' }, s); expect(readRecent(s)[0].name).toBe('Untitled');
+    });
     it('survives a blocked localStorage getter', () => {
         const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
         Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage blocked'); } });
