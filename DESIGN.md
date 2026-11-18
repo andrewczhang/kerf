@@ -26,7 +26,7 @@ src/client/
   ui/
     toolbar.ts    tool buttons + shortcuts V R O F, H for hand
     inspector.ts  right panel: X Y W H, angle (°), fill color, stroke, corner radius, opacity; multi-select shows mixed
-    people.ts     avatars/names of who is in the file, click to jump to their viewport
+    people.ts     avatars toggle live viewport follow; Spotlight presents your viewport to the room
   style.css
 worker/
   index.ts        routes: GET /f/:id/ws -> DO (by idFromName(id)); everything else -> static assets (Workers static assets, SPA fallback to index.html)

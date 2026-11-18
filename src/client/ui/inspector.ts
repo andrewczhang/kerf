@@ -8,6 +8,7 @@ import { fit, toAbs } from '../../shared/path';
 import { normalizeGroups } from '../../shared/layers';
 import { sizeOf, worldMatrix } from '../geometry';
 import { inverse, parentMatrix, transform } from '../../shared/geometry';
+import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
 import { layoutGridsSection } from './layout-grids';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
@@ -17,13 +18,13 @@ export function refreshNumericFields(content: HTMLElement, nodes: Node[], active
         const key = input.dataset.key as Key;
         const value = nodes[0][key] ?? 0;
         const mixed = nodes.some(n => (n[key] ?? 0) !== value);
-        input.value = mixed ? '' : String(Math.round(Number(value) * 100) / 100);
+        input.value = mixed ? '' : formatNumber(Number(value));
         input.placeholder = mixed ? 'Mixed' : '';
     }
 }
 
 export function inspector(el: HTMLElement, store: Store) {
-    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
@@ -37,8 +38,8 @@ export function inspector(el: HTMLElement, store: Store) {
         }
         content.innerHTML = '';
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', group: 'Group', text: 'Text', path: 'Path' }[nodes[0].type]}</div>`;
-        const name = document.createElement('input');
+        head.className = 'layer-heading';
+        const name = inputElement('Object name');
         name.className = 'name-input';
         name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
         name.setAttribute('aria-label', 'Object name');
@@ -81,22 +82,36 @@ export function inspector(el: HTMLElement, store: Store) {
                 grid.append(label);
                 continue;
             }
-            const input = document.createElement('input');
+            const input = inputElement(key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
             input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key === 'rotation' ? 'Rotation' : key);
             if (key === 'rotation') input.disabled = nodes.every(n => n.type === 'group');
             input.placeholder = mixed ? 'Mixed' : '';
             if (key === 'fill' || key === 'stroke') {
-                input.type = 'color';
-                input.value = String(nodes[0][key] ?? '#000000');
+                label.classList.add('color-field');
+                const value = document.createElement('div'); value.className = 'color-value';
+                const swatch = inputElement(`${key} color`); swatch.type = 'color'; swatch.className = 'color-swatch';
+                swatch.value = String(nodes[0][key] ?? '#000000');
+                input.value = mixed ? '' : (nodes[0][key]?.toUpperCase() ?? 'None');
+                input.spellcheck = false;
+                input.onfocus = swatch.onfocus = () => store.begin();
+                input.oninput = () => {
+                    const color = parseColor(input.value, key === 'stroke');
+                    input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
+                    if (color === undefined) return;
+                    swatch.value = color ?? '#000000';
+                    for (const n of nodes) store.set(n.id, { [key]: color });
+                };
+                swatch.oninput = () => { input.value = swatch.value.toUpperCase(); for (const n of nodes) store.set(n.id, { [key]: swatch.value }); };
+                input.onblur = swatch.onblur = () => { store.end(); refreshColorField(input, swatch, nodes.map(n => store.doc.get(n.id)?.[key])); };
+                value.append(swatch, input); label.append(span, value); grid.append(label);
+                continue;
             }
-            else {
-                input.type = 'number';
-                input.dataset.key = key;
-                input.step = key === 'opacity' ? '.05' : '1';
-                if (key === 'fontSize') input.max = String(maxFontSize);
-                if (key === 'fontSize' || key === 'w') input.min = '1';
-                input.value = mixed ? '' : String(Math.round(Number(valueOf(nodes[0])) * 100) / 100);
-            }
+            input.type = 'number';
+            input.dataset.key = key;
+            input.step = key === 'opacity' ? '.05' : '1';
+            if (key === 'fontSize') input.max = String(maxFontSize);
+            if (key === 'fontSize' || key === 'w' || key === 'h') input.min = '1';
+            input.value = mixed ? '' : formatNumber(Number(valueOf(nodes[0])));
             input.onfocus = () => store.begin();
             input.oninput = () => { if (!input.value || input.validity.rangeUnderflow || input.validity.rangeOverflow) return; const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
                 if (key !== 'rotation' || n.type !== 'group') store.set(n.id, { [key]: value }); };
@@ -109,6 +124,7 @@ export function inspector(el: HTMLElement, store: Store) {
             const n = nodes[0], section = document.createElement('section');
             section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
             const box = section.querySelector('input')!;
+            box.autocomplete = 'off'; box.setAttribute('data-1p-ignore', ''); box.setAttribute('data-lpignore', 'true');
             box.checked = !!n.closed;
             box.onchange = () => {
                 const f = fit(toAbs(n.points ?? [], { x: 0, y: 0, w: n.w, h: n.h }), box.checked, { x: 0, y: 0 });

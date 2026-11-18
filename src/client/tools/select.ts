@@ -5,7 +5,7 @@ import type { Context, Tool } from './tool';
 import { blocked, groupOps, moveOps, normalizeGroups, outerGroup, rotateOps, ungroupOps } from '../../shared/layers';
 import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
-import { snapped, clearSnap } from '../snapping';
+import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -127,6 +127,11 @@ export class Select implements Tool {
                 const local = transform(inverse(parentMatrix(resized, n)), point);
                 const size = sizeOf({ ...n, w: nw, h: nh });
                 const values = { x: local.x - size.w / 2, y: local.y - size.h / 2, w: nw, h: nh };
+                if (n.type !== 'text' && Math.abs(n.rotation ?? 0) < 1e-8 && Math.abs(matrixAngle(parentMatrix(this.snapshot, n))) < 1e-8) {
+                    const left = roundUnlessSnapped(this.ctx, values.x), top = roundUnlessSnapped(this.ctx, values.y), right = roundUnlessSnapped(this.ctx, values.x + nw), bottom = roundUnlessSnapped(this.ctx, values.y + nh);
+                    const keepX = x === b.x && w === b.w, keepY = y === b.y && h === b.h;
+                    values.x = keepX ? n.x : left; values.y = keepY ? n.y : top; values.w = keepX ? n.w : Math.max(1, right - left); values.h = keepY ? n.h : Math.max(1, bottom - top);
+                }
                 resized.set(n.id, { ...n, ...values });
                 for (const [key, value] of Object.entries(values))
                     ops.push({ t: 'set', id: n.id, key: key as 'x', value });
@@ -140,7 +145,8 @@ export class Select implements Tool {
             const adjusted = snapped(this.ctx, { ...b, x: b.x + dx, y: b.y + dy }, e);
             dx = adjusted.x - b.x; dy = adjusted.y - b.y;
             for (const n of this.original.values()) { if (isAutoLayout(store.doc.get(n.parent ?? ''))) continue; const m = inverse(parentMatrix(this.snapshot, n)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: dx, y: dy });
-                ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + b.x - a.x }, { t: 'set', id: n.id, key: 'y', value: n.y + b.y - a.y }); }
+                const round = (value: number) => Math.abs(matrixAngle(m)) < 1e-8 ? roundUnlessSnapped(this.ctx, value) : value;
+                ops.push({ t: 'set', id: n.id, key: 'x', value: round(n.x + b.x - a.x) }, { t: 'set', id: n.id, key: 'y', value: round(n.y + b.y - a.y) }); }
         }
         store.commit(ops);
     }
@@ -187,7 +193,8 @@ export class Select implements Tool {
         const d = delta[e.key], k = e.shiftKey ? 10 : 1;
         store.begin();
         for (const n of nodes.filter(n => !nodes.some(a => a.id !== n.id && descendants(store.doc, a.id).some(c => c.id === n.id)))) { const m = inverse(parentMatrix(store.doc, n)), a = transform(m, { x: 0, y: 0 }), b = transform(m, { x: d.x * k, y: d.y * k });
-            store.set(n.id, { x: n.x + b.x - a.x, y: n.y + b.y - a.y }); }
+            const round = (value: number) => Math.abs(matrixAngle(m)) < 1e-8 ? Math.round(value) : value;
+            store.set(n.id, { x: round(n.x + b.x - a.x), y: round(n.y + b.y - a.y) }); }
         if (nodes.length) store.commit(normalizeGroups(store.doc, sizeOf));
         store.end();
     } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {

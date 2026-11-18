@@ -43,8 +43,12 @@ export class Sync extends EventTarget {
         this.store.pending.delete(m.seq);
     else if (m.type === 'ops')
         this.store.remote(m.ops);
-    else if (m.type === 'presence')
-        this.peers.set(m.peer.id, m.peer);
+    else if (m.type === 'presence') {
+        if (m.peer.id === this.you?.id)
+            this.you = m.peer;
+        else
+            this.peers.set(m.peer.id, m.peer);
+    }
     else
         this.peers.delete(m.id); this.notify(); }; ws.onclose = () => { this.status = 'Reconnecting'; this.peers.clear(); this.notify(); setTimeout(() => this.connect(), this.retry); this.retry = Math.min(10000, this.retry * 1.7); }; ws.onerror = () => ws.close(); }
 }

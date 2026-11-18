@@ -1,3 +1,9 @@
 .layout-grid-fields { grid-template-columns: 1fr; }
 .layout-grid-fields .field span { flex: 0 0 48px; }
 .layout-grid-fields .field select { margin: 0; padding: 0; }
+.layout-grid-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.layout-grid-heading .section-label { margin-bottom: 0; }
+.layout-grid-heading button { width: 32px; height: 32px; }
+.layout-grid-fields { gap: 8px; margin-top: 16px; }
+.layout-grid-fields > button { height: 32px; padding: 8px; border: 1px solid #d6d4ce; }
+.layout-grid-fields input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: #ff4f00; }
