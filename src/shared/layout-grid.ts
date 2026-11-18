@@ -2,6 +2,10 @@ import type { LayoutGrid } from './doc';
 import type { Rect } from './geometry';
 import type { RulerGuide } from './snap';
 
+export function defaultLayoutGrid(width: number): LayoutGrid {
+    return { type: 'columns', count: 12, size: 20, gutter: Math.min(20, width / 40), margin: Math.min(24, width / 10), color: '#ff4f00', opacity: .1, visible: true };
+}
+
 export function gridBands(r: Rect, g: LayoutGrid): Rect[] {
     if (g.type === 'grid') return [];
     const columns = g.type === 'columns', span = columns ? r.w : r.h;

@@ -1,6 +1,7 @@
 import type { LayoutGrid, Node } from '../../shared/doc';
 import type { Store } from '../store';
 import './layout-grids.css';
+import { defaultLayoutGrid } from '../../shared/layout-grid';
 
 export function layoutGridsSection(content: HTMLElement, store: Store, node: Node) {
     const section = document.createElement('section');
@@ -9,7 +10,7 @@ export function layoutGridsSection(content: HTMLElement, store: Store, node: Nod
         const grids = store.doc.get(node.id)?.grids ?? [];
         const commit = (next: LayoutGrid[]) => { store.begin(); store.set(node.id, { grids: next }); store.end(); render(); };
         const add = document.createElement('button'); add.textContent = '+'; add.setAttribute('aria-label', 'Add layout grid'); add.disabled = grids.length >= 8;
-        add.onclick = () => commit([...grids, { type: 'columns', count: 12, size: 20, gutter: 20, margin: 24, color: '#ff4f00', opacity: .1, visible: true }]);
+        add.onclick = () => commit([...grids, defaultLayoutGrid(store.doc.get(node.id)?.w ?? node.w)]);
         section.append(add);
         grids.forEach((g, i) => {
             const fields = document.createElement('div'); fields.className = 'field-grid layout-grid-fields';

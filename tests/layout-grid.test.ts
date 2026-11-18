@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { applyOp, makeNode, validNode, type LayoutGrid } from '../src/shared/doc';
-import { gridBands, gridLines } from '../src/shared/layout-grid';
+import { defaultLayoutGrid, gridBands, gridLines } from '../src/shared/layout-grid';
 import { resizeSnap, snapRect } from '../src/shared/snap';
 import { Store } from '../src/client/store';
 import { snapped } from '../src/client/snapping';
@@ -8,6 +8,16 @@ import type { Context } from '../src/client/tools/tool';
 
 const grid: LayoutGrid = { type: 'columns', count: 12, size: 20, gutter: 20, margin: 24, color: '#ff0000', opacity: .1, visible: true };
 const rect = { x: 100, y: 50, w: 1200, h: 800 };
+it('creates visible default columns even for the smallest valid frames', () => {
+    for (const w of [1, 10, 100, 267, 268, 1200]) {
+        const g = defaultLayoutGrid(w), bands = gridBands({ ...rect, w }, g);
+        expect(bands).toHaveLength(12);
+        expect(bands.every(b => b.w > 0 && b.x >= rect.x && b.x + b.w <= rect.x + w)).toBe(true);
+        expect(validNode({ ...makeNode('frame', 0, 0), w, grids: [g] })).toBe(true);
+    }
+    expect(defaultLayoutGrid(1200)).toEqual(gridWithDefaultColor());
+});
+function gridWithDefaultColor() { return { ...grid, color: '#ff4f00' }; }
 it('stretches columns and rows in world coordinates', () => {
     const bands = gridBands(rect, grid);
     expect(bands).toHaveLength(12); expect(bands[0]).toEqual({ x: 124, y: 50, w: 932 / 12, h: 800 });
