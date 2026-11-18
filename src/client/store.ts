@@ -44,6 +44,13 @@ export class Store extends EventTarget {
                 changes.push({ before: { t: 'create', node: { ...child } }, after: { t: 'delete', id: child.id } });
         }
         applyOp(this.doc, op);
+    } const geometry = record ? [...this.doc.values()].map(n => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
+    applyLayout(this.doc);
+    for (const before of geometry) {
+        const after = this.doc.get(before.id)!;
+        for (const key of ['x', 'y', 'w', 'h'] as const)
+            if (before[key] !== after[key])
+                changes.push({ before: { t: 'set', id: before.id, key, value: before[key] }, after: { t: 'set', id: before.id, key, value: after[key] } });
     } if (record && changes.length) {
         if (this.group)
             this.group.push(...changes);
@@ -55,7 +62,7 @@ export class Store extends EventTarget {
         const seq = ++this.seq;
         this.pending.set(seq, ops);
         this.send(ops, seq);
-    } applyLayout(this.doc); this.changed(); }
+    } this.changed(); }
     set(id: string, values: Partial<Record<Key, unknown>>) { this.commit(Object.entries(values).map(([key, value]) => ({ t: 'set', id, key, value }) as Op)); }
     remote(ops: Op[]) { const keys = new Set([...this.pending.values()].flat().filter(o => o.t === 'set').map(o => o.t === 'set' ? o.id + ':' + o.key : '')); for (const op of ops)
         if (op.t !== 'set' || !keys.has(op.id + ':' + op.key))

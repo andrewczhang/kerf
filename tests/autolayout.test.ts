@@ -8,6 +8,27 @@ import type { Context } from '../src/client/tools/tool';
 
 function setup(nodes: Node[]) { const store = new Store(); store.send = () => {}; store.init(nodes); return store; }
 
+it('undoes and redoes all geometry derived by adding auto layout without sending derived ops', () => {
+    const p = { ...makeNode('frame', 50, 60), w: 200.4, h: 100.4 };
+    const items = [
+        { ...makeNode('rect', 10.2, 15.2, 'Z'), parent: p.id, w: 30, h: 40 },
+        { ...makeNode('rect', 70.2, 20.2, 'M'), parent: p.id, w: 30, h: 40 },
+        { ...makeNode('rect', 141.2, 17.2, 'A'), parent: p.id, w: 30, h: 40 }
+    ];
+    const s = setup([p, ...items]);
+    const geometry = () => [p, ...items].map(n => { const { x, y, w, h } = s.doc.get(n.id)!; return { x, y, w, h }; });
+    const original = geometry();
+    addAutoLayout(s, p);
+    const laidOut = geometry();
+    expect(laidOut).not.toEqual(original);
+    expect(laidOut[0]).not.toEqual(original[0]);
+    expect(laidOut[2]).not.toEqual(original[2]);
+    expect([...s.pending.values()].flat().some(op => op.t === 'set' && ['x', 'y', 'w', 'h'].includes(op.key))).toBe(false);
+    expect(s.undoStack).toHaveLength(1);
+    s.history(); expect(geometry()).toEqual(original); expect(s.doc.get(p.id)?.layout).toBeUndefined();
+    s.history(true); expect(geometry()).toEqual(laidOut); expect(s.doc.get(p.id)?.layout).toBe('horizontal');
+});
+
 it('guesses horizontal layout, average gap and edge padding, ordering by position', () => {
     const p = { ...makeNode('frame', 50, 60), w: 200, h: 100 };
     const a = { ...makeNode('rect', 10, 15, 'Z'), parent: p.id, w: 30, h: 40 };
