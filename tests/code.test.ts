@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { applyOp, makeNode } from '../src/shared/doc';
+import { applyOp, makeNode, type Node } from '../src/shared/doc';
 import { componentName, toHTML, toReact } from '../src/shared/codegen';
 import { parseJSX, type CodeElement } from '../src/shared/jsxparse';
-import { codeRoot, codeScopeIds, commitCode, diffCode } from '../src/client/codesync';
+import { codeRoot, codeScopeIds, commitCode, CodeDiffError, diffCode } from '../src/client/codesync';
 import { Store } from '../src/client/store';
 
 function fixture() {
@@ -18,9 +18,19 @@ function tree(code: string): CodeElement {
     return result;
 }
 describe('code generation and document diff', () => {
+    it.each(['rect', 'ellipse', 'text', 'path'] as const)('rejects children under an existing %s with a located error', type => {
+        const node = makeNode(type, 0, 0), doc = new Map([[node.id, node]]);
+        const parsed = tree(`<>\n  <div data-kerf="${node.id}"><div /></div>\n</>`);
+        expect(() => diffCode(doc, null, parsed)).toThrow(CodeDiffError);
+        try { diffCode(doc, null, parsed); } catch (error) {
+            expect(error).toMatchObject({ message: 'only frames and groups can contain children', line: 2, col: 3 });
+        }
+        expect([...doc.values()]).toEqual([node]);
+        expect(diffCode(doc, null, tree(toReact(doc, null)))).toEqual([]);
+    });
     it('round-trips unstroked paths without restoring their creation default stroke', () => {
         const path = { ...makeNode('path', 10, 20), stroke: null };
-        const doc = new Map([[path.id, path]]);
+        const doc = new Map<string, Node>([[path.id, path]]);
         const parsed = tree(toReact(doc, null));
         expect(diffCode(doc, null, parsed)).toEqual([]);
         parsed.children[0].style.width = 144;

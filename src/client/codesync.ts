@@ -56,7 +56,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
             const nested = flatten(element.children);
             const type = old && ['text', 'path', 'group'].includes(old.type) ? old.type : style.borderRadius === '50%' ? 'ellipse' : nested.length || attrs['data-type'] === 'frame' ? 'frame' : 'rect';
             if (old?.type === 'frame' && type !== 'frame') convertedFrames.add(old.id);
-            if (type === 'ellipse' && nested.length) fail('ellipses cannot contain children');
+            if (nested.length && (!['frame', 'group'].includes(type) || old && !['frame', 'group'].includes(old.type))) fail('only frames and groups can contain children');
             const number = (key: string, fallback: number) => {
                 const value = style[key] ?? fallback;
                 if (typeof value !== 'number' || !Number.isFinite(value)) fail(`${key} must be a finite number`);
