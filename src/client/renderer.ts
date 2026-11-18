@@ -3,8 +3,10 @@ import { bounds, handles, type Rect } from '../shared/geometry';
 import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { drawGuides, drawSnapGrid } from './guides';
 import { drawNode } from './draw';
 import type { Doc } from '../shared/doc';
+import { toAbs, trace } from '../shared/path';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -23,6 +25,7 @@ export class Renderer {
         const c = this.ctx, { viewport: v } = this.app, store = this.preview ? { ...this.app.store, doc: this.preview, selection: new Set<string>() } : this.app.store, d = devicePixelRatio || 1;
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
+        drawSnapGrid(c, this.app, this.width, this.height);
         c.fillStyle = '#d6d4ce';
         const spacing = 24 * v.zoom * 2 ** Math.max(0, Math.ceil(Math.log2(.5 / v.zoom)));
         for (let x = ((v.x % spacing) + spacing) % spacing; x < this.width; x += spacing)
@@ -45,15 +48,19 @@ export class Renderer {
             c.beginPath(); c.moveTo(tx - 8 / v.zoom, ty - 5 / v.zoom); c.lineTo(tx, ty); c.lineTo(tx - 8 / v.zoom, ty + 5 / v.zoom); c.stroke();
         }
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
+        const curve = (n: Node, color: string) => { if (n.type !== 'path')
+            return; c.beginPath(); trace(c, toAbs(n.points ?? [], world(store.doc, n)), !!n.closed); c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.stroke(); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
             if (n && n.id !== this.app.editingText)
-                outline(world(store.doc, n), '#ff4f00');
+                n.type === 'path' ? curve(n, '#ff4f00') : outline(world(store.doc, n), '#ff4f00');
         }
-        if (selected.length && !this.app.editingText) {
-            for (const n of selected)
+        if (selected.length && !this.app.editingText && !this.app.active?.ownsSelection) {
+            for (const n of selected) {
                 outline(world(store.doc, n), '#ff4f00');
+                curve(n, '#ff4f00');
+            }
             const box = bounds(selected.map(n => world(store.doc, n)));
             outline(box, '#ff4f00');
             for (const p of selected.every(n => n.type !== 'text') ? handles(box) : []) {
@@ -62,6 +69,7 @@ export class Renderer {
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');
             }
         }
+        this.app.active?.draw?.(c, v.zoom);
         if (this.app.marquee) {
             c.fillStyle = '#ff4f0012';
             const r = this.app.marquee;
@@ -100,5 +108,6 @@ export class Renderer {
             c.fillText(peer.name, 19, 33);
             c.restore();
         }
+        drawGuides(c, this.app, this.width, this.height);
     }
 }

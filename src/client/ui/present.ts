@@ -29,7 +29,7 @@ export function present(store: Store) {
         const r = canvas.getBoundingClientRect(), p: Point = { x: (e.clientX - r.left - ox) / zoom, y: (e.clientY - r.top - oy) / zoom };
         const frame = id ? store.doc.get(id) : undefined;
         if (!frame || !contains(world(store.doc, frame), p)) return;
-        let n = hit(store.doc, p, frame.id) ?? frame;
+        let n = hit(store.doc, p, undefined, frame.id) ?? frame;
         while (n) { if (n.link && frames().some(f => f.id === n.link)) return n.link; if (!n.parent) break; n = store.doc.get(n.parent)!; }
     }
     const navigate = (next: string) => { if (id) history.push(id); id = next; draw(); };

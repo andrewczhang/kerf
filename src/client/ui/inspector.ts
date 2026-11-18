@@ -1,6 +1,8 @@
 import type { Store } from '../store';
 import { isTextNode, maxFontSize, type Node, type Key } from '../../shared/doc';
 import { downloadSelection } from '../export';
+import { world } from '../geometry';
+import { fit, toAbs } from '../../shared/path';
 export function inspector(el: HTMLElement, store: Store) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
@@ -9,12 +11,12 @@ export function inspector(el: HTMLElement, store: Store) {
             return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
-            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
+            content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Text</span><kbd>T</kbd><span>Pen</span><kbd>P</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
         }
         content.innerHTML = '';
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[nodes[0].type]}</div>`;
+        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[nodes[0].type]}</div>`;
         const name = document.createElement('input');
         name.className = 'name-input';
         name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
@@ -78,6 +80,19 @@ export function inspector(el: HTMLElement, store: Store) {
             label.append(span, input);
             grid.append(label);
         } content.append(section); };
+        if (nodes.length === 1 && nodes[0].type === 'path') {
+            const n = nodes[0], section = document.createElement('section');
+            section.innerHTML = `<div class="section-label">Vector</div><label class="path-closed"><input type="checkbox" aria-label="Closed path"> Closed</label><span class="path-count">${n.points?.length ?? 0} points</span><p class="path-hint">Double-click or Enter to edit points</p>`;
+            const box = section.querySelector('input')!;
+            box.checked = !!n.closed;
+            box.onchange = () => {
+                const parent = n.parent ? store.doc.get(n.parent) : undefined, origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
+                const f = fit(toAbs(n.points ?? [], world(store.doc, n)), box.checked, origin);
+                box.blur();
+                store.begin(); store.set(n.id, { x: f.x, y: f.y, w: f.w, h: f.h, points: f.points, closed: box.checked }); store.end();
+            };
+            content.append(section);
+        }
         if (nodes.every(isTextNode)) {
             fields('Layout', nodes.every(node => node.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
             fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
