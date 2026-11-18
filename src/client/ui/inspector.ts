@@ -10,7 +10,7 @@ import type { Viewport } from '../viewport';
 import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 import { formatNumber, inputElement, parseColor, refreshColorField } from './values';
-import { layoutGridsSection } from './layout-grids';
+import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
@@ -54,7 +54,10 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
     const render = () => {
         const doc = expand(store.doc);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
-        if (refreshFocusedInspector(content, nodes, el.contains(document.activeElement) ? document.activeElement : null)) return;
+        if (refreshFocusedInspector(content, nodes, el.contains(document.activeElement) ? document.activeElement : null)) {
+            refreshLayoutGridFields(content, store, document.activeElement);
+            return;
+        }
         content.innerHTML = '';
         const section = (title: string) => {
             const s = document.createElement('section'), label = document.createElement('div');

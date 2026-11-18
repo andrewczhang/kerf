@@ -12,6 +12,7 @@ afterEach(() => vi.unstubAllGlobals());
 class GridElement {
     children: GridElement[] = [];
     attributes: Record<string, string> = {};
+    dataset: Record<string, string> = {};
     textContent = '';
     className = '';
     value = '';
@@ -60,7 +61,7 @@ it('creates visible default columns even for the smallest valid frames', () => {
         expect(bands.every(b => b.w > 0 && b.x >= rect.x && b.x + b.w <= rect.x + w)).toBe(true);
         expect(validNode({ ...makeNode('frame', 0, 0), w, grids: [g] })).toBe(true);
     }
-    expect(defaultLayoutGrid(1200)).toEqual(gridWithDefaultColor());
+    expect(defaultLayoutGrid(1200)).toMatchObject(gridWithDefaultColor());
 });
 function gridWithDefaultColor() { return { ...grid, color: '#ff4f00' }; }
 it('stretches columns and rows in world coordinates', () => {

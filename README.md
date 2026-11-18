@@ -28,7 +28,7 @@ Open http://localhost:8787. The root creates a random file URL; share that URL t
 - Drag shapes into or out of a frame to reparent them without changing world position.
 - **Shift+A** adds auto layout to a frame or wraps the selection. Drag children to reorder at the orange insertion line; drag fully outside to leave the stack.
 - The inspector offers Fixed/Hug/Fill sizing. Resizing with handles switches the resized axes to Fixed; auto-layout frames show dashed padding guides when selected.
-- Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates.
+- Arrow keys nudge, Shift nudges by 10, Delete removes, Ctrl/Cmd+D duplicates. Alt/Option-drag duplicates in place and moves the copies; press or release Alt/Option during a move to toggle copying. Alt/Option-click alone does not duplicate.
 - Ctrl/Cmd+Alt+K makes a component; Ctrl/Cmd+D on a main component creates an instance. The inspector also lists components and creates instances.
 - Double-click or Ctrl/Cmd+click an instance to select a layer inside it. Edit appearance in the inspector to override it; virtual layers cannot be moved, resized or deleted. Escape selects the owning instance.
 - Ctrl/Cmd+Alt+B detaches an instance. Reset overrides in the inspector to follow the main again. Deleting a main detaches its surviving instances.
