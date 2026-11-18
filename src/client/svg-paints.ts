@@ -5,8 +5,9 @@ import { pathArrows, strokeBounds, strokeStyle, strokeShadowCaster } from '../sh
 type SVGPaintOptions = { images?: ReadonlyMap<string, string>; backdrop?: string; region?: Rect; ownId?: string; points?: PathPoint[] };
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 export function svgStroke(n: Node, r: Rect, tag: string, geometry: string, points: PathPoint[], opacity: number, nextId: () => string) {
+    const compound = n.type === 'path' && !!n.contours?.length;
     if (!n.stroke || n.strokeWidth <= 0)
-        return { inline: '', extra: '', fillRule: '' };
+        return { inline: '', extra: '', fillRule: compound ? ' fill-rule="evenodd"' : '' };
     const color = escape(n.stroke);
     const { align, cap, join, miter, dash, width } = strokeStyle(n);
     const attrs = ` stroke="${color}" stroke-width="${width}"${opacity === 1 ? '' : ` stroke-opacity="${opacity}"`} stroke-linecap="${cap}" stroke-linejoin="${join}" stroke-miterlimit="${miter}"${dash.length ? ` stroke-dasharray="${dash.join(' ')}"` : ''}`;
@@ -18,7 +19,7 @@ export function svgStroke(n: Node, r: Rect, tag: string, geometry: string, point
         else {
             const b = strokeBounds(n, r, points);
             const region = `x="${b.x - 1}" y="${b.y - 1}" width="${b.w + 2}" height="${b.h + 2}"`;
-            extra = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="white"/><${tag} ${geometry} fill="black"${geometry.includes('fill-rule=') ? '' : ' fill-rule="evenodd"'}/></mask></defs><${tag} ${geometry} fill="none"${attrs} mask="url(#${id})"/>`;
+            extra = `<defs><mask id="${id}" maskUnits="userSpaceOnUse" ${region}><rect ${region} fill="white"/><${tag} ${geometry} fill="black" fill-rule="evenodd"/></mask></defs><${tag} ${geometry} fill="none"${attrs} mask="url(#${id})"/>`;
         }
     }
     const arrowOpacity = opacity === 1 ? '' : ` opacity="${opacity}"`;
@@ -32,7 +33,7 @@ export function svgStroke(n: Node, r: Rect, tag: string, geometry: string, point
                 : `<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="${n.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${arrowOpacity}/>`;
         }
     }
-    return { inline: align === 'center' ? attrs : '', extra, fillRule: align === 'center' || geometry.includes('fill-rule=') ? '' : ' fill-rule="evenodd"' };
+    return { inline: align === 'center' ? attrs : '', extra, fillRule: align === 'center' && !compound ? '' : ' fill-rule="evenodd"' };
 }
 
 export function svgPaints(n: Node, r: Rect, tag: string, geometry: string, alpha: number, nested: string, nextId: () => string, content = '', options: SVGPaintOptions = {}) {

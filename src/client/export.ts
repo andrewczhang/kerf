@@ -139,7 +139,7 @@ export function exportSVG(doc: Doc, ids: Iterable<string>, images: ReadonlyMap<s
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const points = n.type === 'path' ? toAbs(n.points ?? [], r) : [];
-        const geometry = n.type === 'path' ? `d="${contoursAbs(n, r).map((abs, i) => pathData(abs, i > 0 || !!n.closed)).join('')}"${n.contours?.length ? ' fill-rule="evenodd"' : ''}` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
+        const geometry = n.type === 'path' ? `d="${contoursAbs(n, r).map((abs, i) => pathData(abs, i > 0 || !!n.closed)).join('')}"` : n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;
         const tag = n.type === 'ellipse' ? 'ellipse' : n.type === 'path' ? 'path' : 'rect';
         if (n.fills !== undefined || n.effects !== undefined) {
             let nested = '';
