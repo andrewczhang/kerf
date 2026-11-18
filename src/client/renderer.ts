@@ -2,6 +2,7 @@ import { children, type Node } from '../shared/doc';
 import { bounds, handles, world, type Rect } from '../shared/geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { drawNode } from './draw';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -26,24 +27,8 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        const drawNode = (n: Node) => { const r = world(store.doc, n); c.save(); c.globalAlpha *= n.opacity; c.beginPath(); if (n.type === 'ellipse')
-            c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
-        else
-            c.roundRect(r.x, r.y, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2)); c.fillStyle = n.fill; c.fill(); if (n.stroke) {
-            c.lineWidth = n.strokeWidth;
-            c.strokeStyle = n.stroke;
-            c.stroke();
-        } if (n.type === 'frame') {
-            c.clip();
-            for (const child of children(store.doc, n.id))
-                drawNode(child);
-        } c.restore(); if (n.type === 'frame') {
-            c.fillStyle = '#77766f';
-            c.font = `${11 / v.zoom}px system-ui`;
-            c.fillText(n.name, r.x, r.y - 8 / v.zoom);
-        } };
         for (const n of children(store.doc, null))
-            drawNode(n);
+            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
