@@ -45,6 +45,19 @@ it('escapes names and ids, clamps radii, and omits default opacity and zero radi
     expect(exportSVG(docOf(node), [node.id])).not.toContain('rx=');
 });
 
+it('exports wrapped text as aligned, escaped SVG text runs', () => {
+    const measureText = (line: string) => ({ width: line.length * 10, fontBoundingBoxAscent: 18, fontBoundingBoxDescent: 6 });
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText }) }) });
+    const node = { ...makeNode('text', 10, 20), text: '<& long', fontSize: 20, textWidth: 'fixed' as const, textAlign: 'right' as const, w: 40 };
+    const svg = exportSVG(docOf(node), [node.id]);
+    expect(svg).toContain('viewBox="10 20 40 48"');
+    expect(svg).toContain('text-anchor="end"');
+    expect(svg).toContain('<tspan x="50" y="38">&lt;&amp;</tspan><tspan x="50" y="62">long</tspan>');
+    expect(svg).not.toContain('<rect');
+    const narrow = { ...node, w: 1, text: 'W' };
+    expect(exportBounds(docOf(narrow), [narrow])).toEqual({ x: 1, y: 20, w: 10, h: 24 });
+});
+
 it('handles empty and stale selections deterministically', async () => {
     const doc: Doc = new Map();
     expect(exportRoots(doc, ['missing'])).toEqual([]);

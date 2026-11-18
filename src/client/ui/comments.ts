@@ -1,4 +1,5 @@
-import { hit, world, type Point } from '../../shared/geometry';
+import type { Point } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import type { Comment } from '../../shared/comments';
 import type { Sync } from '../sync';
 import type { Context } from '../tools/tool';

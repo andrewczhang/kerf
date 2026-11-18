@@ -1,5 +1,6 @@
 import { children, type Node } from '../shared/doc';
-import { bounds, handles, world, type Rect } from '../shared/geometry';
+import { bounds, handles, type Rect } from '../shared/geometry';
+import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { drawNode } from './draw';
@@ -31,7 +32,7 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of children(store.doc, null))
-            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true });
+            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
         for (const n of store.doc.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = store.doc.get(n.link);
@@ -47,15 +48,15 @@ export class Renderer {
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
-            if (n)
+            if (n && n.id !== this.app.editingText)
                 outline(world(store.doc, n), '#ff4f00');
         }
-        if (selected.length) {
+        if (selected.length && !this.app.editingText) {
             for (const n of selected)
                 outline(world(store.doc, n), '#ff4f00');
             const box = bounds(selected.map(n => world(store.doc, n)));
             outline(box, '#ff4f00');
-            for (const p of handles(box)) {
+            for (const p of selected.every(n => n.type !== 'text') ? handles(box) : []) {
                 c.fillStyle = '#fbfbf9';
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');

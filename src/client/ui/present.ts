@@ -1,5 +1,6 @@
 import { children, descendants } from '../../shared/doc';
-import { contains, hit, world, type Point } from '../../shared/geometry';
+import { contains, type Point } from '../../shared/geometry';
+import { hit, world } from '../geometry';
 import { drawNode } from '../draw';
 import type { Store } from '../store';
 export function present(store: Store) {
