@@ -5,7 +5,7 @@ import type { Context, Tool } from './tool';
 import { dragInsertion, isAutoLayout, layoutInsertions, reorderInAutoLayout } from '../autolayout';
 import { gradientDown, gradientMove, gradientUp } from '../gradient-handles';
 import { blocked, groupOps, normalizeGroups, outerGroup, ungroupOps } from '../../shared/layers';
-import { snapped, clearSnap } from '../snapping';
+import { snapped, clearSnap, roundUnlessSnapped } from '../snapping';
 export class Select implements Tool {
     id = 'select';
     cursor = 'default';
@@ -102,8 +102,8 @@ export class Select implements Tool {
                 const parentNode = n.parent ? snapshot.get(n.parent) : undefined;
                 const pr = parentNode ? world(snapshot, parentNode) : { x: 0, y: 0 };
                 const parent = n.parent && this.original.has(n.parent) ? { x: x + (pr.x - b.x) * w / b.w, y: y + (pr.y - b.y) * h / b.h } : pr;
-                const left = Math.round(x + (r.x - b.x) * w / b.w - parent.x), top = Math.round(y + (r.y - b.y) * h / b.h - parent.y);
-                const right = Math.round(x + (r.x - b.x + n.w) * w / b.w - parent.x), bottom = Math.round(y + (r.y - b.y + n.h) * h / b.h - parent.y);
+                const left = roundUnlessSnapped(this.ctx, x + (r.x - b.x) * w / b.w - parent.x), top = roundUnlessSnapped(this.ctx, y + (r.y - b.y) * h / b.h - parent.y);
+                const right = roundUnlessSnapped(this.ctx, x + (r.x - b.x + n.w) * w / b.w - parent.x), bottom = roundUnlessSnapped(this.ctx, y + (r.y - b.y + n.h) * h / b.h - parent.y);
                 const keepX = x === b.x && w === b.w, keepY = y === b.y && h === b.h;
                 const values = { x: keepX ? n.x : left, y: keepY ? n.y : top, w: keepX ? n.w : Math.max(1, right - left), h: keepY ? n.h : Math.max(1, bottom - top) };
                 for (const [key, value] of Object.entries(values))
@@ -119,7 +119,7 @@ export class Select implements Tool {
             dx = adjusted.x - b.x; dy = adjusted.y - b.y;
             for (const n of this.original.values())
                 if (!isAutoLayout(store.doc.get(n.parent ?? '')))
-                    ops.push({ t: 'set', id: n.id, key: 'x', value: Math.round(n.x + dx) }, { t: 'set', id: n.id, key: 'y', value: Math.round(n.y + dy) });
+                    ops.push({ t: 'set', id: n.id, key: 'x', value: roundUnlessSnapped(this.ctx, n.x + dx) }, { t: 'set', id: n.id, key: 'y', value: roundUnlessSnapped(this.ctx, n.y + dy) });
         }
         store.commit(ops);
     }
@@ -143,7 +143,7 @@ export class Select implements Tool {
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
-                store.set(id, { parent: parent?.id ?? null, x: Math.round(r.x - origin.x), y: Math.round(r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
+                store.set(id, { parent: parent?.id ?? null, x: roundUnlessSnapped(this.ctx, r.x - origin.x), y: roundUnlessSnapped(this.ctx, r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
     } layoutInsertions.delete(store); clearSnap(this.ctx); if (this.moved && this.original.size) store.commit(normalizeGroups(store.doc)); store.end(); this.start = undefined; store.changed(); }
