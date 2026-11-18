@@ -58,8 +58,7 @@ export const componentOps = {
     }
 };
 export function instanceNode(main: Node, x: number, y: number, parent: string | null = null, index = between()): Node {
-    const { component, overrides, ...values } = main;
-    return { ...values, id: crypto.randomUUID(), type: 'frame', instanceOf: main.id, x, y, parent, index };
+    return { ...makeNode('frame', x, y, index), name: main.name, instanceOf: main.id, parent, w: main.w, h: main.h };
 }
 export function detachOps(doc: Doc, instanceId: string | string[]): Op[] {
     if (Array.isArray(instanceId)) {

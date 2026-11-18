@@ -3,6 +3,24 @@ import { Store } from '../src/client/store';
 import { makeNode } from '../src/shared/doc';
 import type { Op } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode } from '../src/shared/components';
+it('resolves inherited instance properties live and clears undone links for late joiners', () => {
+    const s = new Store(), main = { ...makeNode('frame', 0, 0), component: true, radius: 8, opacity: .5, fill: '#123456' };
+    s.init([main]); s.set(main.id, { link: 'destination' });
+    const instance = instanceNode(s.doc.get(main.id)!, 200, 0);
+    expect(instance).not.toHaveProperty('link');
+    expect(instance).not.toHaveProperty('component');
+    expect(instance).not.toHaveProperty('overrides');
+    s.remote([{ t: 'create', node: instance }]);
+    expect(expand(s.doc).get(instance.id)).toMatchObject({ link: 'destination', radius: 8, opacity: .5, fill: '#123456' });
+    s.history(); expect(expand(s.doc).get(instance.id)?.link).toBeUndefined();
+    const late = new Store(); late.init(JSON.parse(JSON.stringify([...s.doc.values()])));
+    expect(late.doc.get(instance.id)).not.toHaveProperty('link');
+    expect(expand(late.doc).get(instance.id)?.link).toBeUndefined();
+    s.history(true); expect(expand(s.doc).get(instance.id)?.link).toBe('destination');
+    s.commit([{ t: 'override', id: instance.id, target: '', key: 'link', value: 'custom' }]);
+    s.set(main.id, { link: null });
+    expect(expand(s.doc).get(instance.id)?.link).toBe('custom');
+});
 it('keeps references valid after unmarking and detaches them when their source is deleted', () => {
     const s = new Store(), main = makeNode('frame', 0, 0), child = { ...makeNode('rect', 10, 10), parent: main.id };
     s.init([main, child]); s.commit(componentOps.create(s.doc, [main.id]).ops);
