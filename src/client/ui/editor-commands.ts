@@ -31,7 +31,7 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
         for (const id of registry.keys()) removeDynamic.push(add('tool-' + id, id[0].toUpperCase() + id.slice(1) + ' tool', 'Tools', () => choose(id), keys[id]));
         const seen = new Set<string>();
         document.querySelectorAll<HTMLButtonElement>('header button, footer button, aside button, .feature-panel button, .preview-banner button, .comment-pop button, .present-overlay button').forEach((button, i) => {
-            if (!button.getClientRects().length || button.disabled || button.closest('[inert]') || button.dataset.tool || button.id === 'command-hint') return;
+            if (!button.getClientRects().length || button.disabled || button.closest('[inert], .stop-strip') || button.dataset.tool || button.id === 'command-hint') return;
             const title = button.getAttribute('aria-label') || button.title || button.textContent?.trim();
             if (!title || seen.has(title)) return; seen.add(title);
             removeDynamic.push(add('button-' + i, title, button.closest('aside') ? 'Panels' : button.closest('.comment-pop') ? 'Comments' : 'Actions', () => { if (!button.closest('[inert]')) button.click(); }));

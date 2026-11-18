@@ -9,6 +9,16 @@ const { prepare } = vi.hoisted(() => ({ prepare: { current: () => {} } }));
 vi.mock('../src/client/ui/palette', async importOriginal => ({ ...await importOriginal<typeof import('../src/client/ui/palette')>(), installPalette: (_: unknown, fn: () => void) => { prepare.current = fn; return () => {}; } }));
 afterEach(() => { commands.clear(); registry.clear(); vi.unstubAllGlobals(); });
 describe('editor palette commands', () => {
+    it('excludes pointer-only gradient markers while keeping clickable panel actions', () => {
+        const markerClick = vi.fn(), actionClick = vi.fn();
+        const marker = { getClientRects: () => [{}], closest: (selector: string) => selector.includes('.stop-strip') ? {} : null, dataset: {}, getAttribute: () => 'Gradient stop 1', click: markerClick };
+        const action = { ...marker, closest: () => null, getAttribute: () => 'Reverse', click: actionClick };
+        vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: (selector: string) => selector.startsWith('header button') ? [marker, action] : [] });
+        editorCommands({ store: {}, viewport: {} } as unknown as Context, { preview: null, canvas: {} } as unknown as Renderer, vi.fn()); prepare.current();
+        expect([...commands.values()].some(c => c.title === 'Gradient stop 1')).toBe(false);
+        [...commands.values()].find(c => c.title === 'Reverse')!.run();
+        expect(actionClick).toHaveBeenCalledOnce(); expect(markerClick).not.toHaveBeenCalled();
+    });
     it('blocks mutations during version preview and restores them on return to current', () => {
         vi.stubGlobal('document', { createElement: () => ({}), querySelector: () => ({ prepend() {} }), querySelectorAll: () => [] });
         const history = vi.fn(), onKey = vi.fn(), set = vi.fn(), choose = vi.fn();
