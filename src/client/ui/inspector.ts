@@ -1,52 +1,111 @@
 import type { Store } from '../store';
 import type { Node, Key } from '../../shared/doc';
+import { formatNumber, parseColor } from './values';
+
+function inputElement(label: string) {
+    const input = document.createElement('input');
+    input.setAttribute('aria-label', label);
+    input.autocomplete = 'off';
+    input.setAttribute('data-1p-ignore', '');
+    input.setAttribute('data-lpignore', 'true');
+    return input;
+}
+
 export function inspector(el: HTMLElement, store: Store) {
-    el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
+    el.innerHTML = '<div class="panel-heading"><span class="active">Design</span><span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const render = () => {
-        if (el.contains(document.activeElement))
-            return;
+        if (el.contains(document.activeElement)) return;
         const nodes = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (!nodes.length) {
             content.innerHTML = '<section><div class="section-label">Page</div><div class="page-color"><i></i><span>F4F3EF</span><span>100%</span></div></section><section><div class="section-label">Shortcuts</div><div class="shortcut-list"><span>Move / select</span><kbd>V</kbd><span>Frame</span><kbd>F</kbd><span>Rectangle</span><kbd>R</kbd><span>Ellipse</span><kbd>O</kbd><span>Pan canvas</span><kbd>Space</kbd></div></section>';
             return;
         }
-        content.innerHTML = '';
+        content.replaceChildren();
         const head = document.createElement('section');
-        head.innerHTML = `<div class="section-label">${nodes.length > 1 ? nodes.length + ' objects' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse' }[nodes[0].type]}</div>`;
-        const name = document.createElement('input');
+        head.className = 'layer-heading';
+        const name = inputElement('Object name');
         name.className = 'name-input';
-        name.value = nodes.length === 1 ? nodes[0].name : 'Multiple selection';
-        name.setAttribute('aria-label', 'Object name');
-        name.onchange = () => { store.begin(); for (const n of nodes)
-            store.set(n.id, { name: name.value }); store.end(); };
+        name.value = nodes.length === 1 ? nodes[0].name : `${nodes.length} objects`;
+        name.onchange = () => {
+            store.begin();
+            for (const n of nodes) store.set(n.id, { name: name.value });
+            store.end();
+        };
         head.append(name);
         content.append(head);
-        const fields = (title: string, keys: Key[]) => { const section = document.createElement('section'); section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`; const grid = section.querySelector('.field-grid')!; for (const key of keys) {
-            const label = document.createElement('label');
-            label.className = 'field';
-            const span = document.createElement('span');
-            span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke' } as Record<string, string>)[key] ?? key.toUpperCase();
-            const input = document.createElement('input');
-            input.setAttribute('aria-label', key);
-            const mixed = nodes.some(n => n[key] !== nodes[0][key]);
-            input.placeholder = mixed ? 'Mixed' : '';
-            if (key === 'fill' || key === 'stroke') {
-                input.type = 'color';
-                input.value = String(nodes[0][key] ?? '#000000');
+
+        const fields = (title: string, keys: Key[]) => {
+            const section = document.createElement('section');
+            section.innerHTML = `<div class="section-label">${title}</div><div class="field-grid"></div>`;
+            const grid = section.querySelector('.field-grid')!;
+            for (const key of keys) {
+                const label = document.createElement('label');
+                label.className = 'field';
+                const span = document.createElement('span');
+                span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke' } as Record<string, string>)[key] ?? key.toUpperCase();
+                const input = inputElement(key);
+                const mixed = nodes.some(n => n[key] !== nodes[0][key]);
+                input.placeholder = mixed ? 'Mixed' : '';
+                label.append(span);
+                const write = (value: unknown) => {
+                    for (const n of nodes) store.set(n.id, { [key]: value });
+                };
+                const finish = () => { store.end(); };
+                if (key === 'fill' || key === 'stroke') {
+                    label.classList.add('color-field');
+                    const value = document.createElement('div');
+                    value.className = 'color-value';
+                    const swatch = inputElement(`${key} color`);
+                    swatch.type = 'color';
+                    swatch.className = 'color-swatch';
+                    swatch.value = String(nodes[0][key] ?? '#000000');
+                    swatch.classList.toggle('no-color', nodes[0][key] === null);
+                    input.value = mixed ? '' : (nodes[0][key]?.toString().toUpperCase() ?? 'None');
+                    input.spellcheck = false;
+                    input.onfocus = () => store.begin();
+                    input.oninput = () => {
+                        const color = parseColor(input.value, key === 'stroke');
+                        input.setCustomValidity(color === undefined ? 'Use a six-digit hex color' : '');
+                        if (color === undefined) return;
+                        swatch.value = color ?? '#000000';
+                        swatch.classList.toggle('no-color', color === null);
+                        write(color);
+                    };
+                    input.onblur = () => {
+                        finish();
+                        input.setCustomValidity('');
+                        const current = store.doc.get(nodes[0].id)?.[key];
+                        input.value = nodes.some(n => store.doc.get(n.id)?.[key] !== current) ? '' : current?.toUpperCase() ?? 'None';
+                    };
+                    swatch.onfocus = () => store.begin();
+                    swatch.oninput = () => {
+                        input.value = swatch.value.toUpperCase();
+                        swatch.classList.remove('no-color');
+                        write(swatch.value);
+                    };
+                    swatch.onblur = finish;
+                    value.append(swatch, input);
+                    label.append(value);
+                } else {
+                    input.type = 'number';
+                    input.step = key === 'opacity' ? '.05' : '1';
+                    input.value = mixed ? '' : formatNumber(Number(nodes[0][key]));
+                    input.onfocus = () => store.begin();
+                    input.oninput = () => {
+                        if (input.value !== '' && Number.isFinite(input.valueAsNumber)) write(input.valueAsNumber);
+                    };
+                    input.onblur = () => {
+                        finish();
+                        const current = Number(store.doc.get(nodes[0].id)?.[key]);
+                        input.value = nodes.some(n => store.doc.get(n.id)?.[key] !== current) ? '' : formatNumber(current);
+                    };
+                    label.append(input);
+                }
+                grid.append(label);
             }
-            else {
-                input.type = 'number';
-                input.step = key === 'opacity' ? '.05' : '1';
-                input.value = mixed ? '' : String(Math.round(Number(nodes[0][key]) * 100) / 100);
-            }
-            input.onfocus = () => store.begin();
-            input.oninput = () => { const value = input.type === 'color' ? input.value : Number(input.value); for (const n of nodes)
-                store.set(n.id, { [key]: value }); };
-            input.onblur = () => { store.end(); render(); };
-            label.append(span, input);
-            grid.append(label);
-        } content.append(section); };
+            content.append(section);
+        };
         fields('Layout', ['x', 'y', 'w', 'h']);
         fields('Appearance', ['radius', 'opacity']);
         fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);

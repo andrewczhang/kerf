@@ -84,12 +84,12 @@ export class Select implements Tool {
                 const parent = n.parent ? world(store.doc, store.doc.get(n.parent)!) : { x: 0, y: 0 };
                 const values = { x: x + (r.x - b.x) * w / b.w - parent.x, y: y + (r.y - b.y) * h / b.h - parent.y, w: n.w * w / b.w, h: n.h * h / b.h };
                 for (const [key, value] of Object.entries(values))
-                    ops.push({ t: 'set', id: n.id, key: key as 'x', value });
+                    ops.push({ t: 'set', id: n.id, key: key as 'x', value: Math.round(value) });
             }
         }
         else
             for (const n of this.original.values())
-                ops.push({ t: 'set', id: n.id, key: 'x', value: n.x + dx }, { t: 'set', id: n.id, key: 'y', value: n.y + dy });
+                ops.push({ t: 'set', id: n.id, key: 'x', value: Math.round(n.x + dx) }, { t: 'set', id: n.id, key: 'y', value: Math.round(n.y + dy) });
         store.commit(ops);
     }
     onPointerUp(p: Point) { const { store } = this.ctx; if (this.ctx.marquee) {
@@ -107,7 +107,7 @@ export class Select implements Tool {
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };
-                store.set(id, { parent: parent?.id ?? null, x: r.x - origin.x, y: r.y - origin.y, index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
+                store.set(id, { parent: parent?.id ?? null, x: Math.round(r.x - origin.x), y: Math.round(r.y - origin.y), index: between(children(store.doc, parent?.id ?? null).at(-1)?.index ?? null) });
             }
         }
     } store.end(); this.start = undefined; store.changed(); }
@@ -120,7 +120,7 @@ export class Select implements Tool {
         const d = delta[e.key], k = e.shiftKey ? 10 : 1;
         store.begin();
         for (const n of nodes)
-            store.set(n.id, { x: n.x + d.x * k, y: n.y + d.y * k });
+            store.set(n.id, { x: Math.round(n.x + d.x * k), y: Math.round(n.y + d.y * k) });
         store.end();
     } if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault();
