@@ -57,4 +57,10 @@ it('restores children when a drag returns to the starting size, and leaves auto 
     const inner = { ...makeNode('frame', 0, 0), parent: f.id, w: 200, h: 100, sizeW: 'fill' as const }, pin = { ...makeNode('rect', 150, 0), parent: inner.id, w: 40, h: 20, constraintH: 'right' as const };
     for (const node of [inner, pin]) applyOp(doc, { t: 'create', node });
     expect(constraintOps(new Map(doc), f.id, { w: 400, h: 100 })).toContainEqual({ t: 'set', id: pin.id, key: 'x', value: 310 });
+    const label = { ...makeNode('text', 0, 0), parent: f.id, text: 'Hi', w: 30, h: 20, textWidth: 'auto' as const, sizeW: 'fill' as const };
+    applyOp(doc, { t: 'create', node: label });
+    expect(constraintOps(new Map(doc), f.id, { w: 400, h: 100 })).toContainEqual({ t: 'set', id: pin.id, key: 'x', value: 280 });
+    const moved = new Map(doc);
+    for (const op of constraintOps(doc, f.id, { w: 400, h: 100 })) applyOp(moved, op);
+    expect(constraintOps(doc, f.id, { w: 200, h: 100 }, undefined, moved)).toContainEqual({ t: 'set', id: pin.id, key: 'x', value: 80 });
 });

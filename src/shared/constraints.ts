@@ -30,10 +30,10 @@ export function constraintOps(base: Doc, id: string, to: Size, skip: (id: string
     const ops: Op[] = [];
     if (parent.layout === 'horizontal' || parent.layout === 'vertical') {
         const laid: Doc = new Map(base).set(id, { ...parent, ...to });
-        applyLayout(laid);
+        applyLayout(laid, n => ({ w: n.w, h: n.h }));
         for (const c of children(base, id)) {
             const n = laid.get(c.id)!;
-            if (!skip(c.id) && (c.type === 'frame' || c.type === 'group') && (n.w !== c.w || n.h !== c.h))
+            if (!skip(c.id) && (c.type === 'frame' || c.type === 'group'))
                 ops.push(...constraintOps(base, c.id, { w: n.w, h: n.h }, skip, current));
         }
         return ops;
