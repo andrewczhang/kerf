@@ -45,14 +45,18 @@ export function layoutText(node: TextNode, measure: (text: string) => number) {
     return { lines, w, h: lines.length * lineHeight(node), leading: lineHeight(node) };
 }
 
-const layouts = new WeakMap<TextNode, ReturnType<typeof layoutText>>();
+const layouts = new WeakMap<TextNode, ReturnType<typeof layoutText> & { baseline: number; offset: number }>();
 let meter: CanvasRenderingContext2D | undefined;
 export function measureTextNode(node: TextNode) {
     let layout = layouts.get(node);
     if (!layout) {
         const c = meter ??= document.createElement('canvas').getContext('2d')!;
         c.font = font(node);
-        layout = layoutText(node, line => c.measureText(line).width);
+        const box = layoutText(node, line => c.measureText(line).width);
+        const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } = c.measureText('');
+        const baseline = Number.isFinite(ascent + descent) ? (box.leading + ascent - descent) / 2 : node.fontSize;
+        const offset = node.textAlign === 'center' ? box.w / 2 : node.textAlign === 'right' ? box.w : 0;
+        layout = { ...box, baseline, offset };
         layouts.set(node, layout);
     }
     return layout;

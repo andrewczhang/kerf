@@ -13,6 +13,7 @@ import { registry, type Context, type Tool } from './tools/tool';
 import { toolbar } from './ui/toolbar';
 import { inspector } from './ui/inspector';
 import { people } from './ui/people';
+import { downloadSelection } from './export';
 if (location.pathname === '/')
     location.replace('/f/' + crypto.randomUUID().slice(0, 12));
 const file = location.pathname.split('/')[2] || 'untitled';
@@ -91,7 +92,11 @@ else {
     viewport.changed();
 } }, { passive: false });
 window.addEventListener('keydown', e => { if ((e.target as HTMLElement).matches('input,textarea,select'))
-    return; if (e.code === 'Space') {
+    return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
+    return;
+} if (e.code === 'Space') {
     e.preventDefault();
     space = true;
     canvas.style.cursor = 'grab';

@@ -1,9 +1,9 @@
-import { children, isTextNode, type Node } from '../shared/doc';
+import { children, type Node } from '../shared/doc';
 import { bounds, handles, type Rect } from '../shared/geometry';
 import { world } from './geometry';
-import { font, measureTextNode } from './text-layout';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
+import { drawNode } from './draw';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -28,49 +28,14 @@ export class Renderer {
         c.save();
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
-        const drawNode = (n: Node) => {
-            if (n.id === this.app.editingText)
-                return;
-            const r = world(store.doc, n);
-            c.save();
-            c.globalAlpha *= n.opacity;
-            if (isTextNode(n)) {
-                const { lines, leading } = measureTextNode(n);
-                c.fillStyle = n.fill;
-                c.font = font(n);
-                c.textAlign = n.textAlign;
-                const { fontBoundingBoxAscent: ascent, fontBoundingBoxDescent: descent } = c.measureText('');
-                const baseline = Number.isFinite(ascent + descent) ? (leading + ascent - descent) / 2 : n.fontSize;
-                const x = r.x + (n.textAlign === 'center' ? r.w / 2 : n.textAlign === 'right' ? r.w : 0);
-                lines.forEach((line, i) => c.fillText(line, x, r.y + baseline + i * leading));
-                c.restore();
-                return;
-            }
-            c.beginPath(); if (n.type === 'ellipse')
-            c.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
-        else
-            c.roundRect(r.x, r.y, r.w, r.h, Math.min(n.radius, r.w / 2, r.h / 2)); c.fillStyle = n.fill; c.fill(); if (n.stroke) {
-            c.lineWidth = n.strokeWidth;
-            c.strokeStyle = n.stroke;
-            c.stroke();
-        } if (n.type === 'frame') {
-            c.clip();
-            for (const child of children(store.doc, n.id))
-                drawNode(child);
-        } c.restore(); if (n.type === 'frame') {
-            c.fillStyle = '#77766f';
-            c.font = `${11 / v.zoom}px system-ui`;
-            c.fillText(n.name, r.x, r.y - 8 / v.zoom);
-        } };
         for (const n of children(store.doc, null))
-            drawNode(n);
+            drawNode(c, store.doc, n, { zoom: v.zoom, labels: true, skip: this.app.editingText });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const selected = [...store.selection].map(id => store.doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = store.doc.get(this.app.hover);
-            if (n)
-                if (n.id !== this.app.editingText)
-                    outline(world(store.doc, n), '#ff4f00');
+            if (n && n.id !== this.app.editingText)
+                outline(world(store.doc, n), '#ff4f00');
         }
         if (selected.length && !this.app.editingText) {
             for (const n of selected)
