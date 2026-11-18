@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyOp, makeNode, validNode, type Doc, type Node, type Op, type Key } from '../src/shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, resizeFollowOps, splitVirtual } from '../src/shared/components';
 import { blocked, moveOps } from '../src/shared/layers';
+import { worldCorners } from '../src/shared/geometry';
 
 function setup() {
     const main = { ...makeNode('frame', 10, 20), id: 'M', component: true };
@@ -12,6 +13,38 @@ function setup() {
 }
 function apply(doc: Doc, ops: Op[]) { for (const op of ops) applyOp(doc, op); }
 describe('component model', () => {
+    it('owns root rotation while inheriting and overriding descendant rotations', () => {
+        const { doc, main, child, instance } = setup();
+        apply(doc, [{ t: 'set', id: main.id, key: 'rotation', value: 60 }, { t: 'set', id: child.id, key: 'rotation', value: 15 }]);
+        expect(instanceNode(doc.get(main.id)!, 0, 0).rotation).toBe(0);
+        expect(expand(doc).get(instance.id)?.rotation).toBe(0);
+        expect(expand(doc).get(instance.id + '/' + child.id)?.rotation).toBe(15);
+        const before = doc.get(instance.id);
+        apply(doc, [{ t: 'override', id: instance.id, target: '', key: 'rotation', value: 90 }]);
+        expect(doc.get(instance.id)).toBe(before);
+        expect(validNode({ ...instance, overrides: { '': { rotation: 90 } } })).toBe(false);
+        apply(doc, [{ t: 'set', id: instance.id, key: 'rotation', value: 30 }, { t: 'override', id: instance.id, target: child.id, key: 'rotation', value: 45 }]);
+        expect(expand(doc).get(instance.id)?.rotation).toBe(30);
+        expect(expand(doc).get(instance.id + '/' + child.id)?.rotation).toBe(45);
+        expect(validNode(doc.get(instance.id)!)).toBe(true);
+        apply(doc, [{ t: 'override', id: instance.id, target: child.id, key: 'rotation', value: NaN }]);
+        expect(expand(doc).get(instance.id + '/' + child.id)?.rotation).toBe(45);
+        apply(doc, [{ t: 'override', id: instance.id, target: child.id, key: 'rotation', clear: true, value: undefined }]);
+        expect(expand(doc).get(instance.id + '/' + child.id)?.rotation).toBe(15);
+    });
+    it('preserves instance world rotation when moving into a rotated frame and detaching', () => {
+        const { doc, main, instance } = setup(), parent = { ...makeNode('frame', 500, 500), rotation: 20 };
+        apply(doc, [{ t: 'create', node: parent }, { t: 'set', id: main.id, key: 'rotation', value: 60 }, { t: 'set', id: instance.id, key: 'rotation', value: 30 }]);
+        const before = worldCorners(expand(doc), expand(doc).get(instance.id)!);
+        apply(doc, moveOps(doc, instance.id, parent.id));
+        expect(doc.get(instance.id)?.rotation).toBe(10);
+        expect(expand(doc).get(instance.id)?.rotation).toBe(10);
+        apply(doc, detachOps(doc, instance.id));
+        expect(doc.get(instance.id)?.instanceOf).toBeUndefined(); expect(doc.get(instance.id)?.rotation).toBe(10);
+        for (const [i, point] of worldCorners(doc, doc.get(instance.id)!).entries()) {
+            expect(point.x).toBeCloseTo(before[i].x); expect(point.y).toBeCloseTo(before[i].y);
+        }
+    });
     it('expands groups and preserves instance visibility and locks independently of the main', () => {
         const { doc, main, instance } = setup(), group = { ...makeNode('group', 0, 0), parent: main.id };
         const child = { ...makeNode('rect', 10, 10), parent: group.id };

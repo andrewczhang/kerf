@@ -3,7 +3,7 @@ import { applyLayout } from './layout';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
-function props(values: object | undefined): Partial<Node> { return Object.fromEntries(Object.entries(values ?? {}).filter(([key]) => overridable(key))); }
+function props(values: object | undefined, target = ''): Partial<Node> { return Object.fromEntries(Object.entries(values ?? {}).filter(([key]) => overridable(key, target))); }
 export function expand(doc: Doc): Doc {
     const out: Doc = new Map(doc);
     const tree = childIndex(doc);
@@ -12,19 +12,19 @@ export function expand(doc: Doc): Doc {
         if (!main || seen.has(main.id) || seen.size >= 8)
             return [n];
         const path = new Set(seen).add(main.id);
-        const root = { ...n, ...props(main), hidden: n.hidden, locked: n.locked, ...props(n.overrides?.['']), name: n.name };
-        const result = [root];
+        const root = { ...n, ...props(main), hidden: n.hidden, locked: n.locked, ...props(n.overrides?.['']), name: n.name, rotation: n.rotation ?? 0 };
+        const result: Node[] = [root];
         const walkMain = (parent: string, resolvedParent: string) => {
             for (const child of tree.get(parent) ?? []) {
                 if (child.instanceOf) {
                     for (const value of resolve(child, path)) {
                         const suffix = value.id === child.id ? '' : value.id.slice(child.id.length);
                         const target = child.id + suffix;
-                        result.push({ ...value, ...props(n.overrides?.[target]), id: n.id + '/' + target, parent: suffix ? n.id + '/' + value.parent : resolvedParent });
+                        result.push({ ...value, ...props(n.overrides?.[target], target), id: n.id + '/' + target, parent: suffix ? n.id + '/' + value.parent : resolvedParent });
                     }
                 }
                 else {
-                    result.push({ ...child, ...props(n.overrides?.[child.id]), id: n.id + '/' + child.id, parent: resolvedParent });
+                    result.push({ ...child, ...props(n.overrides?.[child.id], child.id), id: n.id + '/' + child.id, parent: resolvedParent });
                     walkMain(child.id, n.id + '/' + child.id);
                 }
             }
@@ -60,7 +60,7 @@ export const componentOps = {
     }
 };
 export function instanceNode(main: Node, x: number, y: number, parent: string | null = null, index = between()): Node {
-    return { ...makeNode('frame', x, y, index), name: main.name, instanceOf: main.id, parent, w: main.w, h: main.h };
+    return { ...makeNode('frame', x, y, index), name: main.name, instanceOf: main.id, parent, w: main.w, h: main.h, rotation: 0 };
 }
 export function detachOps(doc: Doc, instanceId: string | string[]): Op[] {
     if (Array.isArray(instanceId)) {

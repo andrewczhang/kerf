@@ -49,8 +49,9 @@ it('selects instances as leaves or deep-selects virtual children without changin
     expect(select.pick({ x: -100, y: -100 })).toBeUndefined();
 });
 it('duplicates a main as an instance and duplicates an instance with its overrides', () => {
-    const { store, main, key } = setup(); store.selection.add(main.id); key('d', true);
+    const { store, main, key } = setup(); store.set(main.id, { rotation: 45 }); store.selection.add(main.id); key('d', true);
     const id = [...store.selection][0], n = store.doc.get(id)!;
+    expect(n.rotation).toBe(45); expect(expand(store.doc).get(id)?.rotation).toBe(45);
     expect(n.instanceOf).toBe(main.id); expect(n.x).toBe(20); expect(store.doc.size).toBe(4);
     store.commit([{ t: 'override', id, target: '', key: 'fill', value: '#112233' }]); key('d', true);
     expect(store.doc.get([...store.selection][0])?.overrides).toEqual({ '': { fill: '#112233' } });
@@ -285,12 +286,34 @@ it('keeps the rotate affordance and rotation drag when Alt is held instead of du
     expect(store.doc.size).toBe(1); expect(store.doc.get(node.id)?.rotation).toBeCloseTo(90); expect(store.undoStack).toHaveLength(1);
     store.history(); expect(store.doc.get(node.id)?.rotation).toBe(0);
 });
-it('rotates instances through root overrides without rotating the main', () => {
+it('rotates instances from their stored angle across successive drags without rotating the main', () => {
     const { store, select, instance, main } = setup(), start = { x: 192, y: -8 }, end = { x: 308, y: -8 }, event = { buttons: 1 } as PointerEvent;
+    store.set(main.id, { rotation: 30 });
     store.selection.add(instance.id);
     select.onPointerDown(start, event); select.onPointerMove(end, event); select.onPointerUp(end);
+    expect(store.doc.get(instance.id)?.rotation).toBeCloseTo(90);
     expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(90);
-    expect(store.doc.get(main.id)?.rotation).toBe(0);
+    const next = { x: 308, y: 108 };
+    select.onPointerDown(end, event); select.onPointerMove(next, event); select.onPointerUp(next);
+    expect(store.doc.get(instance.id)?.rotation).toBeCloseTo(-180);
+    expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(-180);
+    expect(store.doc.get(main.id)?.rotation).toBe(30);
+    expect(store.doc.get(instance.id)?.overrides?.['']?.rotation).toBeUndefined();
+    store.history(); expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(90);
     store.history(); expect(expand(store.doc).get(instance.id)?.rotation).toBe(0);
     store.history(true); expect(expand(store.doc).get(instance.id)?.rotation).toBeCloseTo(90);
+});
+it('uses resolved bounds for marquee and shape hits on rotated Hug instances', () => {
+    const store = new Store(), main = { ...makeNode('frame', 0, 0), component: true, layout: 'horizontal' as const, sizeW: 'hug' as const, sizeH: 'hug' as const };
+    const child = { ...makeNode('rect', 0, 0), parent: main.id, w: 180, h: 20 };
+    const instance = { ...instanceNode(main, 200, 0), w: 40, h: 40, rotation: 90, index: 'z' };
+    const background = { ...makeNode('frame', 250, -100), w: 100, h: 200, index: 'a' };
+    store.init([main, child, instance, background]);
+    const select = new Select({ store, viewport: new Viewport(() => {}), invalidate() {} }), event = { buttons: 1 } as PointerEvent;
+    expect(store.doc.get(instance.id)?.w).toBe(40); expect(expand(store.doc).get(instance.id)?.w).toBe(180);
+    select.onPointerDown({ x: 360, y: -110 }, event); select.onPointerMove({ x: 285, y: -50 }, event); select.onPointerUp({ x: 285, y: -50 });
+    expect(store.selection.has(instance.id)).toBe(true); expect([...store.selection].every(id => !id.includes('/'))).toBe(true);
+    const shape = new Shape(select.ctx, 'rect', () => {});
+    shape.onPointerDown({ x: 290, y: -60 }); shape.onPointerUp();
+    expect(store.doc.get([...store.selection][0])?.parent).toBeNull();
 });

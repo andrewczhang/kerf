@@ -107,7 +107,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
         const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path', group: 'Group' }[first.type]);
         const write = (n: Node, key: Key, value: unknown) => {
             const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
-            if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'name'].includes(key))
+            if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'rotation', 'name'].includes(key))
                 store.commit([{ t: 'override', id: v ? instance : n.id, target: v ? target : '', key, value }]);
             else store.set(n.id, { [key]: value });
         };

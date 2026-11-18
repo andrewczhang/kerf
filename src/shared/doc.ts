@@ -180,7 +180,7 @@ export function applyOp(doc: Doc, op: Op): void {
     if (!n)
         return;
     if (op.t === 'override') {
-        if (!n.instanceOf || typeof op.target !== 'string' || !overridable(op.key))
+        if (!n.instanceOf || typeof op.target !== 'string' || !overridable(op.key, op.target))
             return;
         const overrides = { ...n.overrides }, values = { ...overrides[op.target] };
         if (op.clear)
@@ -225,7 +225,7 @@ export function applyOp(doc: Doc, op: Op): void {
     if (validNode(next) && (op.key !== 'parent' || !componentCycle(doc, next)))
         doc.set(n.id, normalizeNode(next));
 }
-export function overridable(key: string): key is Key { return !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
+export function overridable(key: string, target = ''): key is Key { return !(key === 'rotation' && !target) && !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
 function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group'].includes(p.type) && !p.instanceOf); }
 function componentCycle(doc: Doc, next: Node): boolean {
     const byParent = new Map<string, Node[]>();
@@ -260,7 +260,7 @@ function componentCycle(doc: Doc, next: Node): boolean {
 }
 function plain(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype; }
 function validOverrides(value: unknown): boolean {
-    return plain(value) && Object.values(value).every(values => plain(values) && Object.entries(values).every(([key, v]) => overridable(key) && validProperty(key, v)));
+    return plain(value) && Object.entries(value).every(([target, values]) => plain(values) && Object.entries(values).every(([key, v]) => overridable(key, target) && validProperty(key, v)));
 }
 function validProperty(key: string, value: unknown): boolean {
     if (key === 'rotation') return value === undefined || typeof value === 'number' && Number.isFinite(value);

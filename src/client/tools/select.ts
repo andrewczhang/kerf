@@ -199,9 +199,10 @@ export class Select implements Tool {
         store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx, start = this.start; try { if (this.ctx.marquee) {
-        for (const n of store.doc.values())
-            if (!blocked(store.doc, n) && intersects(aabb(store.doc, n), this.ctx.marquee))
-                store.selection.add(outerGroup(store.doc, n).id);
+        const resolved = expand(store.doc);
+        for (const n of resolved.values())
+            if (!isVirtual(n.id) && !blocked(resolved, n) && intersects(aabb(resolved, n), this.ctx.marquee))
+                store.selection.add(outerGroup(resolved, n).id);
         this.ctx.marquee = undefined;
     }
     else if (this.moved && this.handle < 0 && !this.rotating && !this.copies) {
@@ -272,7 +273,7 @@ export class Select implements Tool {
         const copies = new Map<string, Node>();
         for (const n of nodes) {
             if (n.component) {
-                copies.set(n.id, instanceNode(n, n.x, n.y, n.parent, n.index));
+                copies.set(n.id, { ...instanceNode(n, n.x, n.y, n.parent, n.index), rotation: n.rotation ?? 0 });
                 continue;
             }
             for (const c of [n, ...descendants(store.doc, n.id)])
