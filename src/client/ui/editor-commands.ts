@@ -5,7 +5,10 @@ import { installPalette, registerCommand } from './palette';
 import type { Renderer } from '../renderer';
 export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: string) => void) {
     const { store, viewport } = ctx;
-    const add = (id: string, title: string, group: string, run: () => void | Promise<void>, shortcut?: string, enabled?: () => boolean) => registerCommand({ id, title, group, run, shortcut, enabled });
+    const add = (id: string, title: string, group: string, run: () => void | Promise<void>, shortcut?: string, enabled?: () => boolean) => {
+        const available = () => (!renderer.preview || !['Edit', 'Layers', 'Tools', 'Panels', 'Comments'].includes(group)) && (!enabled || enabled());
+        return registerCommand({ id, title, group, run: () => { if (available()) return run(); }, shortcut, enabled: available });
+    };
     const keys: Record<string, string> = { select: 'V', frame: 'F', rect: 'R', ellipse: 'O', text: 'T', pen: 'P', hand: 'H', comment: 'C' };
     add('undo', 'Undo', 'Edit', () => store.history(false), 'Ctrl/⌘ Z');
     add('redo', 'Redo', 'Edit', () => store.history(true), 'Ctrl/⌘ ⇧ Z');
@@ -28,10 +31,10 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
         for (const id of registry.keys()) removeDynamic.push(add('tool-' + id, id[0].toUpperCase() + id.slice(1) + ' tool', 'Tools', () => choose(id), keys[id]));
         const seen = new Set<string>();
         document.querySelectorAll<HTMLButtonElement>('header button, footer button, aside button, .feature-panel button, .preview-banner button, .comment-pop button, .present-overlay button').forEach((button, i) => {
-            if (!button.getClientRects().length || button.disabled || button.dataset.tool || button.id === 'command-hint') return;
+            if (!button.getClientRects().length || button.disabled || button.closest('[inert]') || button.dataset.tool || button.id === 'command-hint') return;
             const title = button.getAttribute('aria-label') || button.title || button.textContent?.trim();
             if (!title || seen.has(title)) return; seen.add(title);
-            removeDynamic.push(add('button-' + i, title, button.closest('aside') ? 'Panels' : 'Actions', () => button.click()));
+            removeDynamic.push(add('button-' + i, title, button.closest('aside') ? 'Panels' : button.closest('.comment-pop') ? 'Comments' : 'Actions', () => { if (!button.closest('[inert]')) button.click(); }));
         });
         document.querySelectorAll<HTMLInputElement>('header input[type=checkbox]').forEach((input, i) => removeDynamic.push(add('check-' + i, 'Toggle ' + input.parentElement!.textContent!.trim(), 'View', () => input.click())));
     });
