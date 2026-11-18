@@ -22,6 +22,7 @@ import { layoutGridsSection, refreshLayoutGridFields } from './layout-grids';
 import { codepanel } from './codepanel';
 import { alignSection } from './align';
 import { shortcutList } from './shortcuts';
+import { topLevelFrames } from '../../shared/pages';
 
 export function refreshNumericFields(content: HTMLElement, nodes: Node[], active: Element | null) {
     if (!nodes.length) return;
@@ -113,7 +114,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             return;
         }
         const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
-        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path', group: 'Group' }[first.type]);
+        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { page: 'Page', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path', group: 'Group' }[first.type]);
         const write = (n: Node, key: Key, value: unknown) => {
             const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
             if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'rotation', 'name'].includes(key))
@@ -311,7 +312,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport, syn
             const select = document.createElement('select');
             select.setAttribute('aria-label', 'Prototype target');
             select.append(new Option('None', ''));
-            for (const frame of store.doc.values()) if (frame.type === 'frame' && !frame.parent) select.append(new Option(frame.name, frame.id));
+            for (const frame of topLevelFrames(store.doc)) select.append(new Option(frame.name, frame.id));
             select.value = nodes[0].link ?? '';
             select.onchange = () => write(first, 'link', select.value || null);
             section.append(select); content.append(section);

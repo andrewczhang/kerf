@@ -13,6 +13,7 @@ import { drawChildren } from './draw';
 import type { Doc } from '../shared/doc';
 import { contoursAbs, toAbs, trace } from '../shared/path';
 import { drawLayoutGrids } from './layout-grids';
+import { pageDocument, pages, previewDocument } from '../shared/pages';
 export class Renderer {
     dirty = true;
     ctx: CanvasRenderingContext2D;
@@ -30,8 +31,9 @@ export class Renderer {
         this.draw();
     } requestAnimationFrame(() => this.loop()); }
     draw() {
-        const c = this.ctx, { viewport: v } = this.app, store = this.preview ? { ...this.app.store, doc: this.preview, selection: new Set<string>() } : this.app.store, d = devicePixelRatio || 1;
-        const doc = expand(store.doc);
+        const preview = this.preview ? previewDocument(this.preview, this.app.store.currentPage) : undefined;
+        const c = this.ctx, { viewport: v } = this.app, store = { doc: preview ? pageDocument(preview.doc, preview.page) : this.app.store.pageDoc, selection: this.preview ? new Set<string>() : this.app.store.selection }, d = devicePixelRatio || 1;
+        const doc = expand(preview?.doc ?? this.app.store.doc), visible = pageDocument(doc, preview?.page ?? this.app.store.currentPage);
         const tree = childIndex(doc);
         c.setTransform(d, 0, 0, d, 0, 0);
         c.clearRect(0, 0, this.width, this.height);
@@ -45,9 +47,9 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         const viewport = { x: -v.x / v.zoom, y: -v.y / v.zoom, w: this.width / v.zoom, h: this.height / v.zoom };
-        drawChildren(c, doc, null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, tree, viewport });
-        if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, doc, v.zoom);
-        for (const n of doc.values()) {
+        drawChildren(c, doc, preview?.page ?? this.app.store.currentPage ?? null, { zoom: v.zoom, scale: v.zoom * d, labels: true, skip: this.app.editingText, invalidate: this.invalidate, tree, viewport });
+        if (!this.preview && this.app.snap?.layoutGrids !== false) drawLayoutGrids(c, visible, v.zoom);
+        for (const n of visible.values()) {
             if (!n.link || !(this.showLinks || store.selection.has(n.id))) continue;
             const target = doc.get(n.link);
             if (!target || target.type !== 'frame') continue;
@@ -101,6 +103,7 @@ export class Renderer {
             outline(r, '#ff4f00');
         }
         for (const peer of this.sync.peers.values()) {
+            if (this.app.store.currentPage && (peer.page ?? pages(this.app.store.doc)[0]?.id) !== this.app.store.currentPage) continue;
             for (const id of peer.selection) {
                 const n = doc.get(id);
                 if (n && !blocked(doc, n, false))
@@ -109,6 +112,7 @@ export class Renderer {
         }
         c.restore();
         for (const peer of this.sync.peers.values()) {
+            if (this.app.store.currentPage && (peer.page ?? pages(this.app.store.doc)[0]?.id) !== this.app.store.currentPage) continue;
             if (!peer.cursor)
                 continue;
             const p = v.screen(peer.cursor);

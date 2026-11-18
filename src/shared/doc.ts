@@ -50,7 +50,7 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     textStyle?: string | null;
     link?: string | null;
     id: string;
-    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group';
+    type: 'frame' | 'rect' | 'ellipse' | 'text' | 'path' | 'group' | 'page';
     hidden: boolean;
     locked: boolean;
     rotation?: number;
@@ -204,6 +204,7 @@ export function applyOp(doc: Doc, op: Op): void {
         return;
     }
     if (op.t === 'delete') {
+        if (n.type === 'page' && [...doc.values()].filter(n => n.type === 'page').length <= 1) return;
         for (const c of descendants(doc, n.id))
             doc.delete(c.id);
         doc.delete(n.id);
@@ -213,7 +214,8 @@ export function applyOp(doc: Doc, op: Op): void {
         return;
     if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
-    if (op.key === 'type' && (n.type === 'text' || op.value === 'text'))
+    if (n.type === 'page' && !['name', 'index'].includes(op.key)) return;
+    if (op.key === 'type' && (n.type === 'text' || op.value === 'text' || op.value === 'page'))
         return;
     if (op.key === 'parent') {
         let p = op.value as string | null;
@@ -235,7 +237,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.set(n.id, normalizeNode(next));
 }
 export function overridable(key: string, target = ''): key is Key { return !(key === 'rotation' && !target) && !['id', 'type', 'parent', 'index', 'x', 'y', 'w', 'h', 'component', 'instanceOf', 'overrides'].includes(key); }
-function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group'].includes(p.type) && !p.instanceOf); }
+function validParent(doc: Doc, n: Node): boolean { const p = n.parent === null ? undefined : doc.get(n.parent); return n.parent === null || (!!p && ['frame', 'group', 'page'].includes(p.type) && !p.instanceOf); }
 function componentCycle(doc: Doc, next: Node): boolean {
     const byParent = new Map<string, Node[]>();
     for (const n of doc.values()) {
@@ -284,7 +286,7 @@ function validProperty(key: string, value: unknown): boolean {
     if (key === 'mask' || key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
     if (['link', 'fillStyle', 'strokeStyle', 'textStyle'].includes(key)) return validLink(value);
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
-    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(value as string);
+    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group', 'page'].includes(value as string);
     if (key === 'points') return validPoints(value);
     if (key === 'contours') return value === undefined || Array.isArray(value) && value.length <= 200 && value.every(validPoints);
     if (key === 'closed') return typeof value === 'boolean';
@@ -307,9 +309,9 @@ function validProperty(key: string, value: unknown): boolean {
 }
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeRotation(angle: number): number { return ((angle + 180) % 360 + 360) % 360 - 180; }
-export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
+export function normalizeNode(n: Node): Node { return n.type === 'page' ? { ...n, parent: null, x: 0, y: 0, w: 1, h: 1, rotation: 0, hidden: false, locked: false, fill: '#000000', stroke: null, strokeWidth: 0, radius: 0, opacity: 1 } : { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
 export function maskEligible(n: Node): boolean { return n.type === 'rect' || n.type === 'ellipse' || n.type === 'path' && !!n.closed; }
-export function validNode(n: Node): boolean { return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed', 'contours'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function validNode(n: Node): boolean { if (n?.type === 'page') return n.parent === null && typeof n.id === 'string' && typeof n.name === 'string' && typeof n.index === 'string'; return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed', 'contours'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))
@@ -322,7 +324,7 @@ function validStroke(n: Node): boolean {
 export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
 export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
 export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
-    const node = { id: crypto.randomUUID(), type, hidden: false, locked: false, parent: null, index, name: { group: 'Group', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    const node = { id: crypto.randomUUID(), type, hidden: false, locked: false, parent: null, index, name: { page: 'Page', group: 'Group', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text', path: 'Path' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
     if (type === 'text')
         return { ...node, rotation: 0, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
     if (type === 'path')

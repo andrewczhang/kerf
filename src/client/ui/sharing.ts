@@ -1,5 +1,15 @@
 import type { Sync } from '../sync';
 import type { Store } from '../store';
+import { pageOf, topLevelFrames } from '../../shared/pages';
+
+export function viewLink(store: Store, key: string, origin: string) {
+    const url = new URL('/v/' + key, origin), targets = topLevelFrames(store.doc);
+    const frame = [...store.selection].map(id => targets.find(n => n.id === id)).find(n => !!n);
+    const page = frame ? pageOf(store.doc, frame) : store.currentPage;
+    if (page) url.searchParams.set('page', page);
+    if (frame) url.searchParams.set('present', frame.id);
+    return url.href;
+}
 
 export function sharing(header: HTMLElement, sync: Sync, store: Store) {
     const controls = document.createElement('div'); controls.className = 'share-controls';
@@ -10,12 +20,7 @@ export function sharing(header: HTMLElement, sync: Sync, store: Store) {
         try { await navigator.clipboard.writeText(url); status.textContent = 'Link copied'; }
         catch { status.textContent = 'Copy this link:'; manual.value = url; manual.hidden = false; manual.focus(); manual.select(); }
     };
-    const viewUrl = (key: string) => {
-        const url = new URL('/v/' + key, location.origin);
-        const frame = [...store.selection].map(id => store.doc.get(id)).find(n => n?.type === 'frame' && !n.parent);
-        if (frame) url.searchParams.set('present', frame.id);
-        return url.href;
-    };
+    const viewUrl = (key: string) => viewLink(store, key, location.origin);
     const button = (label: string, action: () => void) => { const b = document.createElement('button'); b.className = 'feature-button'; b.textContent = label; b.onclick = action; controls.append(b); };
     if (sync.role === 'edit') {
         button('Copy edit link', () => { void copy(new URL('/f/' + sync.file, location.origin).href); });

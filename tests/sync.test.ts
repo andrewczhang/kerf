@@ -27,6 +27,13 @@ function setup() {
     const store = new Store(), sync = new Sync(store, 'test');
     return { store, sync, socket: sync.socket as unknown as Socket };
 }
+it('applies authoritative page deletion state after ack without recreating the optimistic deletion', () => {
+    const { store, socket } = setup(), first = { ...makeNode('page', 0, 0), id: 'page-1' }, second = { ...makeNode('page', 0, 0), id: 'page-2' };
+    store.enablePages(); socket.receive({ type: 'init', nodes: [first, second], peers: [], comments: [], versions: [] });
+    store.commit([{ t: 'delete', id: second.id }]); expect(store.doc.has(second.id)).toBe(false);
+    socket.receive({ type: 'ack', seq: store.seq }); socket.receive({ type: 'pages-state', nodes: [second] });
+    expect([...store.doc.keys()]).toEqual([second.id]); expect(store.currentPage).toBe(second.id); expect(store.pending.size).toBe(0);
+});
 it('receives initial and broadcast names without adding undo history', () => {
     const { store, sync, socket } = setup();
     const changed = vi.fn(); sync.addEventListener('name-change', changed);

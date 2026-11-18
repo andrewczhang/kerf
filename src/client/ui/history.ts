@@ -1,6 +1,7 @@
 import type { Sync } from '../sync';
 import type { Renderer } from '../renderer';
 import { isPresentShortcut } from './presentation';
+import { previewDocument } from '../../shared/pages';
 export function historyPanel(sync: Sync, renderer: Renderer) {
     const panel = document.createElement('div'); panel.className = 'feature-panel'; panel.hidden = true;
     const banner = document.createElement('div'); banner.className = 'preview-banner'; banner.hidden = true;
@@ -30,7 +31,7 @@ export function historyPanel(sync: Sync, renderer: Renderer) {
     }
     sync.addEventListener('preview', event => {
         const m = (event as CustomEvent).detail; if (m.id !== requested || panel.hidden) return;
-        previewId = m.id; renderer.preview = new Map(m.nodes.map((n: import('../../shared/doc').Node) => [n.id, n]));
+        previewId = m.id; renderer.preview = previewDocument(new Map(m.nodes.map((n: import('../../shared/doc').Node) => [n.id, n]))).doc;
         renderer.previewName = sync.versions.find(v => v.id === m.id)?.name ?? 'version';
         renderer.canvas.style.pointerEvents = 'none'; previewInspector(true); renderer.invalidate();
         banner.replaceChildren(); const text = document.createElement('span'); text.textContent = 'Viewing ' + (sync.versions.find(v => v.id === m.id)?.name ?? 'version');

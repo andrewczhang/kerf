@@ -69,7 +69,7 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
         if (panGesture) return;
         e.stopImmediatePropagation();
         const r = canvas.getBoundingClientRect();
-        hovered = hit(store.doc, viewport.world({ x: e.clientX - r.left, y: e.clientY - r.top }), 4 / viewport.zoom)?.id;
+        hovered = hit(store.pageDoc, viewport.world({ x: e.clientX - r.left, y: e.clientY - r.top }), 4 / viewport.zoom)?.id;
         if (type === 'pointerdown') {
             canvas.focus();
             store.selection.clear();

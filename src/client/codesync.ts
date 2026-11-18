@@ -3,6 +3,7 @@ import { defaultName } from '../shared/codegen';
 import type { CodeElement } from '../shared/jsxparse';
 import { world } from '../shared/geometry';
 import type { Store } from './store';
+import { pages } from '../shared/pages';
 
 const codeKeys: Key[] = ['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity'];
 
@@ -12,7 +13,7 @@ export function commitCode(store: Store, ops: Op[]): void {
 }
 
 export function codeScopeIds(doc: Doc, rootId: string | null): Set<string> {
-    return new Set(rootId ? [rootId, ...descendants(doc, rootId).map(n => n.id)] : doc.keys());
+    return new Set(rootId ? [rootId, ...descendants(doc, rootId).map(n => n.id)] : [...doc.values()].filter(n => n.type !== 'page').map(n => n.id));
 }
 
 export function codeRoot(doc: Doc, selection: Iterable<string>): string | null {
@@ -91,7 +92,7 @@ export function diffCode(doc: Doc, rootId: string | null, tree: CodeElement, bas
             visit(nested, node.id);
         }
     };
-    visit([tree], root?.parent ?? null, true);
+    visit([tree], root?.parent ?? pages(doc)[0]?.id ?? null, true);
     const missing = new Set([...scope].filter(id => (baselineIds ?? scope).has(id) && !seen.has(id)));
     for (const id of scope) {
         const node = doc.get(id)!;

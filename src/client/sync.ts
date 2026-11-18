@@ -171,6 +171,7 @@ export class Sync extends EventTarget {
         if (m.text) this.store.remote(m.text);
         this.persist();
     }
+    else if (m.type === 'pages-state') this.store.init(m.nodes);
     else if (m.type === 'ops')
         this.store.remote(m.ops);
     else if (m.type === 'presence') {

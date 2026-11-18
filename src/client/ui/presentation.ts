@@ -2,9 +2,17 @@ import { children, type Doc, type Node } from '../../shared/doc';
 import { contains, inverse, transform, type Point } from '../../shared/geometry';
 import { hit, worldMatrix } from '../geometry';
 import type { Store } from '../store';
+import { pageDocument, pageOf, previewDocument, topLevelFrames } from '../../shared/pages';
 
 export function presentationSource(store: Store, preview: Doc | null, name: string) {
-    return { doc: preview ?? store.doc, selection: preview ? new Set<string>() : store.selection, note: preview ? 'Presenting saved version ' + name : '' };
+    const snapshot = preview && store.pagesEnabled ? previewDocument(preview, store.currentPage) : undefined;
+    return { fullDoc: snapshot?.doc ?? preview ?? store.doc, doc: snapshot ? pageDocument(snapshot.doc, snapshot.page) : preview ?? store.pageDoc, selection: preview ? new Set<string>() : store.selection, note: preview ? 'Presenting saved version ' + name : '' };
+}
+export function activatePresentationFrame(store: Store, id: string) {
+    const frame = presentationFrames(store.doc).find(n => n.id === id);
+    if (!frame) return;
+    const page = pageOf(store.doc, frame); if (page) store.setPage(page);
+    return frame;
 }
 export function isPresentShortcut(e: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>) {
     return e.key.toLowerCase() === 'p' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -13,7 +21,7 @@ export function handlePresentShortcut(e: KeyboardEvent, launch: () => void) {
     if (!isPresentShortcut(e)) return false;
     e.preventDefault(); e.stopImmediatePropagation(); launch(); return true;
 }
-export function presentationFrames(doc: Doc) { return children(doc, null).filter(n => n.type === 'frame' && !n.hidden); }
+export function presentationFrames(doc: Doc) { return topLevelFrames(doc).filter(n => !n.hidden); }
 export function interactiveHotspots(doc: Doc, frame: Node): Node[] {
     const targets = new Set(presentationFrames(doc).map(n => n.id)), result: Node[] = [];
     const visit = (n: Node) => {

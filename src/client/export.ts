@@ -12,13 +12,15 @@ import { arrowBounds, strokeBounds, strokeShadowCaster } from '../shared/stroke'
 
 export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(doc)): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
-    const walk = (parent: string | null, ancestorSelected: boolean) => {
-        for (const n of tree.get(parent) ?? []) {
-            if (blocked(doc, n, false)) continue;
-            const included = selected.has(n.id);
+    const walk = (parent: string | null, ancestorSelected: boolean, all = false) => {
+        for (const n of (tree.get(parent) ?? [])) {
+            if (n.type === 'page') { walk(n.id, false, selected.has(n.id)); continue; }
+            if (blocked(doc, n, false))
+                continue;
+            const included = all || selected.has(n.id);
             if (included && !ancestorSelected)
                 roots.push(n);
-            walk(n.id, ancestorSelected || included);
+            walk(n.id, ancestorSelected || included, all);
         }
     };
     walk(null, false);

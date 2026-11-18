@@ -2,6 +2,8 @@
 
 Multiplayer browser design tool, written from scratch. No editor/canvas/design/UI libraries (no React, no Konva/Fabric/Yjs). TypeScript + Vite for the client, one Cloudflare Worker with a Durable Object for sync.
 
+Pages are root-only, non-rendering containers; ordinary top-level nodes belong to a page. `shared/pages.ts` owns migration, page filtering and pure page operations. Client load migrates legacy/empty documents into fixed `page-1` in one non-undoable transaction; duplicate creates are ignored. Current page is local Store state, linked with `?page=<id>`, and switching clears selection. Rendering, tools, fit/export, comments and presentation use that page; presence carries the page and page rows show peer initials. The worker prevents deleting the last page and sends an authoritative page-deletion snapshot after acknowledgements so concurrent optimistic deletions converge.
+
 ## Layout
 Canvas overlays include 20px top/left rulers, local ruler guides, smart alignment guides, gap measurements and selection size labels. Snapping/measurement math lives in `shared/snap.ts`; `client/snapping.ts` bridges tools and `client/guides.ts` owns overlays, ruler interaction and local preferences. Signal labels are square orange rectangles with small white tabular numerals.
 ```
