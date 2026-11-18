@@ -46,9 +46,13 @@ export function installInspect(canvas: HTMLCanvasElement, ctx: Context, renderer
     button.onclick = toggle;
     const commit = store.commit.bind(store);
     store.commit = (...args) => { if (!enabled) commit(...args); };
+    const history = store.history.bind(store);
+    store.history = (...args) => { if (!enabled) history(...args); };
     store.addEventListener('change', render);
     window.addEventListener('keydown', e => {
-        if ((e.target as HTMLElement).closest('button,input,textarea,select,[contenteditable=true]') || document.querySelector('.present-overlay')) return;
+        if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]')) return;
+        if (enabled && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if ((e.target as HTMLElement).closest('button') || document.querySelector('.present-overlay')) return;
         if (e.code === 'Space') space = true;
         if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyD') { e.preventDefault(); e.stopImmediatePropagation(); toggle(); return; }
         const editingKey = ['Delete', 'Backspace', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
