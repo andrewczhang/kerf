@@ -12,7 +12,6 @@ declare const WebSocketRequestResponsePair: typeof import('@cloudflare/workers-t
 declare const Response: typeof import('@cloudflare/workers-types').Response;
 declare const Request: typeof import('@cloudflare/workers-types').Request;
 type Connection = { peer: Peer; role: Role; receiptKey?: string; joinedEpoch: number; target: string; overflow?: boolean };
-type Attachment = Connection | { id: string };
 export class Room {
     doc = new StoredDocument();
     name = '';
@@ -27,18 +26,18 @@ export class Room {
             await this.doc.load(state.storage);
             await this.features.load();
             for (const ws of state.getWebSockets()) {
-                const attachment = this.attachment(ws);
-                if (!attachment) continue;
-                const connection = 'id' in attachment ? await state.storage.get<Connection>('socket:' + attachment.id) : attachment;
-                if (connection) this.connections.set(ws, connection);
+                const connection = this.attachment(ws);
+                if (!connection) continue;
+                if (connection.overflow) connection.peer.selection = await state.storage.get<string[]>('socket:' + connection.peer.id) ?? [];
+                this.connections.set(ws, connection);
             }
         });
     }
-    private attachment(ws: WebSocket): Attachment | undefined {
+    private attachment(ws: WebSocket): Connection | undefined {
         const data = ws.deserializeAttachment();
         if (data instanceof Uint8Array) return JSON.parse(new TextDecoder().decode(data));
     }
-    private saveConnection(ws: WebSocket, connection: Connection) {
+    private saveConnection(ws: WebSocket, connection: Connection, selectionChanged = false) {
         const id = connection.peer.id, key = 'socket:' + id, encoder = new TextEncoder();
         const data = encoder.encode(JSON.stringify({ ...connection, overflow: undefined }));
         // Leave room for the structured-clone header within the 16 KiB attachment limit.
@@ -50,10 +49,13 @@ export class Room {
             }
             return;
         }
-        return this.state.storage.put(key, { ...connection, overflow: true }).then(() => {
+        const attachment = encoder.encode(JSON.stringify({ ...connection, peer: { ...connection.peer, selection: [] }, overflow: true }));
+        const attach = () => {
+            ws.serializeAttachment(attachment);
             connection.overflow = true;
-            ws.serializeAttachment(encoder.encode(JSON.stringify({ id })));
-        });
+        };
+        if (!connection.overflow || selectionChanged) return this.state.storage.put(key, connection.peer.selection).then(attach);
+        attach();
     }
     send(ws: WebSocket, msg: ServerMsg) { try {
         ws.send(JSON.stringify(msg));
@@ -181,6 +183,7 @@ export class Room {
             }
             else if (msg.type === 'ping') this.send(ws, { type: 'pong' });
             else if (msg.type === 'presence' && Array.isArray(msg.selection) && msg.viewport) {
+                const selectionChanged = connection.overflow && (peer.selection.length !== msg.selection.length || peer.selection.some((id, i) => id !== msg.selection[i]));
                 peer.page = typeof msg.page === 'string' ? msg.page : undefined;
                 peer.cursor = msg.cursor;
                 peer.selection = msg.selection;
@@ -198,7 +201,7 @@ export class Room {
                     }
                     peer.spotlight = msg.spotlight;
                 }
-                await this.saveConnection(ws, connection);
+                await this.saveConnection(ws, connection, selectionChanged);
                 this.broadcast({ type: 'presence', peer }, spotlight ? undefined : ws);
             }
             else if (msg.type !== 'ops' && msg.type !== 'presence') await this.features.message(msg, peer, m => this.send(ws, m));
@@ -213,9 +216,9 @@ export class Room {
         if (!connection) return;
         this.departed.add(ws);
         this.connections.delete(ws);
-        const id = 'id' in connection ? connection.id : connection.peer.id;
+        const id = connection.peer.id;
         this.broadcast({ type: 'leave', id });
-        if ('id' in connection || connection.overflow) await this.state.storage.delete('socket:' + id);
+        if (connection.overflow) await this.state.storage.delete('socket:' + id);
     }
     webSocketClose(ws: WebSocket, code: number, reason: string) {
         const left = this.leave(ws);

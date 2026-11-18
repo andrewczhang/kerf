@@ -78,11 +78,19 @@ it('restores connected peers, spotlight and roles, then relays edits and departu
     const init = a.sent[0], viewerInit = viewer.sent[0];
     if (init.type !== 'init' || viewerInit.type !== 'init') throw Error('Missing init');
     const selection = Array.from({ length: 600 }, () => crypto.randomUUID());
-    await send(a, { type: 'presence', name: 'Ada', selection, cursor: { x: 1, y: 2 }, page: 'page-2', viewport: { x: 3, y: 4, zoom: 2 }, spotlight: true });
-    expect(data.has('socket:' + init.you.id)).toBe(true);
+    const presence = { type: 'presence' as const, name: 'Ada', selection, cursor: { x: 1, y: 2 }, page: 'page-2', viewport: { x: 3, y: 4, zoom: 2 }, spotlight: true };
+    await send(a, presence);
+    const overflowKey = 'socket:' + init.you.id, storedSelection = data.get(overflowKey);
+    expect(storedSelection).toEqual(selection);
+    const cursor = { x: 5, y: 6 };
+    await send(a, { ...presence, selection: [...selection], cursor });
+    expect(data.get(overflowKey)).toBe(storedSelection);
     await wake();
     const late = await connect('late'), lateInit = late.sent[0];
-    expect(lateInit).toMatchObject({ type: 'init', peers: [{ id: init.you.id, name: 'Ada', selection, page: 'page-2', spotlight: true }, { id: viewerInit.you.id }] });
+    expect(lateInit).toMatchObject({ type: 'init', peers: [{ id: init.you.id, name: 'Ada', selection, cursor, page: 'page-2', spotlight: true }, { id: viewerInit.you.id }] });
+    const changedSelection = selection.slice(1);
+    await send(a, { ...presence, selection: changedSelection, cursor });
+    expect(data.get(overflowKey)).toEqual(changedSelection);
 
     const node = { ...makeNode('rect', 1, 2) };
     await send(viewer, { type: 'ops', seq: 1, ops: [{ t: 'create', node }] });
@@ -98,5 +106,5 @@ it('restores connected peers, spotlight and roles, then relays edits and departu
     sockets.delete(a);
     await harness.room.webSocketClose(workerSocket(a), 1000, '');
     expect(viewer.sent.at(-1)).toEqual({ type: 'leave', id: init.you.id });
-    expect(data.has('socket:' + init.you.id)).toBe(false);
+    expect(data.has(overflowKey)).toBe(false);
 });
