@@ -1,6 +1,7 @@
 import { childIndex, type Node } from '../shared/doc';
 import { expand, isVirtual } from '../shared/components';
-import { bounds, handles, world, type Rect } from '../shared/geometry';
+import { bounds, handles, type Rect } from '../shared/geometry';
+import { world } from './geometry';
 import type { Context } from './tools/tool';
 import type { Sync } from './sync';
 import { drawNode } from './draw';
@@ -31,20 +32,20 @@ export class Renderer {
         c.translate(v.x, v.y);
         c.scale(v.zoom, v.zoom);
         for (const n of tree.get(null) ?? [])
-            drawNode(c, doc, n, { zoom: v.zoom, labels: true, tree });
+            drawNode(c, doc, n, { zoom: v.zoom, labels: true, tree, skip: this.app.editingText });
         const outline = (r: Rect, color: string, dash = false) => { c.strokeStyle = color; c.lineWidth = 1 / v.zoom; c.setLineDash(dash ? [4 / v.zoom, 3 / v.zoom] : []); c.strokeRect(r.x, r.y, r.w, r.h); c.setLineDash([]); };
         const selected = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
         if (this.app.hover && !store.selection.has(this.app.hover)) {
             const n = doc.get(this.app.hover);
-            if (n)
+            if (n && n.id !== this.app.editingText)
                 outline(world(doc, n), '#ff4f00');
         }
-        if (selected.length) {
+        if (selected.length && !this.app.editingText) {
             for (const n of selected)
                 outline(world(doc, n), '#ff4f00');
             const box = bounds(selected.map(n => world(doc, n)));
             outline(box, '#ff4f00');
-            for (const p of selected.some(n => isVirtual(n.id)) ? [] : handles(box)) {
+            for (const p of selected.some(n => isVirtual(n.id) || n.type === 'text') ? [] : handles(box)) {
                 c.fillStyle = '#fbfbf9';
                 c.fillRect(p.x - 3 / v.zoom, p.y - 3 / v.zoom, 6 / v.zoom, 6 / v.zoom);
                 outline({ x: p.x - 3 / v.zoom, y: p.y - 3 / v.zoom, w: 6 / v.zoom, h: 6 / v.zoom }, '#ff4f00');

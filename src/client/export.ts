@@ -1,7 +1,9 @@
-import { childIndex, type Doc, type Node } from '../shared/doc';
-import { bounds, world } from '../shared/geometry';
+import { childIndex, isTextNode, type Doc, type Node } from '../shared/doc';
+import { bounds } from '../shared/geometry';
+import { world } from './geometry';
 import { drawNode } from './draw';
 import { expand } from '../shared/components';
+import { fontFamilies, measureTextNode, textPaintBounds } from './text-layout';
 
 export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(doc)): Node[] {
     const selected = new Set(ids), roots: Node[] = [];
@@ -19,7 +21,12 @@ export function exportRoots(doc: Doc, ids: Iterable<string>, tree = childIndex(d
 
 export function exportBounds(doc: Doc, roots: Node[]) {
     const r = bounds(roots.map(n => {
-        const r = world(doc, n), pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
+        const r = world(doc, n);
+        if (isTextNode(n)) {
+            const ink = textPaintBounds(n);
+            return { ...ink, x: r.x + ink.x, y: r.y + ink.y };
+        }
+        const pad = n.stroke && n.strokeWidth > 0 ? n.strokeWidth / 2 : 0;
         return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
     }));
     const x = Math.floor(r.x), y = Math.floor(r.y);
@@ -53,6 +60,12 @@ export function exportSVG(doc: Doc, ids: Iterable<string>): string {
     let clip = 0;
     const render = (n: Node, alpha: number): string => {
         const raw = world(doc, n), r = { x: number(raw.x), y: number(raw.y), w: number(raw.w), h: number(raw.h) }, opacity = alpha * number(n.opacity);
+        if (isTextNode(n)) {
+            const { lines, leading, baseline, offset } = measureTextNode(n);
+            const anchor = n.textAlign === 'left' ? 'start' : n.textAlign === 'center' ? 'middle' : 'end';
+            const runs = lines.map((line, i) => `<tspan x="${number(r.x + offset)}" y="${number(r.y + baseline + i * leading)}">${escape(line)}</tspan>`).join('');
+            return `<text id="${escape(n.id)}" data-name="${escape(n.name)}" xml:space="preserve" fill="${escape(n.fill)}" fill-opacity="${opacity}" font-family="${escape(fontFamilies[n.fontFamily])}" font-size="${number(n.fontSize)}" font-weight="${number(n.fontWeight)}" text-anchor="${anchor}">${runs}</text>`;
+        }
         const radius = Math.min(n.radius, r.w / 2, r.h / 2);
         const rect = `x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"${radius ? ` rx="${radius}" ry="${radius}"` : ''}`;
         const geometry = n.type === 'ellipse' ? `cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"` : rect;

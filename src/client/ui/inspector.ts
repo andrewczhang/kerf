@@ -1,14 +1,14 @@
 import type { Store } from '../store';
 import { downloadSelection } from '../export';
 import type { Viewport } from '../viewport';
-import { between, children, type Node, type Key, type Op } from '../../shared/doc';
+import { between, children, isTextNode, maxFontSize, type Node, type Key, type Op } from '../../shared/doc';
 import { componentOps, detachOps, expand, instanceNode, isVirtual, splitVirtual } from '../../shared/components';
 export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
     el.innerHTML = '<div class="panel-heading">Design <span>Properties</span></div><div id="properties"></div>';
     const content = el.querySelector<HTMLElement>('#properties')!;
     const select = (id: string) => { store.selection.clear(); store.selection.add(id); store.changed(); };
     const render = () => {
-        if (el.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
+        if (el.contains(document.activeElement) && document.activeElement?.matches('input,select'))
             return;
         const doc = expand(store.doc);
         const nodes = [...store.selection].map(id => doc.get(id)).filter((n): n is Node => !!n);
@@ -49,7 +49,7 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
             return;
         }
         const first = nodes[0], virtual = isVirtual(first.id), owner = splitVirtual(first.id);
-        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse' }[first.type]);
+        const head = section(nodes.length > 1 ? nodes.length + ' objects' : virtual ? first.name + ' in ' + (store.doc.get(owner.instance)?.name ?? '') : first.instanceOf ? 'Instance' : first.component ? 'Component' : { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[first.type]);
         const write = (n: Node, key: Key, value: unknown) => {
             const v = isVirtual(n.id), { instance, target } = splitVirtual(n.id);
             if (v || n.instanceOf && !['x', 'y', 'w', 'h', 'name'].includes(key))
@@ -78,26 +78,51 @@ export function inspector(el: HTMLElement, store: Store, viewport: Viewport) {
         else {
             try { componentOps.create(store.doc, nodes.map(n => n.id)); button(section('Component'), 'Create component', create); } catch { }
         }
+        const choices: Partial<Record<Key, [string | number, string][]>> = {
+            fontFamily: [['sans', 'Arial'], ['serif', 'Georgia'], ['mono', 'Monospace']],
+            fontWeight: [[400, 'Regular'], [700, 'Bold']],
+            textAlign: [['left', 'Left'], ['center', 'Center'], ['right', 'Right']],
+            textWidth: [['auto', 'Auto'], ['fixed', 'Fixed']],
+        };
         const fields = (title: string, keys: Key[]) => {
             const s = section(title), grid = document.createElement('div'); grid.className = 'field-grid'; s.append(grid);
             for (const key of keys) {
                 const label = document.createElement('label'); label.className = 'field';
-                const span = document.createElement('span'); span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke' } as Record<string, string>)[key] ?? key.toUpperCase();
+                const span = document.createElement('span'); span.textContent = ({ strokeWidth: 'Weight', radius: 'Radius', opacity: 'Opacity', fill: 'Fill', stroke: 'Stroke', fontFamily: 'Font', fontSize: 'Size', fontWeight: 'Weight', textAlign: 'Align', textWidth: 'Width' } as Record<string, string>)[key] ?? key.toUpperCase();
                 const overridden = nodes.some(n => { const { instance, target } = splitVirtual(n.id); return Object.hasOwn(store.doc.get(instance)?.overrides?.[target] ?? {}, key); });
                 label.classList.toggle('overridden', overridden);
                 if (overridden) label.title = 'Overridden';
-                const input = document.createElement('input'); input.setAttribute('aria-label', key);
+                const mixed = nodes.some(n => n[key] !== first[key]), options = choices[key];
+                if (options) {
+                    const select = document.createElement('select'); select.setAttribute('aria-label', span.textContent);
+                    if (mixed) select.append(new Option('Mixed', '', true, true));
+                    for (const [value, title] of options) select.append(new Option(title, String(value), false, !mixed && first[key] === value));
+                    select.onchange = () => {
+                        const chosen = options.find(([value]) => String(value) === select.value);
+                        if (!chosen) return;
+                        store.begin(); for (const n of nodes) write(n, key, chosen[0]); store.end(); select.blur(); render();
+                    };
+                    label.append(span, select); grid.append(label); continue;
+                }
+                const input = document.createElement('input'); input.setAttribute('aria-label', key === 'fontSize' ? 'Font size' : key);
                 input.readOnly = title === 'Layout' && nodes.some(n => isVirtual(n.id));
-                const mixed = nodes.some(n => n[key] !== first[key]); input.placeholder = mixed ? 'Mixed' : '';
+                input.placeholder = mixed ? 'Mixed' : '';
                 if (key === 'fill' || key === 'stroke') { input.type = 'color'; input.value = String(first[key] ?? '#000000'); }
-                else { input.type = 'number'; input.step = key === 'opacity' ? '.05' : '1'; input.value = mixed ? '' : String(Math.round(Number(first[key]) * 100) / 100); }
+                else { input.type = 'number'; input.step = key === 'opacity' ? '.05' : '1'; if (key === 'fontSize') input.max = String(maxFontSize); if (key === 'fontSize' || key === 'w') input.min = '1'; input.value = mixed ? '' : String(Math.round(Number(first[key]) * 100) / 100); }
                 input.onfocus = () => { if (!input.readOnly) store.begin(); };
-                input.oninput = () => { if (!input.readOnly) for (const n of nodes) write(n, key, input.type === 'color' ? input.value : Number(input.value)); };
+                input.oninput = () => { if (!input.readOnly && input.value && !input.validity.rangeUnderflow && !input.validity.rangeOverflow) for (const n of nodes) write(n, key, input.type === 'color' ? input.value : Number(input.value)); };
                 input.onblur = () => { store.end(); render(); };
                 label.append(span, input); grid.append(label);
             }
         };
-        fields('Layout', ['x', 'y', 'w', 'h']); fields('Appearance', ['radius', 'opacity']); fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+        if (nodes.every(isTextNode)) {
+            fields('Layout', nodes.every(n => n.textWidth === 'fixed') ? ['x', 'y', 'w'] : ['x', 'y']);
+            fields('Typography', ['fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth']);
+            fields('Appearance', ['fill', 'opacity']);
+        }
+        else {
+            fields('Layout', nodes.some(isTextNode) ? ['x', 'y'] : ['x', 'y', 'w', 'h']); fields('Appearance', ['radius', 'opacity']); fields('Fill & stroke', ['fill', 'stroke', 'strokeWidth']);
+        }
         const exports = document.createElement('section');
         exports.innerHTML = '<div class="section-label">Export</div><div class="export-buttons"></div><div class="export-error" role="alert"></div>';
         for (const [label, format, scale] of [['PNG 1x', 'png', 1], ['PNG 2x', 'png', 2], ['SVG', 'svg', 1]] as const) {

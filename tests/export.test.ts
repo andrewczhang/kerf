@@ -1,10 +1,24 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeNode, type Doc, type Node } from '../src/shared/doc';
+import { applyOp, makeNode, type Doc, type Node } from '../src/shared/doc';
 import { exportBounds, exportFilename, exportPNG, exportRoots, exportSVG } from '../src/client/export';
 import { instanceNode } from '../src/shared/components';
 
 const docOf = (...nodes: Node[]): Doc => new Map(nodes.map(n => [n.id, n]));
 afterEach(() => vi.unstubAllGlobals());
+it('exports validated text overrides inside component instances', () => {
+    const measureText = (line: string) => ({ width: line.length * 10, fontBoundingBoxAscent: 18, fontBoundingBoxDescent: 6 });
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText }) }) });
+    const main = { ...makeNode('frame', 0, 0), component: true };
+    const text = { ...makeNode('text', 10, 10), parent: main.id };
+    const instance = instanceNode(main, 200, 0), doc = docOf(main, text, instance);
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'text', value: '<override>' });
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'fontSize', value: 32 });
+    applyOp(doc, { t: 'override', id: instance.id, target: text.id, key: 'fontSize', value: '32" onload="bad' });
+    const svg = exportSVG(doc, [instance.id]);
+    expect(svg).toContain('&lt;override&gt;');
+    expect(svg).toContain('font-size="32"');
+    expect(svg).not.toContain('onload');
+});
 it('coerces numeric SVG attributes and escapes untrusted string attributes', () => {
     const node = { ...makeNode('rect', 0, 0), stroke: '#123456', strokeWidth: '1" onload="bad', fill: '" onload="bad', name: 123 } as unknown as Node;
     const svg = exportSVG(docOf(node), [node.id]);
@@ -62,6 +76,19 @@ it('escapes names and ids, clamps radii, and omits default opacity and zero radi
     expect(svg).not.toContain('opacity=');
     node.radius = 0;
     expect(exportSVG(docOf(node), [node.id])).not.toContain('rx=');
+});
+
+it('exports wrapped text as aligned, escaped SVG text runs', () => {
+    const measureText = (line: string) => ({ width: line.length * 10, fontBoundingBoxAscent: 18, fontBoundingBoxDescent: 6 });
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ measureText }) }) });
+    const node = { ...makeNode('text', 10, 20), text: '<& long', fontSize: 20, textWidth: 'fixed' as const, textAlign: 'right' as const, w: 40 };
+    const svg = exportSVG(docOf(node), [node.id]);
+    expect(svg).toContain('viewBox="10 20 40 48"');
+    expect(svg).toContain('text-anchor="end"');
+    expect(svg).toContain('<tspan x="50" y="38">&lt;&amp;</tspan><tspan x="50" y="62">long</tspan>');
+    expect(svg).not.toContain('<rect');
+    const narrow = { ...node, w: 1, text: 'W' };
+    expect(exportBounds(docOf(narrow), [narrow])).toEqual({ x: 1, y: 20, w: 10, h: 24 });
 });
 
 it('handles empty and stale selections deterministically', async () => {

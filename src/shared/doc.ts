@@ -1,6 +1,22 @@
-export interface Node {
+export const textFonts = ['sans', 'serif', 'mono'] as const;
+export const textWeights = [400, 700] as const;
+export const textAlignments = ['left', 'center', 'right'] as const;
+export const textWidths = ['auto', 'fixed'] as const;
+export const maxTextLength = 4000;
+export const maxFontSize = 512;
+
+interface TextProperties {
+    text: string;
+    fontFamily: typeof textFonts[number];
+    fontSize: number;
+    fontWeight: typeof textWeights[number];
+    textAlign: typeof textAlignments[number];
+    textWidth: typeof textWidths[number];
+}
+
+export interface Node extends Partial<TextProperties> {
     id: string;
-    type: 'frame' | 'rect' | 'ellipse';
+    type: 'frame' | 'rect' | 'ellipse' | 'text';
     parent: string | null;
     index: string;
     name: string;
@@ -17,6 +33,9 @@ export interface Node {
     instanceOf?: string;
     overrides?: Record<string, Partial<Record<Key, unknown>>>;
 }
+export type TextNode = Node & TextProperties & { type: 'text' };
+export const isTextNode = (node: Node | undefined): node is TextNode => node?.type === 'text';
+const textKeys: (keyof TextProperties)[] = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textWidth'];
 export type Doc = Map<string, Node>;
 export type Key = Exclude<keyof Node, 'id'>;
 export type Op = {
@@ -71,7 +90,7 @@ export function applyOp(doc: Doc, op: Op): void {
     if (!op || !['create', 'set', 'delete', 'override'].includes(op.t))
         return;
     if (op.t === 'create') {
-        if (!doc.has(op.node.id) && validNode(op.node) && validParent(doc, op.node) && (!op.node.instanceOf || !componentCycle(doc, op.node)))
+        if (validNode(op.node) && !doc.has(op.node.id) && validParent(doc, op.node) && (!op.node.instanceOf || !componentCycle(doc, op.node)))
             doc.set(op.node.id, { ...op.node });
         return;
     }
@@ -102,7 +121,11 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides'].includes(op.key))
+    if (!['type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'overrides', ...textKeys].includes(op.key))
+        return;
+    if (textKeys.some(key => key === op.key) && n.type !== 'text')
+        return;
+    if (op.key === 'type' && (n.type === 'text' || op.value === 'text'))
         return;
     if (op.key === 'parent') {
         let p = op.value as string | null;
@@ -159,7 +182,13 @@ function validOverrides(value: unknown): boolean {
 }
 function validProperty(key: string, value: unknown): boolean {
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
-    if (key === 'type') return ['frame', 'rect', 'ellipse'].includes(value as string);
+    if (key === 'type') return ['frame', 'rect', 'ellipse', 'text'].includes(value as string);
+    if (key === 'text') return typeof value === 'string' && value.length <= maxTextLength;
+    if (key === 'fontFamily') return textFonts.includes(value as typeof textFonts[number]);
+    if (key === 'fontWeight') return textWeights.includes(value as typeof textWeights[number]);
+    if (key === 'textAlign') return textAlignments.includes(value as typeof textAlignments[number]);
+    if (key === 'textWidth') return textWidths.includes(value as typeof textWidths[number]);
+    if (key === 'fontSize') return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= maxFontSize;
     if (key === 'parent') return value === null || typeof value === 'string';
     if (key === 'component') return value === undefined || typeof value === 'boolean';
     if (key === 'instanceOf') return value === undefined || typeof value === 'string';
@@ -171,5 +200,12 @@ function validProperty(key: string, value: unknown): boolean {
     if (key === 'opacity') return value >= 0 && value <= 1;
     return key === 'x' || key === 'y' || value >= 0;
 }
-export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides'].every(key => validProperty(key, n[key as keyof Node])); }
-export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node { return { id: crypto.randomUUID(), type, parent: null, index, name: type === 'frame' ? 'Frame' : type === 'rect' ? 'Rectangle' : 'Ellipse', x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 }; }
+export function validNode(n: Node): boolean { return !!n && ['id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function makeNode(type: 'text', x: number, y: number, index?: string): TextNode;
+export function makeNode(type: Node['type'], x: number, y: number, index?: string): Node;
+export function makeNode(type: Node['type'], x: number, y: number, index = between()): Node {
+    const node = { id: crypto.randomUUID(), type, parent: null, index, name: { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Text' }[type], x, y, w: 100, h: 100, fill: type === 'frame' ? '#ffffff' : '#ff4f00', stroke: null, strokeWidth: 1, radius: 0, opacity: 1 };
+    if (type === 'text')
+        return { ...node, w: 240, h: 29, fill: '#272822', text: 'Text', fontFamily: 'sans', fontSize: 24, fontWeight: 400, textAlign: 'left', textWidth: 'auto' };
+    return node;
+}
