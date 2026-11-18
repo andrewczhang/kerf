@@ -27,6 +27,14 @@ it('never reparents into another dragged frame or its descendants', () => {
     expect(store.doc.get(a.id)?.parent).toBe(null); expect(store.doc.get(b.id)?.parent).toBe(null);
     expect(store.doc.get(child.id)?.parent).toBe(b.id);
 });
+it('keeps a shape in its current parent when a co-dragged overlapping frame cannot nest there', () => {
+    const { store, tool } = setup(), a = makeNode('frame', 50, 0), b = makeNode('frame', 100, 0), shape = { ...makeNode('rect', 10, 10), parent: b.id };
+    store.init([a, b, shape]); tool.original.set(a.id, a); tool.original.set(shape.id, shape);
+    tool.moved = true; tool.start = { x: 120, y: 40 };
+    tool.onPointerUp({ x: 125, y: 50 });
+    expect(store.doc.get(a.id)?.parent).toBe(null);
+    expect(store.doc.get(shape.id)?.parent).toBe(b.id);
+});
 it('groups, nudges an inner node with normalized bounds and ungroups in single undo steps', () => {
     const { store, tool } = setup(), a = makeNode('rect', 20, 30), b = { ...makeNode('ellipse', 200, 50), index: 'z' }; store.init([a, b]); store.selection.add(a.id); store.selection.add(b.id);
     key(tool, 'g', { ctrlKey: true }); const g = store.doc.get([...store.selection][0])!; expect(g.type).toBe('group'); expect(store.undoStack).toHaveLength(1);

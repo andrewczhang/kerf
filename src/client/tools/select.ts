@@ -136,7 +136,7 @@ export class Select implements Tool {
             if (n.parent && store.doc.get(n.parent)?.type === 'group') continue;
             const original = this.original.get(id)!;
             const r = isAutoLayout(store.doc.get(original.parent ?? '')) ? world(store.doc, { ...original, x: original.x + p.x - this.start!.x, y: original.y + p.y - this.start!.y }) : world(store.doc, n);
-            const frames = eligibleDropFrames(store.doc, [...this.original.values()], p, this.start!);
+            const frames = eligibleDropFrames(store.doc, [original], p, this.start!, [...this.original.values()]);
             const parent = frames.sort((a, b) => descendants(store.doc, a.id).length - descendants(store.doc, b.id).length)[0];
             if ((parent?.id ?? null) !== n.parent) {
                 const origin = parent ? world(store.doc, parent) : { x: 0, y: 0 };

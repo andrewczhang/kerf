@@ -23,8 +23,8 @@ export function insertionSlot(doc: Doc, parent: Node, pointer: Point, moving: Re
     return { parent: parent.id, slot, from, to };
 }
 
-export function eligibleDropFrames(doc: Doc, nodes: Node[], pointer: Point, start: Point): Node[] {
-    const moving = new Set(nodes.flatMap(n => [n.id, ...descendants(doc, n.id).map(c => c.id)]));
+export function eligibleDropFrames(doc: Doc, nodes: Node[], pointer: Point, start: Point, movingNodes = nodes): Node[] {
+    const moving = new Set(movingNodes.flatMap(n => [n.id, ...descendants(doc, n.id).map(c => c.id)]));
     return [...doc.values()].filter(frame => {
         const target = world(doc, frame);
         return frame.type === 'frame' && !moving.has(frame.id) && contains(target, pointer) && nodes.every(original => {
