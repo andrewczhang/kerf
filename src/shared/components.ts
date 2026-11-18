@@ -1,11 +1,11 @@
 import { applyOp, between, children, childIndex, makeNode, overridable, type Doc, type Key, type Node, type Op } from './doc';
-import { applyLayout } from './layout';
+import { applyLayout, type MeasureText } from './layout';
 import { constraintOps } from './constraints';
 
 export function isVirtual(id: string): boolean { return id.includes('/'); }
 export function splitVirtual(id: string): { instance: string; target: string } { const i = id.indexOf('/'); return i < 0 ? { instance: id, target: '' } : { instance: id.slice(0, i), target: id.slice(i + 1) }; }
 function props(values: object | undefined, target = ''): Partial<Node> { return Object.fromEntries(Object.entries(values ?? {}).filter(([key]) => overridable(key, target))); }
-export function expand(doc: Doc): Doc {
+export function expand(doc: Doc, measure?: MeasureText): Doc {
     const out: Doc = new Map(doc);
     const tree = childIndex(doc);
     const resolve = (n: Node, seen: Set<string>): Node[] => {
@@ -44,7 +44,7 @@ export function expand(doc: Doc): Doc {
         if (n.instanceOf && !isVirtual(n.id))
             for (const value of resolve(n, new Set()))
                 out.set(value.id, value);
-    applyLayout(out);
+    applyLayout(out, measure);
     return out;
 }
 export const componentOps = {
@@ -70,11 +70,11 @@ export const componentOps = {
 export function instanceNode(main: Node, x: number, y: number, parent: string | null = null, index = between()): Node {
     return { ...makeNode('frame', x, y, index), name: main.name, instanceOf: main.id, parent, w: main.w, h: main.h, rotation: 0 };
 }
-export function detachOps(doc: Doc, instanceId: string | string[]): Op[] {
+export function detachOps(doc: Doc, instanceId: string | string[], measure?: MeasureText): Op[] {
     if (Array.isArray(instanceId)) {
         const shadow = new Map(doc), ops: Op[] = [];
         for (const id of instanceId) {
-            const detach = detachOps(shadow, id);
+            const detach = detachOps(shadow, id, measure);
             for (const op of detach) applyOp(shadow, op);
             ops.push(...detach);
         }
@@ -82,7 +82,7 @@ export function detachOps(doc: Doc, instanceId: string | string[]): Op[] {
     }
     if (!doc.get(instanceId)?.instanceOf)
         return [];
-    const expanded = expand(doc), root = expanded.get(instanceId)!;
+    const expanded = expand(doc, measure), root = expanded.get(instanceId)!;
     const nodes: Node[] = [], tree = childIndex(expanded);
     const walk = (n: Node) => { nodes.push(n); for (const c of tree.get(n.id) ?? []) walk(c); };
     walk(root);

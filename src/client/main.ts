@@ -215,7 +215,7 @@ window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.sto
         if (key === 'k') {
             try { const { ops, id } = componentOps.create(store.doc, [...store.selection], sizeOf); if (!ops.length) return; store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed(); } catch { }
         }
-        else store.commit(detachOps(store.doc, [...store.selection]));
+        else store.commit(detachOps(store.doc, [...store.selection], store.measureText));
         return;
     }
 } if (e.key === 'Enter' && active.id === 'select' && store.selection.size === 1 && store.doc.get([...store.selection][0])?.type === 'path')

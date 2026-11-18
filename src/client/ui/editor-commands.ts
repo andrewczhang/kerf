@@ -20,9 +20,9 @@ export function editorCommands(ctx: Context, renderer: Renderer, choose: (id: st
         if (!ops.length) return;
         store.commit(ops); store.selection.clear(); store.selection.add(id); store.changed();
     }, 'Ctrl/⌘ Alt K', () => { try { return componentOps.create(store.doc, [...store.selection], sizeOf).ops.length > 0; } catch { return false; } });
-    add('detach-instance', 'Detach instance', 'Layers', () => { store.commit(detachOps(store.doc, [...store.selection])); }, 'Ctrl/⌘ Alt B', () => [...store.selection].some(id => !!store.doc.get(id)?.instanceOf));
-    for (const format of ['png', 'svg'] as const) add('export-' + format, 'Export selection ' + format.toUpperCase(), 'Export', () => downloadSelection(store.doc, store.selection, format, format === 'png' ? 2 : 1), undefined, () => exportRoots(expand(store.doc), store.selection).length > 0);
-    for (const format of ['png', 'svg'] as const) add('export-page-' + format, 'Export current page ' + format.toUpperCase(), 'Export', () => downloadSelection(pageDocument(expand(store.doc), store.currentPage), store.pageDoc.keys(), format, format === 'png' ? 2 : 1), undefined, () => exportRoots(pageDocument(expand(store.doc), store.currentPage), store.pageDoc.keys()).length > 0);
+    add('detach-instance', 'Detach instance', 'Layers', () => { store.commit(detachOps(store.doc, [...store.selection], store.measureText)); }, 'Ctrl/⌘ Alt B', () => [...store.selection].some(id => !!store.doc.get(id)?.instanceOf));
+    for (const format of ['png', 'svg'] as const) add('export-' + format, 'Export selection ' + format.toUpperCase(), 'Export', () => downloadSelection(store.doc, store.selection, format, format === 'png' ? 2 : 1), undefined, () => exportRoots(expand(store.doc, store.measureText), store.selection).length > 0);
+    for (const format of ['png', 'svg'] as const) add('export-page-' + format, 'Export current page ' + format.toUpperCase(), 'Export', () => downloadSelection(pageDocument(expand(store.doc, store.measureText), store.currentPage), store.pageDoc.keys(), format, format === 'png' ? 2 : 1), undefined, () => exportRoots(pageDocument(expand(store.doc, store.measureText), store.currentPage), store.pageDoc.keys()).length > 0);
     add('home', 'All files', 'Navigate', () => location.assign('/'));
     add('new', 'New file', 'Navigate', newFile);
     add('fit', 'Zoom to fit', 'View', () => {

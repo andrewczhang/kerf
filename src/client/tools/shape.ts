@@ -13,7 +13,7 @@ export class Shape implements Tool {
     node?: Node;
     constructor(public ctx: Context, public type: Node['type'], public done: () => void) { this.id = type; }
     onPointerDown(p: Point) {
-        this.ctx.store.begin(); const doc = pageDocument(expand(this.ctx.store.doc), this.ctx.store.currentPage), inner = hit(doc, p), target = inner && isVirtual(inner.id) ? doc.get(splitVirtual(inner.id).instance) : inner, frame = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined, parent = frame?.instanceOf ? undefined : frame;
+        this.ctx.store.begin(); const doc = pageDocument(expand(this.ctx.store.doc, this.ctx.store.measureText), this.ctx.store.currentPage), inner = hit(doc, p), target = inner && isVirtual(inner.id) ? doc.get(splitVirtual(inner.id).instance) : inner, frame = target?.type === 'frame' ? target : target?.parent ? doc.get(target.parent) : undefined, parent = frame?.instanceOf ? undefined : frame;
         const local = parent ? transform(inverse(worldMatrix(doc, parent)), p) : p;
         this.downAt = local; this.start = { x: Math.round(local.x), y: Math.round(local.y) };
         this.node = { ...makeNode(this.type, this.start.x, this.start.y, between(children(doc, parent?.id ?? this.ctx.store.currentPage ?? null).at(-1)?.index ?? null)), parent: parent?.id ?? this.ctx.store.currentPage ?? null };

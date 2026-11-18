@@ -12,7 +12,7 @@ import { pageOf, pages } from '../../shared/pages';
 export function present(store: Store, sync: Sync, options: { initial?: string; preview?: Doc | null; name?: string } = {}) {
     if (options.initial && !options.preview) activatePresentationFrame(store, options.initial);
     const source = presentationSource(store, options.preview ?? null, options.name ?? 'version');
-    let resolved = expand(options.preview ? source.fullDoc : store.doc);
+    let resolved = expand(options.preview ? source.fullDoc : store.doc, store.measureText);
     const doc = () => resolved;
     let previewPage: string | undefined = pages(source.doc)[0]?.id;
     const currentPage = () => options.preview ? previewPage : store.currentPage;
@@ -31,7 +31,7 @@ export function present(store: Store, sync: Sync, options: { initial?: string; p
         return (!comment.node || members.has(comment.node)) && presentationContains(doc(), current, commentPoint(doc(), comment));
     }, currentPage);
     function draw() {
-        resolved = expand(options.preview ? source.fullDoc : store.doc);
+        resolved = expand(options.preview ? source.fullDoc : store.doc, store.measureText);
         const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1;
         canvas.width = r.width * d; canvas.height = r.height * d; c.setTransform(d, 0, 0, d, 0, 0);
         let current = frame();

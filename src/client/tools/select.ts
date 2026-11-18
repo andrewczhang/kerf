@@ -75,9 +75,9 @@ export class Select implements Tool {
         this.ctx.invalidate();
     }
     selected() { return [...this.ctx.store.selection].map(id => this.ctx.store.pageDoc.get(id)).filter((n): n is Node => !!n); }
-    pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(pageDocument(expand(store.doc), store.currentPage), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
+    pick(p: Point, deep = false) { const { store, viewport } = this.ctx; const n = hit(pageDocument(expand(store.doc, store.measureText), store.currentPage), p, 4 / viewport.zoom); return n && isVirtual(n.id) && !deep ? store.doc.get(splitVirtual(n.id).instance) : n; }
     deepSelect(p: Point) { const { store } = this.ctx; const n = this.pick(p, true); if (n) { store.selection.clear(); store.selection.add(n.id); store.changed(); } }
-    selectionHandles(nodes = this.selected()) { const doc = expand(this.ctx.store.doc); return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
+    selectionHandles(nodes = this.selected()) { const doc = expand(this.ctx.store.doc, this.ctx.store.measureText); return nodes.length === 1 ? nodeHandles(doc, nodes[0]) : handles(bounds(nodes.map(n => aabb(doc, n)))); }
     rotationHit(p: Point, nodes = this.selected()) { if (!nodes.length || nodes.some(n => isVirtual(n.id)) || nodes.some(n => blocked(this.ctx.store.doc, n))) return false; const hs = this.selectionHandles(nodes), c = { x: (hs[0].x + hs[4].x) / 2, y: (hs[0].y + hs[4].y) / 2 }; return [0, 2, 4, 6].some(i => { const h = hs[i], d = Math.hypot(p.x - h.x, p.y - h.y) * this.ctx.viewport.zoom; return d >= 8 && d <= 16 && (p.x - h.x) * (h.x - c.x) + (p.y - h.y) * (h.y - c.y) > 0; }); }
     onPointerDown(p: Point, e: PointerEvent) {
         this.start = undefined;
@@ -94,7 +94,7 @@ export class Select implements Tool {
         if (modified && isVirtual(this.pick(p, true)?.id ?? '')) { this.deepSelect(p); return; }
         this.start = p;
         this.resized.clear();
-        const resolved = expand(store.doc), nodes = this.selected().map(n => resolved.get(n.id)!);
+        const resolved = expand(store.doc, store.measureText), nodes = this.selected().map(n => resolved.get(n.id)!);
         this.box = nodes.length ? bounds(nodes.map(n => aabb(resolved, n))) : undefined;
         this.rotating = this.rotationHit(p, nodes);
         this.handle = this.box && nodes.every(n => n.type !== 'text') ? this.selectionHandles(nodes).findIndex(h => Math.hypot(h.x - p.x, h.y - p.y) < 7 / viewport.zoom) : -1;
@@ -251,7 +251,7 @@ export class Select implements Tool {
         store.commit(ops, !this.copies);
     }
     onPointerUp(p: Point) { if (gradientUp(this.ctx)) return; if (!this.start) return; const { store } = this.ctx, start = this.start; try { if (this.ctx.marquee) {
-        const resolved = pageDocument(expand(store.doc), store.currentPage);
+        const resolved = pageDocument(expand(store.doc, store.measureText), store.currentPage);
         if (this.moved) for (const n of resolved.values())
             if (n.type !== 'page' && !isVirtual(n.id) && !blocked(resolved, n) && intersects(aabb(resolved, n), this.ctx.marquee))
                 store.selection.add(outerGroup(resolved, n).id);
@@ -390,7 +390,7 @@ export async function pasteLayers(store: Store, file = currentFile()) {
         const n = source.get(id)!;
         if (!n.instanceOf || pasted.has(n.instanceOf) || store.doc.has(n.instanceOf)) continue;
         if (!source.has(n.instanceOf)) throw Error('Component source is unavailable. Copy the instance again.');
-        for (const op of detachOps(source, id)) {
+        for (const op of detachOps(source, id, store.measureText)) {
             applyOp(source, op);
             if (op.t === 'create') pasted.add(op.node.id);
         }
