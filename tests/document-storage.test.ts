@@ -82,3 +82,21 @@ it('restores versions into node storage without resurrecting deleted nodes on re
     const loaded = new StoredDocument(); await loaded.load(store);
     expect([...loaded.values()]).toEqual([original]);
 });
+
+it('persists shared style updates and detachments without recreating a stale legacy snapshot', async () => {
+    const { data, store } = storage(), doc = new StoredDocument();
+    const node = { ...makeNode('rect', 0, 0), fillStyle: 'accent' };
+    doc.set(node.id, node); await doc.persist(store);
+    const features = new Features(store, doc, () => {}), peer = { name: 'Sam' } as never;
+    await features.message({ type: 'style-upsert', style: { id: 'accent', kind: 'color', name: 'Accent', color: '#123456' } }, peer, () => {});
+    expect(data.has('nodes')).toBe(false);
+    applyOp(doc, { t: 'set', id: node.id, key: 'x', value: 50 }); await doc.persist(store);
+    const loaded = new StoredDocument(); await loaded.load(store);
+    const next = new Features(store, loaded, () => {}); await next.load();
+    expect(loaded.get(node.id)).toMatchObject({ x: 50, fill: '#123456', fillStyle: 'accent' });
+    expect(next.styles).toHaveLength(1);
+    await next.message({ type: 'style-delete', id: 'accent' }, peer, () => {});
+    const detached = new StoredDocument(); await detached.load(store);
+    expect(detached.get(node.id)).toMatchObject({ x: 50, fill: '#123456', fillStyle: null });
+    expect(data.has('nodes')).toBe(false);
+});
