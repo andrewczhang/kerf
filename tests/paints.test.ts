@@ -1,0 +1,12 @@
+import { describe, expect, it } from 'vitest';
+import { makeNode, type Paint } from '../src/shared/doc';
+import { Store } from '../src/client/store';
+import { convertPaint, currentGradient, editingPaint, writeFills } from '../src/client/paint-edit';
+import { gradientDown, gradientMove, gradientUp } from '../src/client/gradient-handles';
+import type { Context } from '../src/client/tools/tool';
+describe('paint editing', () => {
+    const solid: Paint = { type: 'solid', color: '#123456', opacity: .6, visible: true };
+    it('converts colors and preserves opacity/visibility', () => { const gradient = convertPaint(solid, 'linear'); expect(gradient).toMatchObject({ opacity: .6, visible: true, stops: [{ pos: 0, color: '#123456', opacity: 1 }, { pos: 1, color: '#123456', opacity: 0 }] }); expect(convertPaint(gradient, 'solid')).toEqual(solid); expect(convertPaint(solid, 'image')).toMatchObject({ fit: 'fill', w: 1, h: 1 }); });
+    it('writes legacy color and whole arrays in one undo group', () => { const store = new Store(), n = makeNode('rect', 0, 0); store.doc.set(n.id, n); store.begin(); writeFills(store, n.id, [solid]); writeFills(store, n.id, [{ ...solid, color: '#abcdef' }]); store.end(); expect(store.undoStack).toHaveLength(1); expect(store.doc.get(n.id)?.fill).toBe('#abcdef'); store.history(); expect(store.doc.get(n.id)?.fills).toBeUndefined(); expect(store.doc.get(n.id)?.fill).toBe(n.fill); store.begin(); writeFills(store, n.id, []); store.end(); expect(store.doc.get(n.id)?.fill).toBe(n.fill); });
+    it('drags normalized endpoints within parent-relative geometry and ignores inactive edits', () => { const store = new Store(), parent = makeNode('frame', 100, 200), n = { ...makeNode('rect', 20, 30), parent: parent.id, fills: [convertPaint(solid, 'linear')] }; store.doc.set(parent.id, parent); store.doc.set(n.id, n); store.selection.add(n.id); const ctx = { store, viewport: { zoom: 2 }, invalidate() {} } as Context; expect(gradientDown(ctx, { x: 120, y: 280 })).toBe(false); editingPaint.set(store, { id: n.id, index: 0 }); expect(gradientDown(ctx, { x: 120, y: 280 })).toBe(true); expect(gradientMove(ctx, { x: 145, y: 255 })).toBe(true); expect(gradientUp(ctx)).toBe(true); expect(currentGradient(store)?.p.from).toEqual({ x: .25, y: .25 }); expect(store.doc.get(n.id)?.x).toBe(20); expect(store.undoStack).toHaveLength(1); store.selection.clear(); expect(currentGradient(store)).toBeUndefined(); expect(gradientMove(ctx, { x: 0, y: 0 })).toBe(false); });
+});

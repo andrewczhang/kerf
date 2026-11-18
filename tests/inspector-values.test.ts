@@ -1,5 +1,18 @@
-import { expect, it } from 'vitest';
-import { formatNumber, parseColor } from '../src/client/ui/values';
+import { expect, it, vi } from 'vitest';
+import { formatNumber, inputElement, parseColor } from '../src/client/ui/values';
+
+it('creates inspector inputs with password-manager exclusions', () => {
+    const attributes = new Map<string, string>();
+    const input = { autocomplete: '', setAttribute: (key: string, value: string) => attributes.set(key, value) };
+    vi.stubGlobal('document', { createElement: () => input });
+    try {
+        expect(inputElement('Gap')).toBe(input);
+        expect(input.autocomplete).toBe('off');
+        expect(attributes.get('aria-label')).toBe('Gap');
+        expect(attributes.has('data-1p-ignore')).toBe(true);
+        expect(attributes.get('data-lpignore')).toBe('true');
+    } finally { vi.unstubAllGlobals(); }
+});
 
 it('formats integers and at most two decimals without trailing zeroes', () => {
     expect(formatNumber(10)).toBe('10');

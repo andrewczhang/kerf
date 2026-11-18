@@ -1,6 +1,9 @@
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import WebSocket from 'ws';
+import {build} from 'esbuild';
+import {fileURLToPath} from 'node:url';
 const port=8790,id='test-'+Date.now();
 const target=new URL(process.env.KERF_URL||`http://127.0.0.1:${port}`);
 assert(['http:','https:','ws:','wss:'].includes(target.protocol),'KERF_URL must use http(s) or ws(s)');
@@ -11,10 +14,35 @@ let log='';server?.stdout.on('data',d=>log+=d);server?.stderr.on('data',d=>log+=
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function client(){const ws=new WebSocket(wsBase+`/f/${id}/ws`),messages=[];let failure; sockets.push(ws);ws.on('message',s=>messages.push(JSON.parse(s)));ws.on('error',error=>{failure=error;});return {ws,messages,async take(type,predicate=()=>true){for(let i=0;i<200;i++){if(failure)throw Error(`${ws.url}: ${failure.message}`);const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await delay(25);}throw Error('Timed out: '+type+' '+JSON.stringify(messages));},send(m){ws.send(JSON.stringify(m));}};}
 try{console.log('Sync target: '+wsBase+' / file '+id);let ready=false;let readinessError='';for(let i=0;i<(server?160:1);i++){try{const r=await fetch(base+'/f/'+id);if(r.ok){ready=true;break;}readinessError=`HTTP ${r.status} ${r.statusText}`;}catch(e){readinessError=e.message;}if(server)await delay(100);}assert(ready,`${base} is not ready: ${readinessError}\n${log}`);
+ const bytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1cAAAAASUVORK5CYII=','base64'),hash=createHash('sha256').update(bytes).digest('hex'),asset=base+`/f/${id}/assets/${hash}`;
+ assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,204);const image=await fetch(asset);assert.equal(image.headers.get('content-type'),'image/png');assert.equal(image.headers.get('cache-control'),'public, max-age=31536000, immutable');assert.deepEqual(Buffer.from(await image.arrayBuffer()),bytes);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`,{method:'PUT',headers:{'content-type':'image/png'},body:bytes})).status,400);assert.equal((await fetch(base+`/f/${id}/assets/${'0'.repeat(64)}`)).status,404);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'text/plain'},body:bytes})).status,415);assert.equal((await fetch(asset,{method:'PUT',headers:{'content-type':'image/png'},body:Buffer.alloc(1572865)})).status,413);console.log('PASS asset PUT/GET bytes, cache headers, mismatch, missing, type and size validation');
  const a=await client(),ai=await a.take('init'),b=await client();await b.take('init');
  const node={id:'rectangle',type:'rect',parent:null,index:'U',name:'Rectangle',x:10,y:20,w:100,h:80,fill:'#ff4f00',stroke:null,strokeWidth:1,radius:0,opacity:1};a.send({type:'ops',seq:1,ops:[{t:'create',node}]});assert.deepEqual((await b.take('ops')).ops[0].node,node);await a.take('ack');console.log('PASS client B receives rectangle creation');
  a.send({type:'ops',seq:2,ops:[{t:'set',id:node.id,key:'x',value:140}]});assert.equal((await b.take('ops')).ops[0].value,140);await a.take('ack');console.log('PASS client B receives live move');
+ const text={...node,id:'headline',type:'text',index:'V',name:'Text',text:'Editorial Desk',fontFamily:'sans',fontSize:24,fontWeight:400,textAlign:'left',textWidth:'auto'};
+ a.send({type:'ops',seq:3,ops:[{t:'create',node:text}]});assert.deepEqual((await b.take('ops')).ops[0].node,text);await a.take('ack');console.log('PASS client B receives text layer');
+ const typography={text:'Editorial Desk\nIssue No. 01',fontFamily:'serif',fontSize:36,fontWeight:700,textAlign:'center',textWidth:'fixed',w:240};
+ const edits=Object.entries(typography).map(([key,value])=>({t:'set',id:text.id,key,value}));
+ b.send({type:'ops',seq:1,ops:edits});assert.deepEqual((await a.take('ops')).ops,edits);await b.take('ack');console.log('PASS text and typography sync back to client A');
  a.send({type:'presence',cursor:{x:125,y:90},selection:[node.id],name:'Ada',viewport:{x:1,y:2,zoom:1}});const presence=await b.take('presence',m=>m.peer.id===ai.you.id);assert.equal(presence.peer.name,'Ada');assert.deepEqual(presence.peer.cursor,{x:125,y:90});assert.deepEqual(presence.peer.selection,[node.id]);console.log('PASS presence cursor, name and selection relay');
- const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);console.log('PASS late client init contains persisted rectangle and move');
- a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 5 checks passed');
+ const bundle=await build({entryPoints:[fileURLToPath(new URL('../src/client/store.ts',import.meta.url))],bundle:true,write:false,format:'esm',platform:'node'});
+ const {Store}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+ const bStore=new Store();
+ const frame={...node,id:'layout-frame',type:'frame',w:400,h:200};
+ const kids=[{...node,id:'layout-first',parent:frame.id,index:'A',x:90,w:40},{...node,id:'layout-second',parent:frame.id,index:'B',x:200,w:60}];
+ a.send({type:'ops',seq:4,ops:[frame,...kids].map(node=>({t:'create',node}))});bStore.remote((await b.take('ops')).ops);await a.take('ack');
+ const layoutOps=[{t:'set',id:frame.id,key:'layout',value:'horizontal'},{t:'set',id:frame.id,key:'gap',value:15}];
+ a.send({type:'ops',seq:5,ops:layoutOps});const relayed=(await b.take('ops')).ops;assert.deepEqual(relayed,layoutOps);bStore.remote(relayed);await a.take('ack');
+ assert.equal(bStore.doc.get(frame.id).layout,'horizontal');assert.equal(bStore.doc.get(frame.id).gap,15);assert.deepEqual(kids.map(n=>bStore.doc.get(n.id).x),[0,55]);
+ const c=await client(),ci=await c.take('init');assert.equal(ci.nodes.find(n=>n.id===node.id).x,140);assert.deepEqual(ci.nodes.find(n=>n.id===text.id),{...text,...typography,hidden:false,locked:false});console.log('PASS late client init contains persisted rectangle and text');
+ assert.equal(ci.nodes.find(n=>n.id===frame.id).layout,'horizontal');assert.equal(ci.nodes.find(n=>n.id===frame.id).gap,15);assert.deepEqual(kids.map(n=>ci.nodes.find(child=>child.id===n.id).x),[0,55]);console.log('PASS layout/gap relay, client B layout and persisted child positions on late join');
+ const comment={id:'comment',thread:null,x:10,y:20,node:node.id,author:'Ignored',color:'#ffffff',text:'Check spacing',at:0};
+ a.send({type:'comment-add',comment});const cm=await b.take('comments');assert.equal(cm.comments[0].text,comment.text);assert.equal(cm.comments[0].author,'Ada');console.log('PASS comment broadcast and server author');
+ const d=await client(),di=await d.take('init');assert.equal(di.comments[0].node,node.id);console.log('PASS late join receives pinned comments');
+ a.send({type:'version-save',name:'Checkpoint'});const versions=await b.take('versions',m=>m.versions.some(v=>v.name==='Checkpoint'));const version=versions.versions.find(v=>v.name==='Checkpoint');
+ a.send({type:'ops',seq:6,ops:[{t:'set',id:node.id,key:'x',value:999}]});await a.take('ack');await b.take('ops');
+ a.send({type:'version-preview',id:version.id});assert.equal((await a.take('version-preview')).nodes.find(n=>n.id===node.id).x,140);
+ a.send({type:'version-restore',id:version.id});const restored=await b.take('restored');assert(restored.ops.some(o=>o.t==='set'&&o.key==='x'&&o.value===140));await a.take('restored');
+ const e=await client();assert.equal((await e.take('init')).nodes.find(n=>n.id===node.id).x,140);console.log('PASS save, preview and restore broadcast to both clients and late join');
+ a.ws.close();await b.take('leave',m=>m.id===ai.you.id);console.log('PASS peer departure relay');console.log('Sync integration: 12 checks passed');
 }catch(e){console.error(e);if(log)console.error(log);process.exitCode=1;}finally{for(const ws of sockets)ws.terminate();if(server){try{process.kill(-server.pid,'SIGTERM');}catch{server.kill();}}}
