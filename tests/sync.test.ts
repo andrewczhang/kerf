@@ -13,8 +13,14 @@ class Socket {
     send(data: string) { this.sent.push(data); }
     receive(message: unknown) { this.onmessage?.({ data: JSON.stringify(message) }); }
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 function setup() {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('navigator', { onLine: true });
+    const data = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value) });
+    vi.stubGlobal('sessionStorage', { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value) });
     vi.stubGlobal('WebSocket', Socket);
     vi.stubGlobal('location', { protocol: 'http:', host: 'localhost' });
     const store = new Store(), sync = new Sync(store, 'test');
@@ -28,6 +34,42 @@ it('reapplies and retains in-transit local edits after restore until ack', () =>
     expect(store.doc.get(n.id)).toMatchObject({ x: 20, y: 50 });
     expect(store.pending).toEqual(pending); expect(store.undoStack).toEqual([]);
     socket.receive({ type: 'ack', seq: store.seq }); expect(store.pending.size).toBe(0);
+});
+it('persists offline edits across refresh and removes acknowledged edits before replay', () => {
+    const { store, socket } = setup(), n = makeNode('rect', 0, 0);
+    store.init([n]); socket.readyState = 3; store.set(n.id, { x: 40 });
+    const refreshed = new Store(), sync = new Sync(refreshed, 'test');
+    expect(refreshed.doc.get(n.id)?.x).toBe(40);
+    expect(refreshed.pending.size).toBe(1);
+    const next = sync.socket as unknown as Socket;
+    next.receive({ type: 'init', nodes: [{ ...n, x: 70 }], peers: [], comments: [], versions: [], ackSeq: 1 });
+    expect(refreshed.doc.get(n.id)?.x).toBe(70);
+    expect(refreshed.pending.size).toBe(0);
+    expect(next.sent).toEqual([]);
+});
+it('replays unacknowledged operations in order after reconnect', () => {
+    const { store, socket } = setup(), n = makeNode('rect', 0, 0);
+    store.init([n]); store.set(n.id, { x: 40 }); store.set(n.id, { y: 50 });
+    socket.receive({ type: 'init', nodes: [n], peers: [], comments: [], versions: [], ackSeq: 0 });
+    expect(socket.sent.map(s => JSON.parse(s).seq)).toEqual([1, 2]);
+    expect(store.doc.get(n.id)).toMatchObject({ x: 40, y: 50 });
+});
+it('detects stalled and offline sockets', () => {
+    const { sync, socket } = setup();
+    Object.assign(socket, { close: vi.fn() });
+    vi.advanceTimersByTime(40000);
+    expect(sync.status).toBe('Reconnecting');
+    expect((socket as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalled();
+    vi.stubGlobal('navigator', { onLine: false }); window.dispatchEvent(new Event('offline'));
+    expect(sync.status).toBe('Offline');
+});
+it('warns before unloading only while operations remain unsynced', () => {
+    const { store, socket } = setup();
+    const clean = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(clean); expect(clean.defaultPrevented).toBe(false);
+    store.commit([{ t: 'create', node: makeNode('rect', 0, 0) }]);
+    const dirty = new Event('beforeunload', { cancelable: true }); Object.defineProperty(dirty, 'returnValue', { writable: true, value: undefined }); window.dispatchEvent(dirty); expect(dirty.defaultPrevented).toBe(true); expect(dirty.returnValue).toBe('');
+    socket.receive({ type: 'ack', seq: 1 });
+    const acked = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(acked); expect(acked.defaultPrevented).toBe(false);
 });
 it('restores without pending edits and preserves pending creates across restored deletes', () => {
     const { store, socket } = setup(), n = makeNode('rect', 0, 0);

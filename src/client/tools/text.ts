@@ -20,9 +20,12 @@ export class TextEditor {
         input.className = 'text-editor';
         input.setAttribute('aria-label', 'Edit canvas text');
         input.spellcheck = false;
-        input.maxLength = maxTextLength;
         input.value = node.text;
         const write = () => {
+            if (input.value.length > maxTextLength) {
+                alert(`Text is limited to ${maxTextLength.toLocaleString()} characters. Your edit has not been saved; shorten it before leaving the editor.`);
+                return;
+            }
             const current = store.doc.get(node.id);
             if (isTextNode(current) && input.value !== current.text)
                 store.set(node.id, { text: input.value });

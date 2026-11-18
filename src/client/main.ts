@@ -121,8 +121,8 @@ else {
     viewport.changed();
 } }, { passive: false });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.stopFollowing())
-    return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]'))
-    return; if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
+    return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || ctx.editingText)
+    return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));

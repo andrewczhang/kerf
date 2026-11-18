@@ -12,7 +12,7 @@ export const textFonts = ['sans', 'serif', 'mono'] as const;
 export const textWeights = [400, 700] as const;
 export const textAlignments = ['left', 'center', 'right'] as const;
 export const textWidths = ['auto', 'fixed'] as const;
-export const maxTextLength = 4000;
+export const maxTextLength = 100000;
 export const maxFontSize = 512;
 
 interface TextProperties {
