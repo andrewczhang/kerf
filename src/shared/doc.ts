@@ -1,3 +1,4 @@
+import { mergeText } from './text-edit';
 import { corner, validPoints, type PathPoint } from './path';
 export type Paint = { type: 'solid'; color: string; opacity: number; visible: boolean } | { type: 'linear' | 'radial'; stops: { pos: number; color: string; opacity: number }[]; from: { x: number; y: number }; to: { x: number; y: number }; opacity: number; visible: boolean } | { type: 'image'; asset: string; fit: 'fill' | 'fit' | 'tile'; w: number; h: number; opacity: number; visible: boolean };
 export type Effect = { type: 'drop-shadow' | 'inner-shadow'; x: number; y: number; blur: number; spread: number; color: string; opacity: number; visible: boolean } | { type: 'layer-blur' | 'background-blur'; radius: number; visible: boolean };
@@ -87,6 +88,7 @@ export interface Node extends Partial<TextProperties & StrokeProperties> {
     constraintH?: typeof horizontalConstraints[number];
     /** how the node follows its parent frame's height; default top */
     constraintV?: typeof verticalConstraints[number];
+    mask?: boolean;
 }
 export const layoutDefaults = { layout: 'none', gap: 0, padTop: 0, padRight: 0, padBottom: 0, padLeft: 0, justify: 'start', align: 'start', sizeW: 'fixed', sizeH: 'fixed' } as const;
 function validLayout(n: Node): boolean {
@@ -128,6 +130,7 @@ export type Op = {
     id: string;
     key: Key;
     value: Node[Key];
+    baseText?: string;
 } | {
     t: 'override';
     id: string;
@@ -203,7 +206,7 @@ export function applyOp(doc: Doc, op: Op): void {
         doc.delete(n.id);
         return;
     }
-    if (!['fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
+    if (!['mask', 'fillStyle', 'strokeStyle', 'textStyle', 'grids', 'hidden', 'locked', 'link', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'fills', 'effects', 'stroke', 'strokeWidth', 'radius', 'rotation', 'opacity', 'component', 'overrides', 'points', 'closed', 'constraintH', 'constraintV', ...textKeys, ...strokeKeys, ...Object.keys(layoutDefaults)].includes(op.key))
         return;
     if ((textKeys.some(key => key === op.key) || op.key === 'textStyle') && n.type !== 'text')
         return;
@@ -221,7 +224,10 @@ export function applyOp(doc: Doc, op: Op): void {
         if (!validParent(doc, { ...n, parent: op.value as string | null }))
             return;
     }
-    const next = { ...n, [op.key]: op.value };
+    const value = op.key === 'text' && isTextNode(n) && typeof op.baseText === 'string'
+        && typeof op.value === 'string' && op.baseText.length <= maxTextLength && op.value.length <= maxTextLength
+        ? mergeText(op.baseText, op.value, n.text) : op.value;
+    const next = { ...n, [op.key]: value };
     if (validNode(next) && (op.key !== 'parent' || !componentCycle(doc, next)))
         doc.set(n.id, normalizeNode(next));
 }
@@ -272,7 +278,7 @@ function validProperty(key: string, value: unknown): boolean {
     if (key === 'grids') return value === undefined || Array.isArray(value) && value.length <= 8 && value.every(validGrid);
     if (Object.hasOwn(layoutEnums, key)) return value === undefined || layoutEnums[key as keyof typeof layoutEnums].includes(value as string);
     if (['gap', 'padTop', 'padRight', 'padBottom', 'padLeft'].includes(key)) return value === undefined || finite(value) && value >= 0;
-    if (key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
+    if (key === 'mask' || key === 'hidden' || key === 'locked') return value === undefined || typeof value === 'boolean';
     if (['link', 'fillStyle', 'strokeStyle', 'textStyle'].includes(key)) return validLink(value);
     if (['id', 'index', 'name'].includes(key)) return typeof value === 'string';
     if (key === 'type') return ['frame', 'rect', 'ellipse', 'text', 'path', 'group'].includes(value as string);
@@ -298,7 +304,8 @@ function validProperty(key: string, value: unknown): boolean {
 export function validLink(link: unknown): boolean { return link == null || typeof link === 'string'; }
 export function normalizeRotation(angle: number): number { return ((angle + 180) % 360 + 360) % 360 - 180; }
 export function normalizeNode(n: Node): Node { return { ...n, hidden: n.hidden ?? false, locked: n.locked ?? false, rotation: n.type === 'group' ? 0 : normalizeRotation(n.rotation ?? 0) }; }
-export function validNode(n: Node): boolean { return !!n && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
+export function maskEligible(n: Node): boolean { return n.type === 'rect' || n.type === 'ellipse' || n.type === 'path' && !!n.closed; }
+export function validNode(n: Node): boolean { return !!n && (n.mask !== true || maskEligible(n)) && (n.type === 'text' || n.textStyle == null) && (n.grids === undefined || n.type === 'frame') && validLayout(n) && validStroke(n) && ['mask', 'rotation', 'fillStyle', 'strokeStyle', 'textStyle', 'constraintH', 'constraintV', 'grids', 'fills', 'effects', 'hidden', 'locked', 'link', 'id', 'type', 'parent', 'index', 'name', 'x', 'y', 'w', 'h', 'fill', 'stroke', 'strokeWidth', 'radius', 'opacity', 'component', 'instanceOf', 'overrides', ...(n.type === 'text' ? textKeys : []), ...(n.type === 'path' ? ['points', 'closed'] : [])].every(key => validProperty(key, n[key as keyof Node])); }
 function validStroke(n: Node): boolean {
     const length = (v: number | undefined, min: number) => v === undefined || Number.isFinite(v) && v >= min;
     return (n.strokeAlign === undefined || strokeAlignments.includes(n.strokeAlign))

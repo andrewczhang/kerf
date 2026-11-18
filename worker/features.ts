@@ -9,11 +9,13 @@ export class Features {
     styles: Style[] = [];
     comments: Comment[] = [];
     versions: Version[] = [];
+    epoch = 0;
     constructor(private storage: DurableObjectStorage, private doc: Doc, private broadcast: (m: FeatureServerMsg) => void) {}
     async load() {
         this.styles = await this.storage.get<Style[]>('styles') ?? [];
         this.comments = await this.storage.get<Comment[]>('comments') ?? [];
         this.versions = await this.storage.get<Version[]>('versions') ?? [];
+        this.epoch = await this.storage.get<number>('epoch') ?? 0;
     }
     async save(name: string, author: string, auto: boolean) {
         const v: Version = { id: crypto.randomUUID(), name: name.trim().slice(0, 100) || 'Autosave', at: Date.now(), author, nodeCount: this.doc.size, auto };
@@ -71,8 +73,9 @@ export class Features {
                 await this.save('Before restore', peer.name, true);
                 const ops = versionDiff(this.doc, new Map(nodes.map(n => [n.id, n])));
                 for (const op of ops) applyOp(this.doc, op);
-                await this.storage.put('nodes', [...this.doc.values()]);
-                this.broadcast({ type: 'restored', ops });
+                const restored = [...this.doc.values()];
+                await this.storage.put({ nodes: restored, epoch: ++this.epoch });
+                this.broadcast({ type: 'restored', ops, epoch: this.epoch, nodes: restored });
             }
             return;
         } else return;

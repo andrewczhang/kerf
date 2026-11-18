@@ -25,7 +25,7 @@ export function versionDiff(current: Doc, target: Doc): Op[] {
         for (const [id, n] of remaining) {
             if (n.parent && remaining.has(n.parent)) continue;
             if (!shadow.has(id)) push({ t: 'create', node: { ...n } });
-            else for (const key of new Set([...Object.keys(shadow.get(id)!), ...Object.keys(n)])) {
+            else for (const key of [...new Set([...Object.keys(shadow.get(id)!), ...Object.keys(n)])].sort((a, b) => a === 'mask' ? n.mask ? 1 : -1 : b === 'mask' ? n.mask ? -1 : 1 : 0)) {
                 if (key === 'id') continue;
                 const k = key as Key, value = k === 'link' ? n[k] ?? null : n[k];
                 if ((k === 'link' ? shadow.get(id)![k] ?? null : shadow.get(id)![k]) !== value)

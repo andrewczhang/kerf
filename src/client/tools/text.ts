@@ -1,12 +1,51 @@
-import { between, children, isTextNode, makeNode, maxTextLength, type TextNode } from '../../shared/doc';
-import { identity, inverse, matrixAngle, transform, type Point } from '../../shared/geometry';
+import { between, children, isTextNode, makeNode, maxTextLength, type Doc, type TextNode } from '../../shared/doc';
+import { corners, identity, inverse, matrixAngle, multiply, transform, type Point, type Rect } from '../../shared/geometry';
 import { hit, world, worldMatrix } from '../geometry';
 import { fontFamilies, lineHeight } from '../text-layout';
+import { textChange } from '../../shared/text-edit';
 import type { Context, Tool } from './tool';
+
+export function textEditorClip(doc: Doc, node: TextNode, r: Rect): string {
+    const editor = worldMatrix(doc, node);
+    let polygon = corners({ x: 0, y: 0, w: r.w, h: r.h });
+    let clipped = false, aligned = true;
+    const seen = new Set([node.id]);
+    for (let id = node.parent; id && !seen.has(id);) {
+        seen.add(id);
+        const parent = doc.get(id);
+        if (!parent) break;
+        id = parent.parent;
+        if (parent.type !== 'frame') continue;
+        const toFrame = multiply(inverse(worldMatrix(doc, parent)), editor);
+        aligned &&= Math.abs(toFrame[0] * toFrame[1]) < 1e-9;
+        const edges = [(p: Point) => p.x, (p: Point) => parent.w - p.x, (p: Point) => p.y, (p: Point) => parent.h - p.y];
+        for (const distance of edges) {
+            const offsets = polygon.map(p => distance(transform(toFrame, p)));
+            if (offsets.every(d => d >= -1e-9)) continue;
+            clipped = true;
+            polygon = polygon.flatMap((p, i) => {
+                const j = (i + 1) % polygon.length, q = polygon[j];
+                const a = offsets[i], b = offsets[j];
+                const inside = a >= -1e-9, nextInside = b >= -1e-9;
+                if (inside === nextInside) return inside ? [p] : [];
+                const t = a / (a - b);
+                const crossing = { x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) };
+                return inside ? [p, crossing] : [crossing];
+            });
+            if (polygon.length < 3) return 'inset(100%)';
+        }
+    }
+    if (!clipped) return '';
+    const px = (n: number) => `${Number(n.toFixed(8))}px`;
+    if (!aligned) return `polygon(${polygon.map(p => `${px(p.x)} ${px(p.y)}`).join(', ')})`;
+    const xs = polygon.map(p => p.x), ys = polygon.map(p => p.y);
+    return `inset(${[Math.min(...ys), r.w - Math.max(...xs), r.h - Math.max(...ys), Math.min(...xs)].map(px).join(' ')})`;
+}
 
 export class TextEditor {
     private input?: HTMLTextAreaElement;
     private composing = false;
+    private displayedText = '';
 
     constructor(private ctx: Context, private canvas: HTMLCanvasElement) {
         ctx.store.addEventListener('change', this.update);
@@ -28,14 +67,14 @@ export class TextEditor {
         input.setAttribute('aria-label', 'Edit canvas text');
         input.spellcheck = false;
         input.value = node.text;
+        this.displayedText = input.value;
         const write = () => {
             if (input.value.length > maxTextLength) {
                 alert(`Text is limited to ${maxTextLength.toLocaleString()} characters. Your edit has not been saved; shorten it before leaving the editor.`);
                 return;
             }
-            const current = store.doc.get(node.id);
-            if (isTextNode(current) && input.value !== current.text)
-                store.set(node.id, { text: input.value });
+            store.editText(node.id, this.displayedText, input.value);
+            this.update();
         };
         input.addEventListener('compositionstart', () => { this.composing = true; });
         input.addEventListener('compositionend', () => { this.composing = false; write(); });
@@ -90,18 +129,25 @@ export class TextEditor {
             return;
         }
         const value = node.text.replace(/\r\n?/g, '\n');
-        if (!this.composing && input.value !== value) {
-            const { selectionStart, selectionEnd, selectionDirection } = input;
-            input.value = value;
-            input.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+        if (!this.composing) {
+            this.displayedText = value;
+            if (input.value !== value) {
+                const { selectionStart, selectionEnd, selectionDirection } = input;
+                const { start, end, insert } = textChange(input.value, value);
+                const move = (p: number) => p < start ? p : p >= end ? p + insert.length - (end - start) : start + insert.length;
+                input.value = value;
+                input.setSelectionRange(move(selectionStart), move(selectionEnd), selectionDirection);
+            }
         }
         const r = world(store.doc, node), m = worldMatrix(store.doc, node), p = viewport.screen(transform(m, { x: 0, y: 0 })), auto = node.textWidth === 'auto';
+        const box = { ...r, w: auto ? Math.max(12, Math.ceil(r.w) + 2) : r.w, h: Math.ceil(r.h) + 1 };
         input.wrap = auto ? 'off' : 'soft';
         Object.assign(input.style, {
             left: `${p.x}px`,
             top: `${p.y}px`,
-            width: `${auto ? Math.max(12, Math.ceil(r.w) + 2) : r.w}px`,
-            height: `${Math.ceil(r.h) + 1}px`,
+            width: `${box.w}px`,
+            height: `${box.h}px`,
+            clipPath: textEditorClip(store.doc, node, box),
             transform: `rotate(${matrixAngle(m)}deg) scale(${viewport.zoom})`,
             fontFamily: fontFamilies[node.fontFamily],
             fontSize: `${node.fontSize}px`,

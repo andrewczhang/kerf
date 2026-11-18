@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { TextEditor } from '../src/client/tools/text';
+import { TextEditor, textEditorClip } from '../src/client/tools/text';
 import { Store } from '../src/client/store';
 import { Viewport } from '../src/client/viewport';
 import { makeNode, maxTextLength } from '../src/shared/doc';
@@ -33,4 +33,17 @@ it('retains oversized text through blur, close, keyboard exit and remote changes
     editor.close(); expect(input.remove).toHaveBeenCalled(); expect(ctx.editingText).toBeUndefined();
     expect(store.undoStack).toHaveLength(1);
     store.history(); expect(store.doc.has(node.id)).toBe(false);
+});
+
+it('clips the text editor to nested frames through groups, without trimming the text', () => {
+    const outer = { ...makeNode('frame', 100, 30), w: 130, h: 55 };
+    const inner = { ...makeNode('frame', 40, 10), parent: outer.id };
+    const group = { ...makeNode('group', 0, 0), parent: inner.id };
+    const text = { ...makeNode('text', 20, 20), parent: group.id, text: 'SATURDAY STUDIO / OPEN' };
+    const doc = new Map([outer, inner, group, text].map(n => [n.id, n]));
+    expect(textEditorClip(doc, text, { x: 160, y: 60, w: 180, h: 30 })).toBe('inset(0px 110px 5px 0px)');
+    const rotated = new Map(doc).set(outer.id, { ...outer, rotation: 30 });
+    expect(textEditorClip(rotated, text, { x: 160, y: 60, w: 180, h: 30 })).toBe('inset(0px 110px 5px 0px)');
+    expect(textEditorClip(doc, { ...text, parent: null }, { x: 160, y: 60, w: 180, h: 30 })).toBe('');
+    expect(text.text).toBe('SATURDAY STUDIO / OPEN');
 });

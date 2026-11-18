@@ -61,6 +61,18 @@ describe('version diff', () => {
         for (const op of versionDiff(current, detached)) applyOp(current, op);
         expect(current).toEqual(detached);
     });
+    it('clears masks before opening paths and enables masks after closing paths', () => {
+        for (const cleared of [false, undefined]) {
+            const path = makeNode('path', 0, 0), closed = { ...path, closed: true, mask: true }, open = { ...path, mask: cleared };
+            for (const [before, after] of [[closed, open], [open, closed]]) {
+                const from: Doc = new Map([[path.id, before]]), to: Doc = new Map([[path.id, after]]);
+                const ops = versionDiff(from, to);
+                expect(ops.map(op => op.t === 'set' && op.key)).toEqual(after.mask ? ['closed', 'mask'] : ['mask', 'closed']);
+                for (const op of ops) { applyOp(from, op); expect(validNode(from.get(path.id)!)).toBe(true); }
+                expect(from).toEqual(to);
+            }
+        }
+    });
     it('creates, deletes and sets only changed properties', () => {
         const a = makeNode('rect', 0, 0), b = makeNode('ellipse', 5, 9), c = makeNode('rect', 4, 1);
         const from: Doc = new Map([[a.id, a], [b.id, b]]), to: Doc = new Map([[a.id, { ...a, x: 12, link: 'target' }], [c.id, c]]);

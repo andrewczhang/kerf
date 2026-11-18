@@ -19,7 +19,7 @@ export class Shape implements Tool {
         this.ctx.store.selection.clear(); this.ctx.store.selection.add(this.node.id); this.ctx.store.commit([{ t: 'create', node: this.node }]);
     }
     onPointerMove(p: Point, e: PointerEvent) {
-        if (e.buttons === 0 || !this.start || !this.node) return;
+        if (e.buttons === 0 || !this.start || !this.node || !this.ctx.store.doc.has(this.node.id)) return;
         const m = parentMatrix(this.ctx.store.doc, this.node), raw = transform(inverse(m), p), q = { x: Math.round(raw.x), y: Math.round(raw.y) };
         let w = Math.abs(q.x - this.start.x), h = Math.abs(q.y - this.start.y);
         if (e.shiftKey) w = h = Math.max(w, h);
@@ -28,5 +28,6 @@ export class Shape implements Tool {
         if (Math.abs(matrixAngle(m)) < 1e-8) { const adjusted = snapped(this.ctx, { ...r, x: r.x + m[4], y: r.y + m[5] }, e, { x: left ? 0 : 1, y: top ? 0 : 1 }); r = { ...adjusted, x: adjusted.x - m[4], y: adjusted.y - m[5] }; }
         this.ctx.store.set(this.node.id, { x: roundUnlessSnapped(this.ctx, r.x), y: roundUnlessSnapped(this.ctx, r.y), w: Math.max(1, roundUnlessSnapped(this.ctx, r.w)), h: Math.max(1, roundUnlessSnapped(this.ctx, r.h)) });
     }
-    onPointerUp() { clearSnap(this.ctx); this.ctx.store.end(); this.start = undefined; this.node = undefined; this.done(); }
+    cancelGesture() { if (!this.start) return; clearSnap(this.ctx); this.ctx.store.end(); this.start = undefined; this.downAt = undefined; this.node = undefined; }
+    onPointerUp() { if (!this.start) return; this.cancelGesture(); this.done(); }
 }

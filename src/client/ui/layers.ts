@@ -1,9 +1,11 @@
 import { children, type Node } from '../../shared/doc';
 import { moveOps } from '../../shared/layers';
+import { ancestorMasks } from '../../shared/geometry';
 import type { Context } from '../tools/tool';
 import { sizeOf } from '../geometry';
 const paths: Record<string, string> = { frame: '<path d="M5 1v14M11 1v14M1 5h14M1 11h14"/>', rect: '<rect x="2" y="3" width="12" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="6" ry="5"/>', group: '<path stroke-dasharray="2 2" d="M2 2h12v12H2z"/>', eye: '<path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5Z"/><circle cx="8" cy="8" r="2"/>', lock: '<rect x="3" y="7" width="10" height="7"/><path d="M5 7V4a3 3 0 0 1 6 0v3"/>', disclosure: '<path d="m6 3 5 5-5 5"/>' };
 paths.text = '<path d="M2 3h12M8 3v11M5 14h6"/>';
+paths.mask = '<circle cx="8" cy="8" r="6"/><path d="M8 2v12M8 5h4M8 8h6M8 11h4"/>';
 paths.path = '<path d="M2 13C2 2 14 14 14 3"/><rect x="1" y="12" width="2" height="2"/><rect x="13" y="2" width="2" height="2"/>';
 const icon = (name: string) => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' + paths[name] + '</svg>';
 export function layers(el: HTMLElement, ctx: Context) {
@@ -21,7 +23,8 @@ export function layers(el: HTMLElement, ctx: Context) {
             const container = n.type === 'frame' || n.type === 'group';
             const disclosure = document.createElement('button'); disclosure.className = 'layer-disclosure'; disclosure.innerHTML = container ? icon('disclosure') : ''; disclosure.style.transform = container && !collapsed.has(n.id) ? 'rotate(90deg)' : ''; disclosure.setAttribute('aria-label', collapsed.has(n.id) ? 'Expand' : 'Collapse');
             disclosure.onclick = e => { e.stopPropagation(); if (collapsed.has(n.id)) collapsed.delete(n.id); else collapsed.add(n.id); render(); }; row.append(disclosure);
-            const glyph = document.createElement('span'); glyph.className = 'layer-glyph'; glyph.innerHTML = icon(n.type); row.append(glyph);
+            if (ancestorMasks(store.doc, n).length) row.style.borderLeft = '1px solid #d6d4ce';
+            const glyph = document.createElement('span'); glyph.className = 'layer-glyph'; glyph.innerHTML = icon(n.mask ? 'mask' : n.type); row.append(glyph);
             const name = document.createElement('span'); name.className = 'layer-name'; name.textContent = n.name; row.append(name);
             name.onclick = e => { const double = lastName === n.id && e.timeStamp - lastTime < 400; lastName = n.id; lastTime = e.timeStamp; if (!double) return; e.stopPropagation(); editing = n.id; row.draggable = false; const input = document.createElement('input'); input.value = n.name; input.setAttribute('aria-label', 'Layer name'); name.replaceWith(input); input.focus(); input.select(); let done = false;
                 const finish = (save: boolean) => { if (done) return; done = true; editing = undefined; if (save && input.value.trim()) store.set(n.id, { name: input.value.trim() }); render(); };
@@ -38,5 +41,6 @@ export function layers(el: HTMLElement, ctx: Context) {
             tree.append(row); if (container && !collapsed.has(n.id)) visit(n.id, depth + 1);
         } }; visit(null, 0);
     };
+    store.addEventListener('restore', () => { dragging = ''; });
     store.addEventListener('change', render); render();
 }

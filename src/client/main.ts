@@ -63,7 +63,16 @@ let pan: {
 } | undefined;
 let pointer: PointerEvent | undefined;
 let queued = false;
-function choose(id: string) { if (textEditor.close() === false) return; active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
+let captured: number | undefined;
+function cancelPointer() {
+    const id = captured;
+    captured = undefined;
+    pointer = undefined;
+    pan = undefined;
+    if (id !== undefined && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    if (active) canvas.style.cursor = active.cursor;
+}
+function choose(id: string) { if (textEditor.close() === false) return; if (captured !== undefined) { active.cancelGesture?.(); cancelPointer(); } active?.deactivate?.(); active = ctx.active = registry.get(id) ?? registry.get('select')!; active.activate?.(); canvas.style.cursor = active.cursor; document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', (b as HTMLElement).dataset.tool === id)); }
 registry.set('select', new Select(ctx));
 for (const type of ['rect', 'ellipse', 'frame'] as const)
     registry.set(type, new Shape(ctx, type, () => choose('select')));
@@ -80,6 +89,7 @@ const isInspecting = installInspect(canvas, ctx, renderer, () => choose('select'
 editorCommands(ctx, renderer, choose, isInspecting);
 trackRecent(store, file);
 fileName(sync, () => !isInspecting() && !renderer.preview);
+sync.addEventListener('restored', () => { cancelPointer(); active.cancelGesture?.(); textEditor.close(); renderer.invalidate(); });
 const local = (e: MouseEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 canvas.ondblclick = e => {
     if (isInspecting() || active.id !== 'select') return;
@@ -102,8 +112,8 @@ function move(e: PointerEvent) { const p = local(e); if (pan) {
 }
 else
     active.onPointerMove(viewport.world(p), e); if (!pan) canvas.style.cursor = active.cursor; presence.update(viewport.world(p)); }
-canvas.onpointerdown = e => { if (e.button !== 0 && e.button !== 1)
-    return; canvas.focus(); canvas.setPointerCapture(e.pointerId); const p = local(e); if (space || e.button === 1 || active.id === 'hand') {
+canvas.onpointerdown = e => { if (captured !== undefined || (e.button !== 0 && e.button !== 1))
+    return; canvas.focus(); captured = e.pointerId; canvas.setPointerCapture(e.pointerId); const p = local(e); if (space || e.button === 1 || active.id === 'hand') {
     presence.stopFollowing();
     pan = { ...p, vx: viewport.x, vy: viewport.y };
     canvas.style.cursor = 'grabbing';
@@ -120,11 +130,14 @@ canvas.onpointermove = e => { pointer = e; if (!queued) {
         pointer = undefined;
     } });
 } };
-canvas.onpointerup = e => { if (pointer) {
+canvas.onpointerup = e => { if (captured !== e.pointerId) return; if (pointer) {
     move(pointer);
     pointer = undefined;
-} if (!pan)
+} captured = undefined; if (!pan)
     active.onPointerUp(viewport.world(local(e)), e); pan = undefined; canvas.style.cursor = active.cursor; presence.update(); };
+canvas.onpointercancel = canvas.onlostpointercapture = e => {
+    if (captured === e.pointerId) { cancelPointer(); active.cancelGesture?.(); }
+};
 canvas.onpointerleave = () => presence.update(null);
 canvas.parentElement!.addEventListener('wheel', e => { if ((e.target as HTMLElement).closest('.comment-pop')) return; e.preventDefault(); presence.stopFollowing(); const p = local(e); if (e.ctrlKey || e.metaKey || !e.deltaX && Math.abs(e.deltaY) >= 50)
     viewport.zoomAt(p, Math.exp(-e.deltaY * .002));
@@ -135,7 +148,7 @@ else {
 } }, { passive: false });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && presence.stopFollowing())
     return; if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])') || ctx.editingText)
-    return; if (alignmentKey(e, store)) return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
+    return; if (alignmentKey(e, store)) return; if (e.target === canvas && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { registry.get('select')!.onKey?.(e); return; } if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'g' || e.altKey && e.key.toLowerCase() === 'm')) { registry.get('select')!.onKey?.(e); return; } if (active.onKey?.(e))
     return; if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
     e.preventDefault();
     void downloadSelection(store.doc, store.selection, 'png', 2).catch(() => alert('Export failed. Please try again.'));
